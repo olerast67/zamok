@@ -1,0 +1,28 @@
+[package]
+name = "p3-gatefs"
+version = "0.12.1"
+edition = "2024"
+license = "GPL-3.0"
+description = "NTFS Passthrough File System via winfsp-rs"
+keywords = ["filesystem", "winfsp", "ntfs"]
+categories = ["filesystem", "os::windows-apis",]
+repository = "https://github.com/SnowflakePowered/winfsp-rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "4.5.4", features = ["derive"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_WindowsProgramming", "Win32_System_Console", "Win32_System_IO", "Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Wdk_Storage_FileSystem_Minifilters", "Wdk_System_SystemServices", "Win32_System_Ioctl", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_UI_Shell"] }
+
+bytemuck = "1.12.1"
+widestring = "1"
+winfsp = { version = "0.13.2", features = ["system", "full", "windows-62", "handle-util"] }
+anyhow = "1"
+winfsp-sys = { version = "0.12.1", features = ["system"] }
+tokio =  { version = "1.32.0", features = ["rt", "rt-multi-thread"] }
+parking_lot = "0.12.4"
+
+[build-dependencies]
+winfsp = { version = "0.13.2", features = ["delayload"] }
+
+[workspace]
