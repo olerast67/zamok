@@ -28,7 +28,13 @@ pub fn is_root(name: &U16CStr) -> bool {
 }
 
 fn current_pid() -> u32 {
-    unsafe { winfsp_sys::FspFileSystemOperationProcessIdF() }
+    // Вне контекста операции WinFsp (асинхронные задачи) номера процесса нет: возвращаем 0
+    unsafe {
+        if winfsp_sys::FspFileSystemGetOperationContext().is_null() {
+            return 0;
+        }
+        winfsp_sys::FspFileSystemOperationProcessIdF()
+    }
 }
 
 /// Запомнить открытый файл: кто открыл и что. Возвращает номер записи.
@@ -39,6 +45,18 @@ pub fn register(name: &U16CStr) -> u64 {
     g.get_or_insert_with(HashMap::new)
         .insert(id, (pid, name.to_string_lossy()));
     id
+}
+
+/// P2-B: журнал обращений к корню (переменная P3_TRACE), чтобы отличить вход в папку от подглядывания.
+pub fn trace(what: &str) {
+    if let Ok(p) = std::env::var("P3_TRACE") {
+        use std::io::Write;
+        let pid = current_pid();
+        let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+            let _ = writeln!(f, "{ms}	{}	{pid}	{what}", process_name(pid));
+        }
+    }
 }
 
 pub fn unregister(id: u64) {

@@ -253,6 +253,7 @@ impl FileSystemContext for NtPassthroughContext {
         file_info: &mut OpenFileInfo,
     ) -> winfsp::Result<Self::FileContext> {
         if crate::gate::locked() && !crate::gate::is_root(file_name) { return Err(STATUS_OBJECT_NAME_NOT_FOUND.into()); }
+        if crate::gate::is_root(file_name) { crate::gate::trace(&format!("open-root opts=0x{create_options:x} access=0x{granted_access:x}")); }
         // println!("open: {file_name:?}\n");
         let backup_access = FILE_ACCESS_RIGHTS(granted_access);
 
@@ -570,6 +571,7 @@ impl FileSystemContext for NtPassthroughContext {
         marker: DirMarker,
         buffer: &mut [u8],
     ) -> winfsp::Result<u32> {
+        if context.is_root() { crate::gate::trace(&format!("list-root pattern={:?} restart={}", pattern.map(|p| p.to_string_lossy()), marker.is_none())); }
         context.check()?;
         if crate::gate::locked() { if let Ok(_d) = context.dir_buffer().acquire(true, Some(0)) {} return Ok(context.dir_buffer().read(marker, buffer)); }
         let dir_size = context.size();
@@ -996,6 +998,7 @@ impl AsyncFileSystemContext for NtPassthroughContext {
         marker: DirMarker<'_>,
         buffer: &mut [u8],
     ) -> winfsp::Result<u32> {
+        if context.is_root() { crate::gate::trace(&format!("list-root pattern={:?} restart={}", pattern.map(|p| p.to_string_lossy()), marker.is_none())); }
         context.check()?;
         if crate::gate::locked() { if let Ok(_d) = context.dir_buffer().acquire(true, Some(0)) {} return Ok(context.dir_buffer().read(marker, buffer)); }
         let dir_size = context.size();

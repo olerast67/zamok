@@ -30,7 +30,7 @@ impl NtPassthroughFilesystem {
         crate::gate::spawn_watcher();
         Ok(NtPassthroughFilesystem {
             fs: FileSystemHost::new_with_options_async(
-                FileSystemParams::default_params_debug(volume_params, DebugMode::all()),
+                if std::env::var("P3_DEBUG").is_ok() { FileSystemParams::default_params_debug(volume_params, DebugMode::all()) } else { FileSystemParams::default_params(volume_params) },
                 context,
             )?,
         })
