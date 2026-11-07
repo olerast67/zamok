@@ -23,7 +23,7 @@ if ($Install) {
     'Installed. Double-click Locked and Normal, then run with -Uninstall.'
 }
 if ($Uninstall) {
-    Clear-ItemProperty $shellKey -Name '(default)' -ErrorAction SilentlyContinue
+    reg delete 'HKCU\Software\Classes\Directory\shell' /ve /f 2>$null | Out-Null   # убрать значение целиком, а не оставить пустым
     Remove-Item $verb -Recurse -Force -ErrorAction SilentlyContinue
     'Removed. HKCU Directory\shell default: [' + (Get-ItemProperty $shellKey -ErrorAction SilentlyContinue).'(default)' + ']'
 }

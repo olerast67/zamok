@@ -62,7 +62,7 @@ try {
     try { $w.Quit() } catch {}
 }
 finally {
-    if ($hadDefault) { Set-ItemProperty $shellKey '(default)' $oldDefault } else { Remove-ItemProperty $shellKey '(default)' -ErrorAction SilentlyContinue; Clear-ItemProperty $shellKey -Name '(default)' -ErrorAction SilentlyContinue }
+    if ($hadDefault) { Set-ItemProperty $shellKey '(default)' $oldDefault } else { reg delete 'HKCU\Software\Classes\Directory\shell' /ve /f 2>$null | Out-Null }
     Remove-Item $verb -Recurse -Force -ErrorAction SilentlyContinue
     $left = (Get-ItemProperty $shellKey -ErrorAction SilentlyContinue).'(default)'
     $out += "cleanup: HKCU Directory\shell default now=[$left], verb removed=$(-not (Test-Path $verb))"
