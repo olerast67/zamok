@@ -30,3 +30,6 @@ desktop.ini
 
 # Локальные настройки Claude Code
 .claude/settings.local.json
+
+# Заметки сессий Claude Code
+.claude/handoff*.md
