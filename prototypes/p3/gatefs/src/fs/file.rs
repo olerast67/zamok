@@ -63,6 +63,10 @@ impl NtPassthroughFile {
         self.handle.invalidate()
     }
 
+    pub fn is_root(&self) -> bool {
+        self.is_root
+    }
+
     /// Whether or not this entry is a directory.
     pub fn is_directory(&self) -> bool {
         self.is_directory
