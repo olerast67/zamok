@@ -1,0 +1,32 @@
+# Rust
+target/
+**/*.rs.bk
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.binlog
+
+# WiX
+installer/out/
+
+# Замеры и тестовые папки, которые создаются при запуске
+bench/results/local/
+tests/tmp/
+
+# Системное
+Thumbs.db
+desktop.ini
+!assets/**/desktop.ini
+!tests/fixtures/**/desktop.ini
+.DS_Store
+
+# Редакторы
+.idea/
+*.swp
+
+# Локальные настройки Claude Code
+.claude/settings.local.json
