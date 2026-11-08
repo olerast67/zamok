@@ -150,7 +150,7 @@ public sealed partial class CoreClient
             w.WriteString("id", id);
         }, ct);
 
-    private async Task<Response> SendAsync(Action<Utf8JsonWriter> body, CancellationToken ct)
+    private async Task<Response> SendOnceAsync(Action<Utf8JsonWriter> body, CancellationToken ct)
     {
         using var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut,
             PipeOptions.Asynchronous);
