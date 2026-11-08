@@ -1,0 +1,71 @@
+name: Ошибка / Bug report
+description: Что-то работает не так / Something does not work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Не пишите сюда пароли, ключи восстановления и имена личных файлов. Задача видна всем.
+        Do not post passwords, recovery keys or names of private files. Issues are public.
+
+        Если можно прочитать запертую папку без пароля, откройте приватный отчёт: https://github.com/olerast67/zamok/security/advisories/new
+        If a locked folder can be read without the password, use a private report instead (link above).
+  - type: input
+    id: version
+    attributes:
+      label: Версия Zamok / Zamok version
+      description: Параметры Windows, Приложения / Windows Settings, Apps
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Версия Windows / Windows version
+      description: Win+R, winver
+      placeholder: Windows 11 24H2, сборка 26100 / build 26100
+    validations:
+      required: true
+  - type: dropdown
+    id: disk
+    attributes:
+      label: Диск с папкой / Drive with the folder
+      options:
+        - Системный диск / System drive
+        - Другой внутренний диск / Another internal drive
+        - Внешний диск / External drive
+        - Папка облака (OneDrive и другие) / Cloud folder
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Что вы делали / Steps to reproduce
+      placeholder: |
+        1. Зашифровал папку / Encrypted a folder
+        2. Заблокировал экран / Locked the screen
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Что произошло и что ожидали / What happened and what you expected
+    validations:
+      required: true
+  - type: dropdown
+    id: data
+    attributes:
+      label: Данные целы? / Is your data intact?
+      options:
+        - Да / Yes
+        - Не могу открыть папку / Cannot open the folder
+        - Часть файлов пропала или испорчена / Files are lost or damaged
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Журнал / Log
+      description: "%LOCALAPPDATA%\\Zamok\\core.log, последние строки. Имён файлов и паролей в нём нет. / Last lines. It contains no file names or passwords."
+      render: text

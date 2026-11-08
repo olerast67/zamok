@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Уязвимость / Security vulnerability
+    url: https://github.com/olerast67/zamok/security/advisories/new
+    about: Сообщите приватно, не в открытой задаче. / Report it privately, not in a public issue.
