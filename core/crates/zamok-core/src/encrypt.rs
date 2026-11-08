@@ -767,6 +767,7 @@ pub fn start(
     Ok((progress, words))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run(
     core: &Core,
     j: &mut Journal,
