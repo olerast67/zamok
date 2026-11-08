@@ -12,6 +12,13 @@ use zamok_crypto::tree::Vault;
 use zamok_crypto::MasterKey;
 
 fn repo() -> PathBuf {
+    let r = repo_root();
+    // Git не хранит пустые папки, а в эталоне она есть
+    fs::create_dir_all(r.join("tests/fixtures-src/vault1/Пустая папка")).unwrap();
+    r
+}
+
+fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
         .canonicalize()

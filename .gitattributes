@@ -9,6 +9,7 @@
 
 # Эталонные хранилища Cryptomator сравниваются побайтно
 tests/fixtures/** binary
+tests/fixtures-src/** binary
 
 *.ico binary
 *.png binary
