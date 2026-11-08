@@ -7,7 +7,9 @@ repository.workspace = true
 description = "Cryptomator vault format 8 for Zamok: keys, names, file contents"
 
 [dependencies]
-aes-gcm = "0.10"
+aes-gcm = { version = "0.10", features = ["zeroize"] }
+# Ключи раундов AES стираются при удалении: функция включается для всех, кто использует aes
+aes = { version = "0.8", features = ["zeroize"] }
 aes-siv = "0.7"
 aes-kw = { version = "0.2", features = ["alloc"] }
 scrypt = { version = "0.11", default-features = false }
