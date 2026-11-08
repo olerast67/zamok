@@ -250,6 +250,9 @@ impl Core {
             jobs: Mutex::new(Vec::new()),
             busy: Mutex::new(std::collections::HashSet::new()),
             quit: AtomicBool::new(false),
+            starting: AtomicBool::new(false),
+            lock_alls: AtomicU64::new(0),
+            ticks: AtomicU64::new(0),
         });
         let entries = core.entries.lock().unwrap().clone();
         for e in entries {
@@ -262,6 +265,20 @@ impl Core {
         // Шифрования, прерванные сбоем: довести до конца или откатить
         crate::encrypt::recover(&core, data_dir);
         crate::decrypt::recover(&core, data_dir);
+        // Прошлый сеанс мог закончиться с открытой папкой: тогда ярлыки в «Недавних» остались.
+        // Отдельным потоком: запуск не ждёт разбора ярлыков
+        let folders: Vec<PathBuf> = core
+            .entries
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| e.cfg().path)
+            .collect();
+        std::thread::spawn(move || {
+            for f in folders {
+                crate::recent::clean(&f);
+            }
+        });
         Ok(core)
     }
 
@@ -310,7 +327,26 @@ impl Core {
     }
 
     pub fn job_running(&self) -> bool {
+        self.starting.load(Ordering::SeqCst) || self.any_job_running()
+    }
+
+    fn any_job_running(&self) -> bool {
         self.jobs.lock().unwrap().iter().any(|j| j.is_running())
+    }
+
+    /// Занять начало работы. `None`: другая работа идёт или как раз начинается. Занято до
+    /// удаления результата, то есть проверки и журнал двух работ не идут одновременно.
+    pub fn begin_job(&self) -> Option<JobStart<'_>> {
+        if self.starting.swap(true, Ordering::SeqCst) {
+            return None;
+        }
+        let guard = JobStart(self);
+        (!self.any_job_running()).then_some(guard)
+    }
+
+    /// Сколько раз запирали всё сразу.
+    pub fn lock_all_count(&self) -> u64 {
+        self.lock_alls.load(Ordering::SeqCst)
     }
 
     pub fn jobs(&self) -> Vec<JobInfo> {
@@ -356,6 +392,26 @@ impl Core {
     }
 
     pub fn unlock(&self, path: &str, password: &str) -> Result<FolderInfo, ErrorCode> {
+        self.unlock_when(path, password, &|| true)
+    }
+
+    /// Открыть в конце шифрования: только если с его начала ничего не запирали сразу. Иначе
+    /// папка открылась бы на заблокированном компьютере и ждала бы запирания по времени.
+    pub fn unlock_if_no_lock_since(
+        &self,
+        path: &str,
+        password: &str,
+        lock_alls: u64,
+    ) -> Result<FolderInfo, ErrorCode> {
+        self.unlock_when(path, password, &|| self.lock_all_count() == lock_alls)
+    }
+
+    fn unlock_when(
+        &self,
+        path: &str,
+        password: &str,
+        also_wanted: &dyn Fn() -> bool,
+    ) -> Result<FolderInfo, ErrorCode> {
         let e = self.find(path)?;
         if self.is_busy(&e) {
             return Err(ErrorCode::JobRunning);
@@ -363,7 +419,7 @@ impl Core {
         let epoch = e.lock_epoch.load(Ordering::SeqCst);
         let control = e.ensure_mounted()?;
         let id = e.cfg().id;
-        let still_wanted = || e.lock_epoch.load(Ordering::SeqCst) == epoch;
+        let still_wanted = || e.lock_epoch.load(Ordering::SeqCst) == epoch && also_wanted();
         match control.unlock_with_password_if(password, &still_wanted) {
             Ok(()) => {
                 notify_shell(&e.cfg().path);
@@ -524,6 +580,15 @@ impl Core {
         }
     }
 
+    /// Занять папку на время расшифровки (см. [`BusyGuard`]).
+    pub fn busy_guard(self: &Arc<Self>, path: &Path) -> BusyGuard {
+        self.set_busy(path, true);
+        BusyGuard {
+            core: self.clone(),
+            path: path.to_path_buf(),
+        }
+    }
+
     fn is_busy(&self, e: &Entry) -> bool {
         self.busy
             .lock()
@@ -608,6 +673,7 @@ impl Core {
     /// Сразу стереть ключи всех открытых папок. Быстро: годится перед сном, когда
     /// на всё есть пара секунд. Возвращает, что ещё надо дождаться ([`Core::settle`]).
     pub fn lock_all_now(&self, reason: &str) -> Vec<(Arc<Control>, PathBuf)> {
+        self.lock_alls.fetch_add(1, Ordering::SeqCst);
         let entries = self.entries.lock().unwrap().clone();
         let mut locked = Vec::new();
         for e in entries {
@@ -683,6 +749,34 @@ impl Core {
         tracing::info!(folder = %cfg.id, moved, mounted, "vault follows the moved folder");
     }
 
+    /// Хранилища нет на старом месте. Удалено наверняка: убрать из списка. Сомнение (другой том, нет диска, нет доступа):
+    /// запись остаётся, папка «недоступна».
+    fn vault_missing(
+        &self,
+        e: &Arc<Entry>,
+        cfg: &FolderConfig,
+        kind: std::io::ErrorKind,
+    ) -> VaultMissing {
+        if kind != std::io::ErrorKind::NotFound {
+            e.missing_ticks.store(0, Ordering::SeqCst);
+            return VaultMissing::Keep;
+        }
+        let ticks = e.missing_ticks.fetch_add(1, Ordering::SeqCst) + 1;
+        let parent = cfg.vault.parent().is_some_and(|p| p.is_dir());
+        let serial = parent
+            .then(|| crate::preflight::volume_serial(&cfg.vault))
+            .flatten();
+        if certainly_deleted(kind, parent, cfg.volume_serial, serial, ticks) {
+            return VaultMissing::Deleted;
+        }
+        if ticks >= VAULT_GONE_TICKS && !e.offline.swap(true, Ordering::SeqCst) {
+            e.unmount();
+            *e.error.lock().unwrap() = Some(ErrorCode::BadVault);
+            tracing::info!(folder = %cfg.id, "vault is not reachable, folder kept as unavailable");
+        }
+        VaultMissing::Keep
+    }
+
     /// Папки, которые человек удалил в Проводнике (DESIGN.md, раздел 5.1):
     /// - удалено хранилище, а его родительская папка на месте: данных больше нет, папка
     ///   убирается из списка, имя снова свободно. Если нет и родителя (диск не подключён),
@@ -701,6 +795,18 @@ impl Core {
                     VaultMissing::Keep => {}
                 }
                 continue;
+            }
+            e.missing_ticks.store(0, Ordering::SeqCst);
+            if e.offline.swap(false, Ordering::SeqCst) {
+                let mounted = e.ensure_mounted().is_ok();
+                tracing::info!(folder = %cfg.id, mounted, "vault is back, folder mounted again");
+            }
+            // Записи старых версий узнают свой том, как только хранилище доступно
+            if cfg.volume_serial.is_none() {
+                if let Some(serial) = crate::preflight::volume_serial(&cfg.vault) {
+                    e.cfg.lock().unwrap().volume_serial = Some(serial);
+                    moved_any = true;
+                }
             }
             if e.control().is_some() && !mountpoint::exists(&cfg.path) {
                 // Переименовали или перенесли в Проводнике в пределах диска: у точки подключения
@@ -732,6 +838,10 @@ impl Core {
             }
             self.vault_follow(&e);
         }
+        if self.ticks.fetch_add(1, Ordering::SeqCst) % RETRY_EVERY_TICKS == RETRY_EVERY_TICKS - 1 {
+            crate::encrypt::retry_cleanup(self, &self.data_dir);
+            crate::decrypt::retry_rollback(self, &self.data_dir);
+        }
         if gone.is_empty() {
             if moved_any {
                 let entries = self.entries.lock().unwrap();
@@ -750,34 +860,6 @@ impl Core {
     }
 
     /// Запереть папки, с которыми долго ничего не делали. Возвращает события для уведомлений:
-    /// Хранилища нет на старом месте. Удалено наверняка: убрать из списка. Сомнение (другой том, нет диска, нет доступа):
-    /// запись остаётся, папка «недоступна».
-    fn vault_missing(
-        &self,
-        e: &Arc<Entry>,
-        cfg: &FolderConfig,
-        kind: std::io::ErrorKind,
-    ) -> VaultMissing {
-        if kind != std::io::ErrorKind::NotFound {
-            e.missing_ticks.store(0, Ordering::SeqCst);
-            return VaultMissing::Keep;
-        }
-        let ticks = e.missing_ticks.fetch_add(1, Ordering::SeqCst) + 1;
-        let parent = cfg.vault.parent().is_some_and(|p| p.is_dir());
-        let serial = parent
-            .then(|| crate::preflight::volume_serial(&cfg.vault))
-            .flatten();
-        if certainly_deleted(kind, parent, cfg.volume_serial, serial, ticks) {
-            return VaultMissing::Deleted;
-        }
-        if ticks >= VAULT_GONE_TICKS && !e.offline.swap(true, Ordering::SeqCst) {
-            e.unmount();
-            *e.error.lock().unwrap() = Some(ErrorCode::BadVault);
-            tracing::info!(folder = %cfg.id, "vault is not reachable, folder kept as unavailable");
-        }
-        VaultMissing::Keep
-    }
-
     /// папка заперта, или пора запирать, но программа держит файл (о каждой папке один раз).
     pub fn lock_idle(&self) -> Vec<IdleEvent> {
         let entries = self.entries.lock().unwrap().clone();
@@ -796,18 +878,6 @@ impl Core {
             // Пока программа держит файл из папки, по бездействию не запираем: иначе
             // открытый документ потом не сохранить. Win+L и сон запирают сразу.
             if c.open_files() > 0 {
-            e.missing_ticks.store(0, Ordering::SeqCst);
-            if e.offline.swap(false, Ordering::SeqCst) {
-                let mounted = e.ensure_mounted().is_ok();
-                tracing::info!(folder = %cfg.id, mounted, "vault is back, folder mounted again");
-            }
-            // Записи старых версий узнают свой том, как только хранилище доступно
-            if cfg.volume_serial.is_none() {
-                if let Some(serial) = crate::preflight::volume_serial(&cfg.vault) {
-                    e.cfg.lock().unwrap().volume_serial = Some(serial);
-                    moved_any = true;
-                }
-            }
                 if !e.waiting_told.swap(true, Ordering::SeqCst) {
                     events.push(IdleEvent::Waiting {
                         name: cfg.name(),
@@ -876,6 +946,7 @@ impl Core {
         }
         let cfg = FolderConfig {
             id: config::new_id().map_err(|_| ErrorCode::Internal)?,
+            volume_serial: crate::preflight::volume_serial(&vault),
             path,
             vault,
             vault_prev: None,
@@ -933,7 +1004,6 @@ impl Core {
         tracing::info!("all folders unmounted");
     }
 }
-            volume_serial: crate::preflight::volume_serial(&vault),
 
 #[cfg(test)]
 mod tests {

@@ -204,7 +204,11 @@ fn handle(mut conn: std::fs::File, core: &Arc<Core>) {
             pending.iter_mut().for_each(|b| *b = 0);
             pending.clear();
             pending.extend_from_slice(&rest);
-            let mut out = serde_json::to_vec(&reply).unwrap_or_default();
+            // В ответе бывает ключ восстановления: буфер с запасом, чтобы рост не оставил копий
+            let mut out: Zeroizing<Vec<u8>> = Zeroizing::new(Vec::with_capacity(16 * 1024));
+            if serde_json::to_writer(&mut *out, &reply).is_err() {
+                return;
+            }
             out.push(b'\n');
             if conn.write_all(&out).is_err() {
                 return;
@@ -234,6 +238,8 @@ pub fn dispatch(line: &[u8], core: &Arc<Core>) -> Response {
     match req {
         Request::Status => Response {
             ok: true,
+            originals_left: Some(crate::encrypt::originals_left(core.data_dir()))
+                .filter(|n| *n > 0),
             folders: Some(core.status()),
             jobs: Some(core.jobs()),
             settings: Some(core.settings()),
@@ -248,9 +254,10 @@ pub fn dispatch(line: &[u8], core: &Arc<Core>) -> Response {
             password,
             idle_lock_secs,
         } => {
-            if core.job_running() {
+            // Занято до появления работы: две работы не пройдут проверки одновременно
+            let Some(_starting) = core.begin_job() else {
                 return Response::err(ErrorCode::JobRunning);
-            }
+            };
             let idle = idle_lock_secs.unwrap_or(crate::config::DEFAULT_IDLE_LOCK_SECS);
             let data_dir = core.data_dir().to_path_buf();
             match crate::encrypt::start(
@@ -265,7 +272,7 @@ pub fn dispatch(line: &[u8], core: &Arc<Core>) -> Response {
                     Response {
                         ok: true,
                         job: Some(progress.info()),
-                        recovery_key: Some(words.to_string()),
+                        recovery_key: Some(words),
                         ..Default::default()
                     }
                 }
@@ -315,15 +322,15 @@ pub fn dispatch(line: &[u8], core: &Arc<Core>) -> Response {
         Request::ShowRecoveryKey { path, password } => match core.recovery_key(&path, &password) {
             Ok(words) => Response {
                 ok: true,
-                recovery_key: Some(words.to_string()),
+                recovery_key: Some(words),
                 ..Default::default()
             },
             Err(code) => Response::err(code),
         },
         Request::Decrypt { path, password } => {
-            if core.job_running() {
+            let Some(_starting) = core.begin_job() else {
                 return Response::err(ErrorCode::JobRunning);
-            }
+            };
             let data_dir = core.data_dir().to_path_buf();
             match crate::decrypt::start(core.clone(), &data_dir, &path, &password) {
                 Ok(progress) => {

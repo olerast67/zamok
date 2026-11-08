@@ -221,7 +221,10 @@ pub struct Response {
     pub settings: Option<Settings>,
     /// Ключ восстановления, 44 слова: только в ответе на `encrypt`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub recovery_key: Option<String>,
+    pub recovery_key: Option<zeroize::Zeroizing<String>>,
+    /// Сколько папок ждут удаления открытого оригинала (его держит другая программа).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub originals_left: Option<usize>,
     /// Примеры того, что мешает (относительные пути), при отказе проверок.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub examples: Option<Vec<String>>,

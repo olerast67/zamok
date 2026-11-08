@@ -766,6 +766,8 @@ fn run(
     password: &str,
 ) -> Result<(), ErrorCode> {
     crash_point("copying");
+    // Если за время работы экран заблокировали, в конце папка не откроется
+    let locks_at_start = core.lock_all_count();
     let attrs_later = match copy_and_verify(vault, &j.path, plan, progress) {
         Ok(a) => a,
         Err(code) => {
@@ -783,20 +785,20 @@ fn run(
             return Err(ErrorCode::CopyFailed);
         }
     }
-    if progress.cancel.load(Ordering::SeqCst) {
-        rollback_copy(j, data_dir);
     pause_point("flush_window");
     crash_point("flush_done");
+    if progress.cancel.load(Ordering::SeqCst) {
+        rollback_copy(j, data_dir);
         return Err(ErrorCode::Cancelled);
     }
-    crash_point("verified_before_journal");
-    // Дальше отмены нет: с этого шага работа только доводится до конца
     // Файлы проверены ключом из памяти; ключ и настройки хранилища на диске проверяем здесь
     if !opens_from_disk(&j.tmp, password, vault.key()) {
         tracing::error!(job = %j.id, "the vault on disk does not open with the password");
         rollback_copy(j, data_dir);
         return Err(ErrorCode::VerifyFailed);
     }
+    crash_point("verified_before_journal");
+    // Дальше отмены нет: с этого шага работа только доводится до конца
     *progress.phase.lock().unwrap() = Phase::Verified;
     if j.set(Phase::Verified, data_dir).is_err() {
         rollback_copy(j, data_dir);
@@ -804,24 +806,26 @@ fn run(
     }
     crash_point("verified");
     finish_from(core, j, data_dir, Some(progress))?;
-    // В конце папка открыта (DESIGN.md, раздел 2.1)
-    if let Err(code) = core.unlock(&j.path.to_string_lossy(), password) {
-        tracing::warn!(job = %j.id, ?code, "could not open the folder after encryption");
+    // В конце папка открыта (DESIGN.md, раздел 2.1), если её за это время не запирали
+    if let Err(code) =
+        core.unlock_if_no_lock_since(&j.path.to_string_lossy(), password, locks_at_start)
+    {
+        tracing::warn!(job = %j.id, ?code, "folder was not opened after encryption");
     }
     cleanup(j, data_dir);
     Ok(())
 }
 
-/// При старте core: довести до конца или откатить работы, прерванные сбоем.
-pub fn recover(core: &Core, data_dir: &Path) {
-    for mut j in Journal::load_all(data_dir) {
-        tracing::info!(job = %j.id, phase = j.phase.name(), "recovering interrupted encryption");
 /// Открывается ли копия с диска паролем и подходит ли ключ из файла к тому, которым
 /// зашифрованы файлы.
 fn opens_from_disk(tmp: &Path, password: &str, key: &zamok_crypto::MasterKey) -> bool {
     Vault::open_with_password(tmp, password).is_ok_and(|v| v.key().to_raw() == key.to_raw())
 }
 
+/// При старте core: довести до конца или откатить работы, прерванные сбоем.
+pub fn recover(core: &Core, data_dir: &Path) {
+    for mut j in Journal::load_all(data_dir) {
+        tracing::info!(job = %j.id, phase = j.phase.name(), "recovering interrupted encryption");
         match j.phase {
             Phase::Copying => rollback_copy(&j, data_dir),
             _ => {
@@ -944,12 +948,12 @@ mod tests {
             aside: sib.aside.clone(),
             idle_lock_secs: 0,
             masterkey_sha256: None,
+            vault_config_sha256: None,
+            plan_sha256: None,
         };
         let data = d.path().join("data");
         j.save(&data).unwrap();
         rollback_copy(&j, &data);
-            vault_config_sha256: None,
-            plan_sha256: None,
         assert!(!sib.tmp.exists());
         assert!(src.join("а.txt").exists());
         assert!(Journal::load_all(&data).is_empty());
@@ -978,17 +982,13 @@ mod tests {
             aside: src.clone(),
             idle_lock_secs: 0,
             masterkey_sha256: None,
+            vault_config_sha256: None,
+            plan_sha256: None,
         };
         assert!(delete_aside(&j).is_err());
         assert!(src.join("а.txt").exists());
     }
-            vault_config_sha256: None,
-            plan_sha256: None,
 
-    #[test]
-    fn stale_journal_never_touches_a_foreign_vault() {
-        let d = tempdir();
-        let src = d.path().join("Клиенты");
     /// Журнал настоящей работы над `src` с описью её содержимого.
     fn journal_for(src: &Path, plan: &Plan, phase: Phase) -> Journal {
         let sib = preflight::siblings(src).unwrap();
@@ -1110,6 +1110,10 @@ mod tests {
         assert!(!opens_from_disk(v.root(), "pw", v.key()));
     }
 
+    #[test]
+    fn stale_journal_never_touches_a_foreign_vault() {
+        let d = tempdir();
+        let src = d.path().join("Клиенты");
         sample(&src);
         let sib = preflight::siblings(&src).unwrap();
         // Наша копия когда-то была, журнал помнит её отпечаток
@@ -1129,12 +1133,12 @@ mod tests {
             aside: sib.aside.clone(),
             idle_lock_secs: 0,
             masterkey_sha256: digest,
+            vault_config_sha256: None,
+            plan_sha256: None,
         };
         j.save(&data).unwrap();
         rollback_copy(&j, &data);
         assert!(sib.vault.join("masterkey.cryptomator").exists());
-            vault_config_sha256: None,
-            plan_sha256: None,
         // Чужая папка .tmp с тем же именем тоже не удаляется
         Vault::create_empty(&sib.tmp, "pw3", 1 << 10).unwrap();
         assert!(remove_tmp(&j).is_err());
