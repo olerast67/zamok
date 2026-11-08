@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/zamok-crypto", "crates/zamok-recover"]
+members = ["crates/zamok-crypto", "crates/zamok-recover", "crates/zamok-fs"]
 
 [workspace.package]
 edition = "2021"

@@ -28,7 +28,7 @@ pub(crate) fn random_bytes(buf: &mut [u8]) -> Result<()> {
 }
 
 /// Случайный UUID версии 4 в текстовой форме (так Cryptomator называет каталоги и хранилища).
-pub(crate) fn uuid_v4() -> Result<String> {
+pub fn uuid_v4() -> Result<String> {
     let mut id = [0u8; 16];
     random_bytes(&mut id)?;
     id[6] = (id[6] & 0x0f) | 0x40;
