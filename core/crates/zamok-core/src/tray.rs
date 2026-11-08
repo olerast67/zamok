@@ -215,6 +215,16 @@ pub fn notify(title: &str, text: &str) {
     }
 }
 
+pub fn notify_cut(name: &str) {
+    notify(
+        &if russian() { format!("Папку «{name}» нельзя вырезать") } else { format!("\u{201c}{name}\u{201d} cannot be cut") },
+        t(
+            "Проводник перенёс бы её файлы без шифрования. Чтобы переместить папку, расшифруйте её, перенесите и зашифруйте снова.",
+            "Explorer would move its files unencrypted. To move the folder, decrypt it, move it and encrypt it again.",
+        ),
+    );
+}
+
 pub fn notify_idle(ev: &crate::core::IdleEvent) {
     use crate::core::IdleEvent;
     match ev {

@@ -15,10 +15,10 @@ use windows::Win32::System::RemoteDesktop::{
     WTSRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, PostMessageW, PostQuitMessage,
-    RegisterClassW, SetTimer, TranslateMessage, DEVICE_NOTIFY_WINDOW_HANDLE, MSG, PBT_APMSUSPEND,
-    WINDOW_EX_STYLE, WM_APP, WM_ENDSESSION, WM_POWERBROADCAST, WM_QUERYENDSESSION, WM_TIMER,
-    WM_WTSSESSION_CHANGE, WNDCLASSW, WS_OVERLAPPED,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, KillTimer, PostMessageW,
+    PostQuitMessage, RegisterClassW, SetTimer, TranslateMessage, DEVICE_NOTIFY_WINDOW_HANDLE, MSG,
+    PBT_APMSUSPEND, WINDOW_EX_STYLE, WM_APP, WM_CLIPBOARDUPDATE, WM_ENDSESSION, WM_POWERBROADCAST,
+    WM_QUERYENDSESSION, WM_TIMER, WM_WTSSESSION_CHANGE, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use crate::core::Core;
@@ -34,6 +34,8 @@ const WTS_SESSION_LOGOFF: usize = 0x6;
 const WTS_SESSION_LOCK: usize = 0x7;
 const IDLE_TIMER: usize = 1;
 const IDLE_TICK_MS: u32 = 2000;
+const CLIP_TIMER: usize = 2;
+const CLIP_DELAY_MS: u32 = 150;
 
 static CORE: OnceLock<Arc<Core>> = OnceLock::new();
 static HWND_VALUE: AtomicIsize = AtomicIsize::new(0);
@@ -53,6 +55,23 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
     };
     match msg {
+        WM_CLIPBOARDUPDATE => {
+            // Не сразу: программа, которая кладёт данные, ещё работает с буфером обмена,
+            // а открыть его может только кто-то один. Человек за это время вставить не успеет.
+            unsafe { SetTimer(Some(hwnd), CLIP_TIMER, CLIP_DELAY_MS, None) };
+            LRESULT(0)
+        }
+        WM_TIMER if wparam.0 == CLIP_TIMER => {
+            unsafe {
+                let _ = KillTimer(Some(hwnd), CLIP_TIMER);
+            }
+            let folders: Vec<String> = core.status().into_iter().map(|f| f.path).collect();
+            if let Some(path) = crate::clipguard::on_update(hwnd, &folders) {
+                tracing::info!("cut of a zamok folder cancelled");
+                crate::tray::notify_cut(&crate::clipguard::display_name(&path));
+            }
+            LRESULT(0)
+        }
         WM_WTSSESSION_CHANGE => {
             match wparam.0 {
                 WTS_SESSION_LOCK if core.lock_on_screen_lock() => {
@@ -153,6 +172,7 @@ pub fn install(core: Arc<Core>) -> anyhow::Result<()> {
         HWND_VALUE.store(hwnd.0 as isize, Ordering::SeqCst);
         // Блокировка экрана и выход из учётной записи
         WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION)?;
+        crate::clipguard::register(hwnd);
         // Сон, в том числе на ноутбуках с современным режимом ожидания
         let _ = RegisterSuspendResumeNotification(HANDLE(hwnd.0), DEVICE_NOTIFY_WINDOW_HANDLE);
         if SetTimer(Some(hwnd), IDLE_TIMER, IDLE_TICK_MS, None) == 0 {
