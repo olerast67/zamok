@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Zamok.UI.UnlockWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Padding="32,24,32,24" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal" Spacing="16">
+            <FontIcon Glyph="&#xE72E;" FontSize="40" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+            <TextBlock x:Name="FolderName" AutomationProperties.AutomationId="FolderName"
+                       Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" MaxWidth="320" />
+        </StackPanel>
+
+        <TextBlock x:Name="Prompt" Grid.Row="1" x:Uid="Unlock_Prompt" TextWrapping="Wrap" />
+
+        <Grid x:Name="InputArea" Grid.Row="2">
+            <Grid.RenderTransform>
+                <TranslateTransform x:Name="Shake" />
+            </Grid.RenderTransform>
+            <PasswordBox x:Name="Password" AutomationProperties.AutomationId="Password"
+                         x:Uid="Unlock_Password" KeyDown="OnInputKeyDown" />
+            <TextBox x:Name="RecoveryWords" AutomationProperties.AutomationId="RecoveryWords"
+                     x:Uid="Unlock_RecoveryWords" Visibility="Collapsed" AcceptsReturn="True"
+                     TextWrapping="Wrap" Height="96" IsSpellCheckEnabled="False" />
+        </Grid>
+
+        <TextBlock x:Name="ErrorText" Grid.Row="3" AutomationProperties.AutomationId="ErrorText"
+                   AutomationProperties.LiveSetting="Assertive"
+                   Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
+
+        <HyperlinkButton x:Name="ModeLink" Grid.Row="4" AutomationProperties.AutomationId="ModeLink"
+                         x:Uid="Unlock_UseRecovery" VerticalAlignment="Top" Padding="0"
+                         Click="OnModeClick" />
+
+        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20" />
+            <Button x:Name="OpenButton" AutomationProperties.AutomationId="OpenButton"
+                    x:Uid="Unlock_Open" Style="{StaticResource AccentButtonStyle}" MinWidth="110"
+                    Click="OnOpenClick" />
+            <Button x:Name="CancelButton" AutomationProperties.AutomationId="CancelButton"
+                    x:Uid="Common_Cancel" MinWidth="110" Click="OnCancelClick" />
+        </StackPanel>
+    </Grid>
+</Window>
