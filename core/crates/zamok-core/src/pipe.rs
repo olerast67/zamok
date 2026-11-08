@@ -182,7 +182,7 @@ pub fn serve(mut listener: Listener, core: Arc<Core>, on_quit: impl Fn() + Send 
 }
 
 /// Обслужить одного клиента: строки до конца соединения.
-fn handle(mut conn: std::fs::File, core: &Core) {
+fn handle(mut conn: std::fs::File, core: &Arc<Core>) {
     let mut pending: Zeroizing<Vec<u8>> = Zeroizing::new(Vec::with_capacity(4096));
     let mut chunk = Zeroizing::new([0u8; 4096]);
     loop {
@@ -222,7 +222,7 @@ fn handle(mut conn: std::fs::File, core: &Core) {
     }
 }
 
-pub fn dispatch(line: &[u8], core: &Core) -> Response {
+pub fn dispatch(line: &[u8], core: &Arc<Core>) -> Response {
     let req = match protocol::parse(line) {
         Ok(r) => r,
         Err(code) => return Response::err(code),
@@ -235,7 +235,55 @@ pub fn dispatch(line: &[u8], core: &Core) -> Response {
         Request::Status => Response {
             ok: true,
             folders: Some(core.status()),
+            jobs: Some(core.jobs()),
             ..Default::default()
+        },
+        Request::Encrypt {
+            path,
+            password,
+            idle_lock_secs,
+        } => {
+            if core.job_running() {
+                return Response::err(ErrorCode::JobRunning);
+            }
+            let idle = idle_lock_secs.unwrap_or(crate::config::DEFAULT_IDLE_LOCK_SECS);
+            let data_dir = core.data_dir().to_path_buf();
+            match crate::encrypt::start(
+                core.clone(),
+                &data_dir,
+                std::path::Path::new(&path),
+                password,
+                idle,
+            ) {
+                Ok((progress, words)) => {
+                    core.add_job(progress.clone());
+                    Response {
+                        ok: true,
+                        job: Some(progress.info()),
+                        recovery_key: Some(words.to_string()),
+                        ..Default::default()
+                    }
+                }
+                Err(refusal) => Response {
+                    ok: false,
+                    error: Some(refusal.code),
+                    examples: (!refusal.examples.is_empty()).then_some(refusal.examples),
+                    ..Default::default()
+                },
+            }
+        }
+        Request::JobStatus { id } => match core.job(&id) {
+            Some(j) => Response {
+                ok: true,
+                job: Some(j.info()),
+                ..Default::default()
+            },
+            None => Response::err(ErrorCode::NotFound),
+        },
+        Request::CancelJob { id } => match core.job(&id) {
+            Some(j) if j.request_cancel() => Response::ok(),
+            Some(_) => Response::err(ErrorCode::BadRequest),
+            None => Response::err(ErrorCode::NotFound),
         },
         Request::Unlock { path, password } => one(core.unlock(&path, &password)),
         Request::UnlockRecovery { path, words } => one(core.unlock_recovery(&path, &words)),
