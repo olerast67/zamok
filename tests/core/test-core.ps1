@@ -1,0 +1,274 @@
+# Etap 4: proverka fonovogo processa zamok-core na nastoyashchey sisteme.
+# Core zapuskaetsya kak programma so svoey papkoy dannyh i svoim kanalom, skript govorit s nim
+# po kanalu, pishet v papku, shlyot oknu core te zhe soobshcheniya, chto Windows pri Win+L i sne,
+# ubivaet process i podsovyvaet mertvuyu tochku podklyucheniya.
+# Zapusk: powershell -NoProfile -ExecutionPolicy Bypass -File tests\core\test-core.ps1
+# Skript v ASCII: russkie imena sobirayutsya iz kodov simvolov.
+$ErrorActionPreference = 'Stop'
+$repo = (Resolve-Path "$PSScriptRoot/../..").Path
+$root = "$repo\tests\tmp\core"
+$coreExe = "$repo\core\target\release\zamok-core.exe"
+$pw = 'zamok-core-test'
+$pipeName = "zamok-test-$PID"
+$results = New-Object System.Collections.Generic.List[object]
+function Ru([int[]]$c) { -join ($c | ForEach-Object { [char]$_ }) }
+$ruName = Ru 0x041A,0x043B,0x0438,0x0435,0x043D,0x0442,0x044B   # Klienty
+$openWord = Ru 0x041E,0x0442,0x043A,0x0440,0x044B,0x0442,0x044C  # Otkryt
+$data = "$root\data"
+$mnt = "$root\$ruName"
+$vault = "$root\.$ruName.zamok"
+function Check([string]$name, [scriptblock]$body) {
+    try { $r = & $body; if ($r -eq $false) { throw 'returned false' }
+        $results.Add([pscustomobject]@{ Test = $name; Ok = $true; Note = "$r" }) }
+    catch { $results.Add([pscustomobject]@{ Test = $name; Ok = $false; Note = $_.Exception.Message }) }
+}
+function WaitFor([scriptblock]$cond, [int]$ms = 10000) {
+    $deadline = (Get-Date).AddMilliseconds($ms)
+    while (-not (& $cond)) { if ((Get-Date) -gt $deadline) { return $false }; Start-Sleep -Milliseconds 100 }
+    $true
+}
+
+Add-Type -TypeDefinition @'
+using System; using System.IO; using System.Runtime.InteropServices; using System.Text;
+public static class ZT {
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, string title);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  public static IntPtr CoreWindow(int pid) {
+    IntPtr h = IntPtr.Zero;
+    while ((h = FindWindowExW(IntPtr.Zero, h, "ZamokCoreWindow", null)) != IntPtr.Zero) {
+      uint p; GetWindowThreadProcessId(h, out p); if (p == pid) return h;
+    }
+    return IntPtr.Zero;
+  }
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  static extern IntPtr CreateFileW(string n, uint a, uint s, IntPtr sa, uint c, uint f, IntPtr t);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool DeviceIoControl(IntPtr h, uint code, byte[] inb, int inl, byte[] outb, int outl, out int ret, IntPtr ov);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  // Mertvaya tochka podklyucheniya, kak posle vyklyucheniya pitaniya: tom WinFsp, kotorogo net
+  public static void SetMountPoint(string dir, string target) {
+    byte[] t = Encoding.Unicode.GetBytes(target);
+    int pathLen = t.Length * 2 + 4;
+    var buf = new byte[16 + pathLen];
+    BitConverter.GetBytes(0xA0000003u).CopyTo(buf, 0);
+    BitConverter.GetBytes((ushort)(8 + pathLen)).CopyTo(buf, 4);
+    BitConverter.GetBytes((ushort)0).CopyTo(buf, 8);
+    BitConverter.GetBytes((ushort)t.Length).CopyTo(buf, 10);
+    BitConverter.GetBytes((ushort)(t.Length + 2)).CopyTo(buf, 12);
+    BitConverter.GetBytes((ushort)t.Length).CopyTo(buf, 14);
+    t.CopyTo(buf, 16); t.CopyTo(buf, 16 + t.Length + 2);
+    var h = CreateFileW(dir, 0xC0000000, 7, IntPtr.Zero, 3, 0x02000000 | 0x00200000, IntPtr.Zero);
+    if (h == new IntPtr(-1)) throw new IOException("open failed " + Marshal.GetLastWin32Error());
+    int r;
+    try { if (!DeviceIoControl(h, 0x900A4, buf, buf.Length, null, 0, out r, IntPtr.Zero)) throw new IOException("set failed " + Marshal.GetLastWin32Error()); }
+    finally { CloseHandle(h); }
+  }
+}
+'@
+
+$script:proc = $null
+function StartCore {
+    $psi = New-Object Diagnostics.ProcessStartInfo $coreExe
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardError = $true
+    $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
+    $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipeName"
+    $p = [Diagnostics.Process]::Start($psi)
+    [void](WaitFor { (Test-Path "\\.\pipe\$pipeName") -or $p.HasExited } 15000)
+    [void](WaitFor { $p.HasExited -or [ZT]::CoreWindow($p.Id) -ne [IntPtr]::Zero } 5000)
+    $p
+}
+function Send([string]$json) {
+    $c = New-Object IO.Pipes.NamedPipeClientStream '.', $pipeName, 'InOut'
+    $c.Connect(5000)
+    $enc = New-Object Text.UTF8Encoding $false
+    $w = New-Object IO.StreamWriter $c, $enc; $w.AutoFlush = $true
+    $r = New-Object IO.StreamReader $c, $enc
+    $w.WriteLine($json)
+    $line = $r.ReadLine()
+    $c.Dispose()
+    $line | ConvertFrom-Json
+}
+function J([string]$s) { $s.Replace('\', '\\').Replace('"', '\"') }
+function State { (Send '{"cmd":"status"}').folders | Where-Object { $_.path -eq $mnt } | Select-Object -ExpandProperty state }
+function PostToCore([uint32]$msg, [int]$w) { [void][ZT]::PostMessageW([ZT]::CoreWindow($script:proc.Id), $msg, [IntPtr]$w, [IntPtr]::Zero) }
+function SrcCount { @(Get-ChildItem "$repo\tests\fixtures-src\vault1" -Recurse -File -Force).Count }
+
+# Podgotovka
+Get-Process zamok-core -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $coreExe } | Stop-Process -Force
+Start-Sleep -Milliseconds 500
+Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $root | Out-Null
+Push-Location "$repo\core"
+& "$env:USERPROFILE\.cargo\bin\cargo.exe" build -q --release -p zamok-core 2>&1 | Out-Null
+& "$env:USERPROFILE\.cargo\bin\cargo.exe" run -q --release --example create_vault -- "$repo\tests\fixtures-src\vault1" $vault $pw | Out-Null
+Pop-Location
+$recovery = (Get-Content "$vault-recovery.txt" -Raw).Trim()
+
+try {
+    $script:proc = StartCore
+    Check 'core starts, pipe and window exist' { -not $script:proc.HasExited -and [ZT]::CoreWindow($script:proc.Id) -ne [IntPtr]::Zero }
+    Check 'pipe: only the current user has access' {
+        # Get-Acl ne chitaet prava kanalov: berem ih u podklyuchennogo klienta
+        $c = New-Object IO.Pipes.NamedPipeClientStream '.', $pipeName, 'InOut'
+        $c.Connect(5000)
+        $rules = $c.GetAccessControl().GetAccessRules($true, $true, [Security.Principal.NTAccount])
+        $c.Dispose()
+        $ids = @($rules | ForEach-Object { $_.IdentityReference.Value })
+        $me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+        if ($ids.Count -ne 1 -or $ids[0] -ne $me) { "access: $($ids -join ', ')" -eq '' } else { $ids[0] }
+    }
+    Check 'second core with the same pipe refuses to start' {
+        $p2 = StartCore
+        $ok = $p2.WaitForExit(10000) -and $p2.ExitCode -eq 1
+        if (-not $p2.HasExited) { $p2.Kill() }
+        $ok -and -not $script:proc.HasExited
+    }
+    Check 'status: empty list' { @((Send '{"cmd":"status"}').folders).Count -eq 0 }
+    Check 'garbage request: bad_request' { (Send 'hello').error -eq 'bad_request' }
+
+    # Dobavit papku
+    Check 'add: bad vault path' { (Send "{`"cmd`":`"add`",`"path`":`"$(J $mnt)`",`"vault`":`"$(J "$root\nothing")`"}").error -eq 'bad_vault' }
+    Check 'add: vault inside the folder is refused' { (Send "{`"cmd`":`"add`",`"path`":`"$(J $root)`",`"vault`":`"$(J $vault)`"}").error -eq 'bad_request' }
+    New-Item -ItemType Directory "$root\busy" | Out-Null; Set-Content "$root\busy\keep.txt" 'keep'
+    Check 'add: plain folder on the path is not touched' {
+        $r = Send "{`"cmd`":`"add`",`"path`":`"$(J "$root\busy")`",`"vault`":`"$(J $vault)`"}"
+        $r.error -eq 'path_occupied' -and (Get-Content "$root\busy\keep.txt") -eq 'keep'
+    }
+    Check 'add: mounted locked' {
+        $r = Send "{`"cmd`":`"add`",`"path`":`"$(J $mnt)`",`"vault`":`"$(J $vault)`"}"
+        $r.ok -and $r.folder.state -eq 'locked' -and $r.folder.name -eq $ruName
+    }
+    Check 'add again: already_added' { (Send "{`"cmd`":`"add`",`"path`":`"$(J $mnt)`",`"vault`":`"$(J $vault)`"}").error -eq 'already_added' }
+    Check 'locked view: only the open item' {
+        $names = @(Get-ChildItem $mnt -Name)
+        ($names.Count -eq 1 -and $names[0] -eq "$openWord $ruName.zamok") -or ("names: $($names -join ', ')" -eq '')
+    }
+    Check 'mount point has the system attribute (icon)' { ((Get-Item $mnt -Force).Attributes -band [IO.FileAttributes]::System) -ne 0 }
+    Check 'folders.json lists the folder' { (Get-Content "$data\folders.json" -Raw -Encoding UTF8 | ConvertFrom-Json).folders[0].path -eq $mnt }
+
+    # Otkryt i zaperet
+    Check 'wrong password: stays locked' { (Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"nope`"}").error -eq 'wrong_password' -and (State) -eq 'locked' }
+    Check 'unlock by the open item path' {
+        $r = Send "{`"cmd`":`"unlock`",`"path`":`"$(J "$mnt\$openWord $ruName.zamok")`",`"password`":`"$pw`"}"
+        $r.ok -and $r.folder.state -eq 'unlocked'
+    }
+    Check 'unlocked: all files visible' { $n = @(Get-ChildItem $mnt -Recurse -File -Force).Count; $n -eq (SrcCount) -or "files=$n" -eq '' }
+    Set-Content "$mnt\new.txt" 'written through core'
+    Check 'lock: files hidden again' {
+        $r = Send "{`"cmd`":`"lock`",`"path`":`"$(J $mnt)`"}"
+        $r.folder.state -eq 'locked' -and -not (Test-Path "$mnt\new.txt")
+    }
+    Check 'wrong recovery key' { (Send "{`"cmd`":`"unlock_recovery`",`"path`":`"$(J $mnt)`",`"words`":`"one two three`"}").error -eq 'wrong_recovery_key' }
+    Check 'unlock with the recovery key: written file is there' {
+        $r = Send "{`"cmd`":`"unlock_recovery`",`"path`":`"$(J $mnt)`",`"words`":`"$recovery`"}"
+        $r.ok -and (Get-Content "$mnt\new.txt") -eq 'written through core'
+    }
+    Check 'lock_all' { (Send '{"cmd":"lock_all"}').ok -and (State) -eq 'locked' }
+
+    # Avtozapiranie po soobshcheniyam Windows
+    [void](Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}")
+    Check 'screen lock (WM_WTSSESSION_CHANGE, WTS_SESSION_LOCK) locks' { PostToCore 0x02B1 7; WaitFor { (State) -eq 'locked' } 5000 }
+    [void](Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}")
+    Check 'sleep (WM_POWERBROADCAST, PBT_APMSUSPEND) locks' { PostToCore 0x0218 4; WaitFor { (State) -eq 'locked' } 5000 }
+    [void](Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}")
+    Check 'user switch (WTS_CONSOLE_DISCONNECT) locks' { PostToCore 0x02B1 2; WaitFor { (State) -eq 'locked' } 5000 }
+    Check 'lock_all during the password check: folder ends locked, unlock cancelled' {
+        # Zapros otkrytiya ushel, scrypt schitaet; v eto vremya prihodit lock_all.
+        # Pri lyubom raskladke papka v konce zaperta; otmenu dostatochno poymat hotya by raz.
+        $cancelled = 0
+        foreach ($delay in 0, 10, 20, 30, 40) {
+            $c = New-Object IO.Pipes.NamedPipeClientStream '.', $pipeName, 'InOut'
+            $c.Connect(5000)
+            $enc = New-Object Text.UTF8Encoding $false
+            $w = New-Object IO.StreamWriter $c, $enc; $w.AutoFlush = $true
+            $r = New-Object IO.StreamReader $c, $enc
+            $w.WriteLine("{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}")
+            Start-Sleep -Milliseconds $delay
+            [void](Send '{"cmd":"lock_all"}')
+            $resp = $r.ReadLine() | ConvertFrom-Json
+            $c.Dispose()
+            $st = State
+            if ($st -ne 'locked') { throw "delay=$delay state=$st resp=$($resp | ConvertTo-Json -Compress)" }
+            if ($resp.error -eq 'unlock_cancelled') { $cancelled++ }
+        }
+        if ($cancelled -eq 0) { throw 'never caught the unlock in progress' }
+        "cancelled $cancelled of 5"
+    }
+    [void](Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}")
+    Check 'session unlock message does not lock' { PostToCore 0x02B1 8; Start-Sleep 1; (State) -eq 'unlocked' }
+
+    # Avtozapiranie po bezdeystviyu
+    Check 'set_idle_lock 5 s' { (Send "{`"cmd`":`"set_idle_lock`",`"path`":`"$(J $mnt)`",`"secs`":5}").folder.idle_lock_secs -eq 5 }
+    [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $mnt)`"}")
+    [void](Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}")
+    Check 'reading the folder keeps it open' {
+        1..9 | ForEach-Object { [void](Get-Content "$mnt\new.txt"); Start-Sleep -Milliseconds 1000 }
+        (State) -eq 'unlocked'
+    }
+    Check 'idle folder locks by itself' { WaitFor { (State) -eq 'locked' } 12000 }
+    [void](Send "{`"cmd`":`"set_idle_lock`",`"path`":`"$(J $mnt)`",`"secs`":0}")
+
+    # Perezapusk: spisok sohranyaetsya, papka podklyuchaetsya zapertoy
+    Check 'quit: process exits, mount path gone' {
+        [void](Send '{"cmd":"quit"}')
+        $script:proc.WaitForExit(15000) -and -not (Test-Path $mnt)
+    }
+    $script:proc = StartCore
+    Check 'restart: folder mounted locked from folders.json' { (State) -eq 'locked' -and (Test-Path "$mnt\$openWord $ruName.zamok") }
+    Check 'restart: idle setting kept' { ((Send '{"cmd":"status"}').folders[0].idle_lock_secs) -eq 0 }
+
+    # Padenie processa: WinFsp sam ubiraet tochku podklyucheniya
+    [void](Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}")
+    Check 'core killed: mount point removed, nothing decrypted left' {
+        $script:proc.Kill(); [void]$script:proc.WaitForExit(10000)
+        WaitFor { -not (Test-Path $mnt) } 10000
+    }
+    $script:proc = StartCore
+    Check 'after crash: mounted again, locked' { (State) -eq 'locked' }
+
+    # Mertvaya tochka podklyucheniya posle vyklyucheniya pitaniya
+    [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(15000)
+    New-Item -ItemType Directory $mnt | Out-Null
+    [ZT]::SetMountPoint($mnt, '\Device\Volume{00000000-0000-0000-0000-00000000dead}\')
+    Check 'stale mount point is in place' { try { [void](Get-ChildItem $mnt); $false } catch { $true } }
+    $script:proc = StartCore
+    Check 'start removes the stale mount point and mounts' { (State) -eq 'locked' -and (Test-Path "$mnt\$openWord $ruName.zamok") }
+
+    # Na meste papki obychnaya papka: core ee ne trogaet
+    [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(15000)
+    New-Item -ItemType Directory $mnt | Out-Null; Set-Content "$mnt\mine.txt" 'mine'
+    $script:proc = StartCore
+    Check 'occupied path at start: unavailable, user file untouched' {
+        $f = (Send '{"cmd":"status"}').folders[0]
+        $f.state -eq 'unavailable' -and $f.error -eq 'path_occupied' -and (Get-Content "$mnt\mine.txt") -eq 'mine'
+    }
+    Remove-Item $mnt -Recurse -Force
+    Check 'unlock mounts a folder that was unavailable' {
+        $r = Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}"
+        $r.ok -and (Get-Content "$mnt\new.txt") -eq 'written through core'
+    }
+
+    # Ubrat iz spiska: dannye cely
+    Check 'remove: unmounted, vault intact, list empty' {
+        $r = Send "{`"cmd`":`"remove`",`"path`":`"$(J $mnt)`"}"
+        $r.ok -and -not (Test-Path $mnt) -and (Test-Path "$vault\masterkey.cryptomator") -and
+            @((Get-Content "$data\folders.json" -Raw -Encoding UTF8 | ConvertFrom-Json).folders).Count -eq 0
+    }
+    Check 'unknown folder: not_found' { (Send "{`"cmd`":`"lock`",`"path`":`"$(J $mnt)`"}").error -eq 'not_found' }
+    Check 'log has no folder names, paths or passwords' {
+        $log = Get-Content "$data\core.log" -Raw -Encoding UTF8
+        $bad = @($ruName, $root, $pw, 'busy') | Where-Object { $log.Contains($_) }
+        if ($bad) { "found in log: $($bad -join ', ')" -eq '' } else { "lines=$(($log -split "`n").Count)" }
+    }
+}
+finally {
+    if ($script:proc -and -not $script:proc.HasExited) {
+        try { [void](Send '{"cmd":"quit"}') } catch {}
+        if (-not $script:proc.WaitForExit(15000)) { $script:proc.Kill() }
+    }
+    $results | Format-Table -AutoSize -Wrap | Out-String -Width 220
+    "passed: $(@($results | Where-Object Ok).Count) / $($results.Count)"
+}
+

@@ -2,7 +2,7 @@
 # Программа отображает файл, читает его, папку запирают, программа читает снова.
 # Запуск: powershell -NoProfile -ExecutionPolicy Bypass -File tests\fs\test-mmap.ps1
 $ErrorActionPreference = 'Stop'
-$repo = 'C:\dev\zamok'
+$repo = (Resolve-Path "$PSScriptRoot/../..").Path
 $root = "$repo\tests\tmp\mmap"; $vault = "$root\vault"; $mnt = "$root\mnt"; $src = "$root\src"
 Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $src | Out-Null

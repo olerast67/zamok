@@ -92,6 +92,22 @@ enum Virtual {
     DesktopIni,
 }
 
+/// Почему папка не открылась.
+#[derive(Debug, thiserror::Error)]
+pub enum UnlockError {
+    #[error(transparent)]
+    Crypto(#[from] zamok_crypto::Error),
+    /// Папку заперли, пока проверялся пароль: открытие отменено.
+    #[error("unlock cancelled: the folder was locked meanwhile")]
+    Cancelled,
+}
+
+impl From<std::io::Error> for UnlockError {
+    fn from(e: std::io::Error) -> Self {
+        UnlockError::Crypto(e.into())
+    }
+}
+
 pub struct ZFile {
     path: Mutex<String>,
     kind: Mutex<Option<Kind>>,
@@ -132,6 +148,11 @@ pub struct Control {
     /// Какой-то путь не удалось сбросить уведомлением (переполнение или слишком длинный путь):
     /// перед ответом «заперто» нужно дождаться, пока кэш ядра истечёт сам.
     fallback_wait: AtomicBool,
+    /// Отсчёт для [`Control::idle_for`].
+    started: std::time::Instant,
+    /// Когда в папке последний раз читали, писали, создавали, переименовывали или смотрели
+    /// содержимое каталога (миллисекунды от `started`).
+    last_activity_ms: AtomicU64,
 }
 
 pub struct ZamokFs {
@@ -172,24 +193,73 @@ fn valid_name(name: &str) -> bool {
 
 impl Control {
     /// Открыть паролем. Неверный пароль оставляет папку запертой.
-    pub fn unlock_with_password(&self, password: &str) -> zamok_crypto::Result<()> {
+    pub fn unlock_with_password(&self, password: &str) -> Result<(), UnlockError> {
+        self.unlock_with_password_if(password, &|| true)
+    }
+
+    /// Открыть паролем, если к моменту установки ключа открытие всё ещё нужно.
+    ///
+    /// Проверка пароля (scrypt) занимает заметное время. Если за это время папку заперли
+    /// ([`Control::lock`], например по Win+L) или `still_wanted` вернул `false`, ключ
+    /// выбрасывается и возвращается [`UnlockError::Cancelled`]. `still_wanted` вызывается
+    /// под тем же замком, под которым ставится ключ.
+    pub fn unlock_with_password_if(
+        &self,
+        password: &str,
+        still_wanted: &dyn Fn() -> bool,
+    ) -> Result<(), UnlockError> {
+        let started = self.generation.load(Ordering::SeqCst);
         let mk = MasterkeyFile::from_json(&fs::read_to_string(
             self.root.join("masterkey.cryptomator"),
         )?)?;
-        self.unlock_with_key(mk.unlock(password)?)
+        let key = mk.unlock(password)?;
+        self.commit_unlock(key, started, still_wanted)
     }
 
-    pub fn unlock_with_key(&self, key: MasterKey) -> zamok_crypto::Result<()> {
+    /// Открыть ключом (ключ восстановления).
+    pub fn unlock_with_key(&self, key: MasterKey) -> Result<(), UnlockError> {
+        self.unlock_with_key_if(key, &|| true)
+    }
+
+    /// Открыть ключом с той же отменой, что у [`Control::unlock_with_password_if`].
+    pub fn unlock_with_key_if(
+        &self,
+        key: MasterKey,
+        still_wanted: &dyn Fn() -> bool,
+    ) -> Result<(), UnlockError> {
+        let started = self.generation.load(Ordering::SeqCst);
+        self.commit_unlock(key, started, still_wanted)
+    }
+
+    fn commit_unlock(
+        &self,
+        key: MasterKey,
+        started: u64,
+        still_wanted: &dyn Fn() -> bool,
+    ) -> Result<(), UnlockError> {
         let jwt = fs::read_to_string(self.root.join("vault.cryptomator"))?;
         let config = VaultConfig::from_jwt(&jwt, &key)?;
-        *self.state.write().unwrap() = Some(Unlocked { key, config });
+        let mut st = self.state.write().unwrap();
+        // lock меняет поколение под этим же замком
+        if self.generation.load(Ordering::SeqCst) != started || !still_wanted() {
+            return Err(UnlockError::Cancelled); // key стирается при удалении
+        }
+        *st = Some(Unlocked { key, config });
+        drop(st);
+        self.touch();
         Ok(())
     }
 
-    /// Запереть: стереть мастер-ключ и ключи всех открытых файлов.
-    pub fn lock(&self) {
+    /// Запереть: стереть мастер-ключ и ключи всех открытых файлов. Поколение меняется
+    /// всегда, и у запертой папки тоже: так отменяются открытия, которые сейчас проверяют
+    /// пароль. Проверка состояния и запирание идут под одним замком.
+    /// Возвращает `true`, если папка была открыта (тогда нужен [`crate::mount::settle_lock`]).
+    pub fn lock(&self) -> bool {
         let mut st = self.state.write().unwrap();
         self.generation.fetch_add(1, Ordering::SeqCst);
+        if st.is_none() {
+            return false;
+        }
         for weak in self.open_files.lock().unwrap().drain().map(|(_, w)| w) {
             if let Some(f) = weak.upgrade() {
                 f.lock().unwrap().seal();
@@ -201,6 +271,7 @@ impl Control {
         seen.push("\\".to_string());
         self.pending_invalidate.lock().unwrap().extend(seen);
         *st = None; // MasterKey стирается при удалении (ZeroizeOnDrop)
+        true
     }
 
     pub fn is_locked(&self) -> bool {
@@ -215,6 +286,19 @@ impl Control {
     /// Ещё не все уведомления о запирании отправлены ядру.
     pub fn invalidation_pending(&self) -> bool {
         !self.pending_invalidate.lock().unwrap().is_empty()
+    }
+
+    /// Отметить работу с папкой (для автозапирания по бездействию).
+    pub fn touch(&self) {
+        let ms = self.started.elapsed().as_millis() as u64;
+        self.last_activity_ms.fetch_max(ms, Ordering::Relaxed);
+    }
+
+    /// Сколько времени с папкой ничего не делали (с момента открытия или последнего обращения).
+    pub fn idle_for(&self) -> std::time::Duration {
+        let now = self.started.elapsed().as_millis() as u64;
+        let last = self.last_activity_ms.load(Ordering::Relaxed);
+        std::time::Duration::from_millis(now.saturating_sub(last))
     }
 
     fn remember(&self, path: &str) {
@@ -241,6 +325,8 @@ impl ZamokFs {
             seen: Mutex::new(std::collections::HashSet::new()),
             pending_invalidate: Mutex::new(Vec::new()),
             fallback_wait: AtomicBool::new(false),
+            started: std::time::Instant::now(),
+            last_activity_ms: AtomicU64::new(0),
         });
         Ok(ZamokFs {
             root: root.to_path_buf(),
@@ -786,6 +872,7 @@ impl FileSystemContext for ZamokFs {
         _extra_buffer_is_reparse_point: bool,
         file_info: &mut OpenFileInfo,
     ) -> FsResult<Self::FileContext> {
+        self.ctl.touch();
         let path = file_name.to_string_lossy();
         self.with_key(|u| {
             let (parent, name) = parent_and_name(&path)?;
@@ -891,6 +978,7 @@ impl FileSystemContext for ZamokFs {
         _extra_buffer: Option<&[u8]>,
         file_info: &mut FileInfo,
     ) -> FsResult<()> {
+        self.ctl.touch();
         self.check(context)?;
         let c = self.cipher_of(context)?;
         c.lock().unwrap().set_len(0).map_err(cerr)?;
@@ -915,6 +1003,7 @@ impl FileSystemContext for ZamokFs {
         marker: DirMarker,
         buffer: &mut [u8],
     ) -> FsResult<u32> {
+        self.ctl.touch();
         self.check(context)?;
         let mut entries: Vec<(String, FileInfo)> = Vec::new();
         let path = context.path.lock().unwrap().clone();
@@ -984,6 +1073,7 @@ impl FileSystemContext for ZamokFs {
         new_file_name: &U16CStr,
         replace_if_exists: bool,
     ) -> FsResult<()> {
+        self.ctl.touch();
         self.check(context)?;
         let old_path = context.path.lock().unwrap().clone();
         let new_path = new_file_name.to_string_lossy();
@@ -1119,6 +1209,7 @@ impl FileSystemContext for ZamokFs {
         _file_name: &U16CStr,
         delete_file: bool,
     ) -> FsResult<()> {
+        self.ctl.touch();
         self.check(context)?;
         if context.virt.is_some() {
             return Err(STATUS_ACCESS_DENIED.into());
@@ -1142,6 +1233,7 @@ impl FileSystemContext for ZamokFs {
         set_allocation_size: bool,
         file_info: &mut FileInfo,
     ) -> FsResult<()> {
+        self.ctl.touch();
         self.check(context)?;
         let c = self.cipher_of(context)?;
         {
@@ -1155,6 +1247,7 @@ impl FileSystemContext for ZamokFs {
     }
 
     fn read(&self, context: &Self::FileContext, buffer: &mut [u8], offset: u64) -> FsResult<u32> {
+        self.ctl.touch();
         self.check(context)?;
         if let Some(v) = &context.virt {
             let data = self.virtual_content(v);
@@ -1182,6 +1275,7 @@ impl FileSystemContext for ZamokFs {
         constrained_io: bool,
         file_info: &mut FileInfo,
     ) -> FsResult<u32> {
+        self.ctl.touch();
         self.check(context)?;
         let c = self.cipher_of(context)?;
         let written = {
