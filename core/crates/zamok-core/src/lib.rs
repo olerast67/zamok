@@ -5,11 +5,14 @@
 //! - [`mountpoint`]: мёртвые точки подключения после выключения питания.
 //! - [`core`]: состояние папок и операции над ними.
 //! - [`protocol`], [`pipe`]: команды по каналу, доступному только этому пользователю.
+//! - [`preflight`], [`encrypt`]: шифрование существующей папки на месте с журналом.
 //! - [`autolock`]: блокировка экрана, сон, выход из системы, бездействие.
 
 pub mod autolock;
 pub mod config;
 pub mod core;
+pub mod encrypt;
 pub mod mountpoint;
 pub mod pipe;
+pub mod preflight;
 pub mod protocol;

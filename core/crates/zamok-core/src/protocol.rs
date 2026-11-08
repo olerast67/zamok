@@ -46,6 +46,21 @@ pub enum Request {
         path: String,
         secs: u64,
     },
+    /// Зашифровать существующую папку на месте. Ответ сразу: номер работы и ключ
+    /// восстановления; копирование идёт в фоне (`job_status`).
+    Encrypt {
+        path: String,
+        password: Zeroizing<String>,
+        #[serde(default)]
+        idle_lock_secs: Option<u64>,
+    },
+    JobStatus {
+        id: String,
+    },
+    /// Отменить шифрование. Возможно только до подмены папки; дальше работа доводится до конца.
+    CancelJob {
+        id: String,
+    },
     /// Запереть всё, отключить папки и завершиться.
     Quit,
 }
@@ -64,6 +79,38 @@ pub enum ErrorCode {
     /// Нет хранилища по указанному пути или оно повреждено.
     BadVault,
     MountFailed,
+    // Проверки перед шифрованием (в ответе бывают примеры: относительные пути)
+    /// Не папка: файл, ссылка или точка подключения.
+    NotAPlainFolder,
+    /// Системная папка, корень диска, профиль или его известные папки.
+    SystemFolder,
+    /// Папка облачного клиента (OneDrive, Dropbox, Яндекс.Диск).
+    CloudFolder,
+    NotNtfs,
+    /// Рядом уже есть `.Имя.zamok`, `.zamok.tmp` или `.zamok-original`.
+    VaultExists,
+    /// Ссылки, облачные заглушки, неподходящие имена, слишком глубокие пути.
+    UnsupportedItems,
+    /// Файлы открыты в других программах.
+    FilesInUse,
+    /// Файлы или папки нельзя прочитать.
+    Unreadable,
+    NotEnoughSpace,
+    // Шифрование
+    /// Уже идёт другое шифрование.
+    JobRunning,
+    /// Прошлое шифрование не завершено (журнал остался): core доведёт его при перезапуске.
+    RecoveryPending,
+    /// Что-то в папке изменилось во время копирования: всё отменено, оригинал цел.
+    ChangedDuringCopy,
+    /// Расшифрованная копия не совпала с оригиналом: всё отменено, оригинал цел.
+    VerifyFailed,
+    /// Не вышло записать копию (диск, права): всё отменено, оригинал цел.
+    CopyFailed,
+    /// Папку держит другая программа, её нельзя переименовать: всё отменено, оригинал цел.
+    FolderInUse,
+    /// Отменено человеком: оригинал цел.
+    Cancelled,
     /// Папку заперли (Win+L, сон, «запереть всё»), пока проверялся пароль.
     UnlockCancelled,
     Internal,
@@ -89,6 +136,29 @@ pub struct FolderInfo {
     pub error: Option<ErrorCode>,
 }
 
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum JobState {
+    Running,
+    Done,
+    Failed,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct JobInfo {
+    pub id: String,
+    pub path: String,
+    pub state: JobState,
+    /// Шаг из журнала: copying, verified, vault_placed, original_aside, registered.
+    pub phase: String,
+    pub files_done: u64,
+    pub files_total: u64,
+    pub bytes_done: u64,
+    pub bytes_total: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<ErrorCode>,
+}
+
 #[derive(Serialize, Debug, Default)]
 pub struct Response {
     pub ok: bool,
@@ -98,6 +168,16 @@ pub struct Response {
     pub folders: Option<Vec<FolderInfo>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folder: Option<FolderInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job: Option<JobInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jobs: Option<Vec<JobInfo>>,
+    /// Ключ восстановления, 44 слова: только в ответе на `encrypt`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery_key: Option<String>,
+    /// Примеры того, что мешает (относительные пути), при отказе проверок.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub examples: Option<Vec<String>>,
 }
 
 impl Response {

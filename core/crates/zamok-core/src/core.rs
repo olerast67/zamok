@@ -12,8 +12,9 @@ use zamok_fs::fs::{Control, UnlockError};
 use zamok_fs::mount::{notify_shell, settle_lock, Mounted};
 
 use crate::config::{self, Config, FolderConfig, DEFAULT_IDLE_LOCK_SECS};
+use crate::encrypt::Progress;
 use crate::mountpoint::{self, PathState};
-use crate::protocol::{ErrorCode, FolderInfo, FolderState};
+use crate::protocol::{ErrorCode, FolderInfo, FolderState, JobInfo};
 
 pub struct Entry {
     cfg: Mutex<FolderConfig>,
@@ -127,6 +128,8 @@ pub struct Core {
     /// Общие настройки; список папок в нём не используется (он в `entries`).
     settings: Mutex<Config>,
     entries: Mutex<Vec<Arc<Entry>>>,
+    /// Работы шифрования этого запуска (для `job_status`).
+    jobs: Mutex<Vec<Arc<Progress>>>,
     quit: AtomicBool,
 }
 
@@ -141,13 +144,68 @@ impl Core {
             data_dir: data_dir.to_path_buf(),
             settings: Mutex::new(cfg),
             entries: Mutex::new(folders.into_iter().map(Entry::new).collect()),
+            jobs: Mutex::new(Vec::new()),
             quit: AtomicBool::new(false),
         });
         let entries = core.entries.lock().unwrap().clone();
         for e in entries {
             let _ = e.ensure_mounted();
         }
+        // Шифрования, прерванные сбоем: довести до конца или откатить
+        crate::encrypt::recover(&core, data_dir);
         Ok(core)
+    }
+
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
+    }
+
+    /// Пути всех зашифрованных папок и их хранилищ (шифровать внутри них нельзя).
+    pub fn taken_paths(&self) -> Vec<PathBuf> {
+        let entries = self.entries.lock().unwrap();
+        entries
+            .iter()
+            .flat_map(|e| {
+                let c = e.cfg();
+                [c.path, c.vault]
+            })
+            .collect()
+    }
+
+    /// Добавить папку, зашифрованную на месте. Уже в списке: только подключить.
+    pub fn register_encrypted(
+        &self,
+        path: &Path,
+        vault: &Path,
+        idle_lock_secs: u64,
+    ) -> Result<(), ErrorCode> {
+        let p = path.to_string_lossy();
+        if let Ok(e) = self.find(&p) {
+            return e.ensure_mounted().map(|_| ());
+        }
+        self.add(&p, &vault.to_string_lossy(), Some(idle_lock_secs))
+            .map(|_| ())
+    }
+
+    pub fn add_job(&self, p: Arc<Progress>) {
+        self.jobs.lock().unwrap().push(p);
+    }
+
+    pub fn job(&self, id: &str) -> Option<Arc<Progress>> {
+        self.jobs
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|j| j.id == id)
+            .cloned()
+    }
+
+    pub fn job_running(&self) -> bool {
+        self.jobs.lock().unwrap().iter().any(|j| j.is_running())
+    }
+
+    pub fn jobs(&self) -> Vec<JobInfo> {
+        self.jobs.lock().unwrap().iter().map(|j| j.info()).collect()
     }
 
     pub fn lock_on_screen_lock(&self) -> bool {

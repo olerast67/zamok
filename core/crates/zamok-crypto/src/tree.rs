@@ -27,7 +27,9 @@ pub enum Node {
     Symlink { path: String },
 }
 
-fn safe_name(name: &str) -> Result<()> {
+/// Имя годится для хранилища и для Windows: без разделителей, `.`, `..`, запрещённых знаков
+/// и имён устройств (CON, NUL, COM1…).
+pub fn safe_name(name: &str) -> Result<()> {
     let bad_char = |c: char| {
         matches!(
             c,
@@ -190,22 +192,10 @@ impl Vault {
     }
 }
 
-/// Создать новое хранилище в `dst` из содержимого папки `src` (для тестов совместимости
-/// и как основа шифрования на месте). `dst` не должна существовать или должна быть пустой.
+/// Создать новое хранилище в `dst` из содержимого папки `src` (для тестов совместимости).
+/// `dst` не должна существовать или должна быть пустой.
 pub fn create_from_dir(src: &Path, dst: &Path, password: &str, scrypt_cost: u32) -> Result<Vault> {
-    let key = MasterKey::generate()?;
-    fs::create_dir_all(dst)?;
-    fs::write(
-        dst.join("masterkey.cryptomator"),
-        MasterkeyFile::lock_with(&key, password, scrypt_cost)?.to_json(),
-    )?;
-    let config = VaultConfig::new()?;
-    fs::write(dst.join("vault.cryptomator"), config.to_jwt(&key)?)?;
-    let vault = Vault {
-        root: dst.to_path_buf(),
-        key,
-        config,
-    };
+    let vault = Vault::create_empty(dst, password, scrypt_cost)?;
     vault.write_dir(src, "")?;
     Ok(vault)
 }
@@ -224,38 +214,97 @@ pub fn write_dirid_backup(root: &Path, key: &MasterKey, dir_id: &str) -> Result<
 }
 
 impl Vault {
+    /// Новое пустое хранилище в `dst` (папки не должно быть или она пустая) с новым
+    /// мастер-ключом, защищённым паролем.
+    pub fn create_empty(dst: &Path, password: &str, scrypt_cost: u32) -> Result<Vault> {
+        let key = MasterKey::generate()?;
+        fs::create_dir_all(dst)?;
+        fs::write(
+            dst.join("masterkey.cryptomator"),
+            MasterkeyFile::lock_with(&key, password, scrypt_cost)?.to_json(),
+        )?;
+        let config = VaultConfig::new()?;
+        fs::write(dst.join("vault.cryptomator"), config.to_jwt(&key)?)?;
+        let vault = Vault {
+            root: dst.to_path_buf(),
+            key,
+            config,
+        };
+        write_dirid_backup(&vault.root, &vault.key, "")?;
+        Ok(vault)
+    }
+
+    /// Узел для имени `name` в каталоге `parent_id`: путь на диске; если имя сокращено,
+    /// создаёт папку `.c9s` с `name.c9s`. Ошибка, если такой узел уже есть.
+    fn new_node(&self, parent_id: &str, name: &str, as_dir: bool) -> Result<(PathBuf, bool)> {
+        safe_name(name)?;
+        let dir = self.root.join(names::dir_path(&self.key, parent_id));
+        let (node, full) =
+            names::node_name(&self.key, name, parent_id, self.config.shortening_threshold);
+        let node_path = dir.join(&node);
+        if node_path.exists() {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "node already exists",
+            )));
+        }
+        if as_dir || full.is_some() {
+            fs::create_dir(&node_path)?;
+        }
+        if let Some(full) = &full {
+            fs::write(node_path.join(NAME_FILE), full)?;
+        }
+        Ok((node_path, full.is_some()))
+    }
+
+    /// Создать каталог `name` внутри каталога `parent_id` (корень: `""`). Возвращает ID
+    /// нового каталога и папку его узла на диске (по ней видны время и атрибуты каталога).
+    pub fn add_dir(&self, parent_id: &str, name: &str) -> Result<(String, PathBuf)> {
+        let (node_path, _) = self.new_node(parent_id, name, true)?;
+        let child_id = crate::uuid_v4()?;
+        fs::write(node_path.join(DIR_FILE), &child_id)?;
+        fs::create_dir_all(self.root.join(names::dir_path(&self.key, &child_id)))?;
+        write_dirid_backup(&self.root, &self.key, &child_id)?;
+        Ok((child_id, node_path))
+    }
+
+    /// Записать файл `name` в каталог `parent_id`, читая содержимое из потока кусками.
+    /// Возвращает путь шифротекста на диске и длину с SHA-256 прочитанного открытого текста.
+    pub fn add_file(
+        &self,
+        parent_id: &str,
+        name: &str,
+        input: &mut impl std::io::Read,
+    ) -> Result<(PathBuf, content::Digest)> {
+        let (node_path, shortened) = self.new_node(parent_id, name, false)?;
+        let target = if shortened {
+            node_path.join(CONTENTS_FILE)
+        } else {
+            node_path
+        };
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)?;
+        let mut out = std::io::BufWriter::with_capacity(256 * 1024, file);
+        let digest = content::encrypt_stream(&self.key, input, &mut out)?;
+        use std::io::Write;
+        out.flush()?;
+        Ok((target, digest))
+    }
+
     fn write_dir(&self, src: &Path, dir_id: &str) -> Result<()> {
-        let dir = self.root.join(names::dir_path(&self.key, dir_id));
-        fs::create_dir_all(&dir)?;
-        write_dirid_backup(&self.root, &self.key, dir_id)?;
         for entry in fs::read_dir(src)? {
             let entry = entry?;
             let name = entry
                 .file_name()
                 .into_string()
                 .map_err(|_| Error::Authentication)?;
-            let (node, full) =
-                names::node_name(&self.key, &name, dir_id, self.config.shortening_threshold);
-            let node_path = dir.join(&node);
-            let is_dir = entry.file_type()?.is_dir();
-            if is_dir || full.is_some() {
-                fs::create_dir_all(&node_path)?;
-            }
-            if let Some(full) = &full {
-                fs::write(node_path.join(NAME_FILE), full)?;
-            }
-            if is_dir {
-                let child_id = crate::uuid_v4()?;
-                fs::write(node_path.join(DIR_FILE), &child_id)?;
+            if entry.file_type()?.is_dir() {
+                let (child_id, _) = self.add_dir(dir_id, &name)?;
                 self.write_dir(&entry.path(), &child_id)?;
             } else {
-                let ct = content::encrypt_file(&self.key, &fs::read(entry.path())?)?;
-                let target = if full.is_some() {
-                    node_path.join(CONTENTS_FILE)
-                } else {
-                    node_path
-                };
-                fs::write(target, ct)?;
+                self.add_file(dir_id, &name, &mut fs::File::open(entry.path())?)?;
             }
         }
         Ok(())

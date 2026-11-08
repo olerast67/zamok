@@ -157,6 +157,78 @@ pub fn decrypt_file(key: &MasterKey, ciphertext: &[u8]) -> Result<Zeroizing<Vec<
     Ok(out)
 }
 
+/// Прочитать сколько получится до заполнения `buf` или конца потока.
+fn read_full(input: &mut impl std::io::Read, buf: &mut [u8]) -> Result<usize> {
+    let mut got = 0;
+    while got < buf.len() {
+        match input.read(&mut buf[got..]) {
+            Ok(0) => break,
+            Ok(n) => got += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(got)
+}
+
+/// Длина и отпечаток SHA-256 открытого текста.
+pub type Digest = (u64, [u8; 32]);
+
+/// Зашифровать поток кусками по 32 КиБ, не держа файл в памяти. Результат тот же, что у
+/// [`encrypt_file`]. Возвращает длину и SHA-256 прочитанного открытого текста.
+pub fn encrypt_stream(
+    key: &MasterKey,
+    input: &mut impl std::io::Read,
+    output: &mut impl std::io::Write,
+) -> Result<Digest> {
+    use sha2::{Digest as _, Sha256};
+    let header = FileHeader::generate()?;
+    output.write_all(&header.encrypt(key)?)?;
+    let mut buf = Zeroizing::new(vec![0u8; PAYLOAD_LEN]);
+    let mut hash = Sha256::new();
+    let mut total = 0u64;
+    for i in 0u64.. {
+        let n = read_full(input, &mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hash.update(&buf[..n]);
+        output.write_all(&header.encrypt_chunk(i, &buf[..n])?)?;
+        total += n as u64;
+        if n < PAYLOAD_LEN {
+            break;
+        }
+    }
+    Ok((total, hash.finalize().into()))
+}
+
+/// Расшифровать поток и посчитать длину и SHA-256 открытого текста, ничего не сохраняя.
+/// Для проверки зашифрованной копии против оригинала.
+pub fn decrypt_stream_digest(key: &MasterKey, input: &mut impl std::io::Read) -> Result<Digest> {
+    use sha2::{Digest as _, Sha256};
+    let mut hbuf = [0u8; HEADER_LEN];
+    if read_full(input, &mut hbuf)? != HEADER_LEN {
+        return Err(Error::BadLength);
+    }
+    let header = FileHeader::decrypt(key, &hbuf)?;
+    let mut buf = vec![0u8; CHUNK_LEN];
+    let mut hash = Sha256::new();
+    let mut total = 0u64;
+    for i in 0u64.. {
+        let n = read_full(input, &mut buf)?;
+        if n == 0 {
+            break;
+        }
+        let pt = header.decrypt_chunk(i, &buf[..n])?;
+        hash.update(&pt[..]);
+        total += pt.len() as u64;
+        if n < CHUNK_LEN {
+            break;
+        }
+    }
+    Ok((total, hash.finalize().into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,6 +249,42 @@ mod tests {
             assert_eq!(cleartext_size(ct.len() as u64).unwrap(), n as u64);
             assert_eq!(&*decrypt_file(&k, &ct).unwrap(), &data);
         }
+    }
+
+    #[test]
+    fn stream_matches_whole_file_functions() {
+        use sha2::{Digest as _, Sha256};
+        let k = MasterKey::generate().unwrap();
+        for n in [0usize, 1, PAYLOAD_LEN, PAYLOAD_LEN + 1, 3 * PAYLOAD_LEN + 7] {
+            let data: Vec<u8> = (0..n).map(|i| (i * 13) as u8).collect();
+            let mut ct = Vec::new();
+            let (len, digest) = encrypt_stream(&k, &mut &data[..], &mut ct).unwrap();
+            assert_eq!(len, n as u64);
+            let want: [u8; 32] = Sha256::digest(&data).into();
+            assert_eq!(digest, want);
+            assert_eq!(ct.len(), encrypt_file(&k, &data).unwrap().len());
+            assert_eq!(&*decrypt_file(&k, &ct).unwrap(), &data);
+            assert_eq!(
+                decrypt_stream_digest(&k, &mut &ct[..]).unwrap(),
+                (len, digest)
+            );
+        }
+    }
+
+    #[test]
+    fn stream_digest_detects_damage_and_truncation() {
+        let k = MasterKey::generate().unwrap();
+        let data = vec![5u8; 2 * PAYLOAD_LEN + 10];
+        let mut ct = Vec::new();
+        encrypt_stream(&k, &mut &data[..], &mut ct).unwrap();
+        let mut bad = ct.clone();
+        bad[HEADER_LEN + 20] ^= 1;
+        assert!(decrypt_stream_digest(&k, &mut &bad[..]).is_err());
+        // Срезан последний кусок целиком: длина другая
+        let cut = &ct[..HEADER_LEN + 2 * CHUNK_LEN];
+        let ok = decrypt_stream_digest(&k, &mut &cut[..]).unwrap();
+        assert_ne!(ok.0, data.len() as u64);
+        assert!(decrypt_stream_digest(&k, &mut &ct[..10]).is_err());
     }
 
     #[test]
