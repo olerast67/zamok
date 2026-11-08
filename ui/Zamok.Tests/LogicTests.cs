@@ -86,3 +86,33 @@ public class ProcessTrustTests
     public void UnknownProcessCannotBeInspected() =>
         Assert.Null(CoreClient.Inspect(0xFFFFFFF0));
 }
+
+public class RecoveryFormatTests
+{
+    private static readonly string Key = string.Join(' ', Enumerable.Range(1, 44).Select(i => $"w{(char)('a' + i % 26)}{i}"));
+
+    [Fact]
+    public void TableHasElevenNumberedRowsOfFour()
+    {
+        var lines = RecoveryCheck.FormatTable(Key).Split("\r\n");
+        Assert.Equal(11, lines.Length);
+        Assert.StartsWith(" 1. ", lines[0]);
+        Assert.Contains("44. ", lines[10]);
+        Assert.All(lines, l => Assert.Equal(4, l.Split('.').Length - 1));
+    }
+
+    [Fact]
+    public void NormalizeReadsTheWholeSavedFile()
+    {
+        var file = "Recovery key Zamok for the folder “Clients”\r\nSaved 2026-11-08 12:00\r\n\r\n"
+                   + RecoveryCheck.FormatTable(Key)
+                   + "\r\n\r\nHow to open: double click “Open Clients.zamok” and paste this file.";
+        Assert.Equal(Key, RecoveryCheck.Normalize(file));
+    }
+
+    [Theory]
+    [InlineData("  Flower   casualty\n sometimes ", "flower casualty sometimes")]
+    [InlineData("3. c 1. a 2. b", "a b c")]
+    public void NormalizePlainWordsAndOrder(string input, string expected) =>
+        Assert.Equal(expected, RecoveryCheck.Normalize(input));
+}

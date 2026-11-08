@@ -72,6 +72,13 @@ public sealed partial class EncryptWindow : Window
         UpdateNext();
     }
 
+    private void OnMakeKeyChanged(object sender, RoutedEventArgs e)
+    {
+        // Checked срабатывает ещё при загрузке разметки, когда предупреждения пока нет
+        if (NoKeyWarning is null || MakeKey is null) return;
+        NoKeyWarning.Visibility = Vis(MakeKey.IsChecked != true);
+    }
+
     private void UpdateNext()
     {
         NextButton.IsEnabled = _page switch
@@ -96,12 +103,21 @@ public sealed partial class EncryptWindow : Window
                     (r.Examples is { Length: > 0 } ex ? "\n" + string.Join("\n", ex.Take(8)) : "");
                 return;
             }
-            _recoveryKey = r.RecoveryKey;
             _jobId = r.Job!.Id;
             Password1.Password = Password2.Password = "";
-            ShowKey(_recoveryKey!);
             StartPolling();
-            ShowPage(Page.Key);
+            if (MakeKey.IsChecked == true)
+            {
+                _recoveryKey = r.RecoveryKey;
+                ShowKey(_recoveryKey!);
+                ShowPage(Page.Key);
+            }
+            else
+            {
+                // Человек выбрал вариант без ключа: слова нигде не показываются и не хранятся
+                ShowPage(Page.Progress);
+                RefreshProgress(null);
+            }
         }
         catch (CoreNotRunningException)
         {
@@ -151,7 +167,8 @@ public sealed partial class EncryptWindow : Window
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WindowHelper.Handle(this));
         var file = await picker.PickSaveFileAsync();
         if (file is null) return;
-        var text = Strings.Format("Encrypt_KeyFileText", _name, _recoveryKey!) + "\r\n";
+        var text = Strings.Format("Encrypt_KeyFileText", _name,
+            DateTime.Now.ToString("yyyy-MM-dd HH:mm"), RecoveryCheck.FormatTable(_recoveryKey!)) + "\r\n";
         await Windows.Storage.FileIO.WriteTextAsync(file, text);
         KeySaved.Text = Strings.Get("Encrypt_KeySaved");
     }

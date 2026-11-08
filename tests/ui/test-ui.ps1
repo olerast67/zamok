@@ -179,6 +179,35 @@ try {
         SetValue $w 'RecoveryWords' ($words -join ' '); Press $w 'OpenButton'
         $ui.WaitForExit(10000) -and (Folder $dir).state -eq 'unlocked'
     }
+    # Fayl klyucha celikom (zagolovok, tablica s nomerami, podskazka) vstavlen v pole
+    [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $dir)`"}")
+    $table = (0..10 | ForEach-Object { $r = $_; (0..3 | ForEach-Object { $n = $r * 4 + $_ + 1; ('{0,2}. {1,-13}' -f $n, $words[$n - 1]) }) -join '' }) -join "`r`n"
+    $fileText = "Zamok recovery key for the folder `"x`"`r`nSaved 2026-11-08 12:00`r`n`r`n$table`r`n`r`nHow to open: paste this whole file."
+    $ui = StartUi '--unlock', $dir
+    $w = Window $ui.Id
+    Check 'recovery: the whole saved key file pasted opens the folder' {
+        Press $w 'ModeLink'; Start-Sleep -Milliseconds 300
+        SetValue $w 'RecoveryWords' $fileText; Press $w 'OpenButton'
+        $ui.WaitForExit(10000) -and (Folder $dir).state -eq 'unlocked'
+    }
+
+    # Variant bez klyucha vosstanovleniya: posle parolya srazu itog
+    $dir2 = "$root\nokey"; MakeSample $dir2
+    $ui = StartUi '--encrypt', $dir2
+    $w = Window $ui.Id
+    Check 'wizard without a recovery key: warning shown, no key page, folder encrypted' {
+        SetValue $w 'Password1' $pw; SetValue $w 'Password2' $pw
+        (El $w 'MakeKey').GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Toggle()
+        Start-Sleep -Milliseconds 300
+        $warn = El $w 'NoKeyWarning'
+        if (-not $warn -or -not (IsText 'Encrypt_NoKeyWarning.Text' $warn.Current.Name)) { throw 'no warning' }
+        Press $w 'NextButton'
+        if (-not (WaitFor { (Text $w 'ProgressTitle') -like '*nokey*' } 60000)) { throw 'no result' }
+        $key = El $w 'KeyWords'
+        if ($key -and -not $key.Current.IsOffscreen) { throw 'key page was shown' }
+        (Folder $dir2).state -eq 'unlocked'
+    }
+    $ui.Kill()
 
     # 4. Oshibki
     $ui = StartUi '--unlock', "$root\not-encrypted"

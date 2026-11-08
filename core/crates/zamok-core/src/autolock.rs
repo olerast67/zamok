@@ -92,6 +92,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             if !IDLE_CHECK_RUNNING.swap(true, Ordering::SeqCst) {
                 let core = core.clone();
                 std::thread::spawn(move || {
+                    core.check_folders();
                     core.lock_idle();
                     IDLE_CHECK_RUNNING.store(false, Ordering::SeqCst);
                 });

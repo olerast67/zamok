@@ -98,7 +98,7 @@ public sealed partial class UnlockWindow : Window
 
     private async void OnOpenClick(object sender, RoutedEventArgs e)
     {
-        var secret = _recoveryMode ? RecoveryWords.Text : Password.Password;
+        var secret = _recoveryMode ? RecoveryCheck.Normalize(RecoveryWords.Text) : Password.Password;
         if (string.IsNullOrWhiteSpace(secret) || !OpenButton.IsEnabled) return;
         SetBusy(true);
         try

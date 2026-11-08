@@ -9,7 +9,7 @@
   <data name="Common_Next" xml:space="preserve"><value>Next</value></data>
   <data name="Common_Close" xml:space="preserve"><value>Close</value></data>
   <data name="Unlock_Prompt.Text" xml:space="preserve"><value>Enter the password to open the folder.</value></data>
-  <data name="Unlock_PromptRecovery.Text" xml:space="preserve"><value>Enter the 44 words of the recovery key separated by spaces.</value></data>
+  <data name="Unlock_PromptRecovery.Text" xml:space="preserve"><value>Paste the whole recovery key file or type the 44 words in order.</value></data>
   <data name="Unlock_Password.Header" xml:space="preserve"><value>Password</value></data>
   <data name="Unlock_RecoveryWords.Header" xml:space="preserve"><value>Recovery key</value></data>
   <data name="Unlock_UseRecovery.Content" xml:space="preserve"><value>Forgot the password? Use the recovery key</value></data>
@@ -24,6 +24,8 @@
   <data name="Encrypt_Strength2" xml:space="preserve"><value>Fair password.</value></data>
   <data name="Encrypt_Strength3" xml:space="preserve"><value>Good password.</value></data>
   <data name="Encrypt_Strength4" xml:space="preserve"><value>Strong password.</value></data>
+  <data name="Encrypt_MakeKey.Content" xml:space="preserve"><value>Create a recovery key in case I forget the password</value></data>
+  <data name="Encrypt_NoKeyWarning.Text" xml:space="preserve"><value>Without a recovery key, a forgotten password means the files are lost for good: nobody, Zamok included, can open them.</value></data>
   <data name="Encrypt_Mismatch" xml:space="preserve"><value>The passwords do not match.</value></data>
   <data name="Encrypt_Start" xml:space="preserve"><value>Encrypt</value></data>
   <data name="Encrypt_Check" xml:space="preserve"><value>Check</value></data>
@@ -32,11 +34,14 @@
   <data name="Encrypt_CopyKey.Content" xml:space="preserve"><value>Copy</value></data>
   <data name="Encrypt_KeyFileName" xml:space="preserve"><value>Recovery key {0}</value></data>
   <data name="Encrypt_KeyFileType" xml:space="preserve"><value>Text file</value></data>
-  <data name="Encrypt_KeyFileText" xml:space="preserve"><value>Zamok recovery key for the folder “{0}”:
+  <data name="Encrypt_KeyFileText" xml:space="preserve"><value>Zamok recovery key for the folder “{0}”
+Saved {1}
 
-{1}</value></data>
+{2}
+
+How to open the folder with the key: in the locked folder double-click “Open {0}.zamok”, press “Forgot the password?” and paste this whole file or type the 44 words in order.</value></data>
   <data name="Encrypt_KeySaved" xml:space="preserve"><value>Saved.</value></data>
-  <data name="Encrypt_KeyCopied" xml:space="preserve"><value>Copied. Do not leave the key on the clipboard for long.</value></data>
+  <data name="Encrypt_KeyCopied" xml:space="preserve"><value>Copied. Clear the clipboard after pasting the key.</value></data>
   <data name="Encrypt_VerifyIntro.Text" xml:space="preserve"><value>Let us check that the key is written down. Enter the words with these numbers.</value></data>
   <data name="Encrypt_WordN" xml:space="preserve"><value>Word {0}</value></data>
   <data name="Encrypt_WordsWrong" xml:space="preserve"><value>The words do not match. Press Back and check what you wrote down.</value></data>

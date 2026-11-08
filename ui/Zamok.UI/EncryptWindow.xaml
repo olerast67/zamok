@@ -28,6 +28,12 @@
             <ProgressBar x:Name="StrengthBar" Maximum="4" Height="4" />
             <TextBlock x:Name="StrengthText" AutomationProperties.AutomationId="StrengthText"
                        Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+            <CheckBox x:Name="MakeKey" AutomationProperties.AutomationId="MakeKey"
+                      x:Uid="Encrypt_MakeKey" IsChecked="True" Margin="0,8,0,0"
+                      Checked="OnMakeKeyChanged" Unchecked="OnMakeKeyChanged" />
+            <TextBlock x:Name="NoKeyWarning" AutomationProperties.AutomationId="NoKeyWarning"
+                       x:Uid="Encrypt_NoKeyWarning" Visibility="Collapsed" TextWrapping="Wrap"
+                       Foreground="{ThemeResource SystemFillColorCautionBrush}" />
         </StackPanel>
 
         <!-- 2. Ключ восстановления -->
@@ -35,6 +41,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <TextBlock x:Uid="Encrypt_KeyIntro" TextWrapping="Wrap" />
@@ -56,9 +63,9 @@
                         x:Uid="Encrypt_SaveKey" Click="OnSaveKeyClick" />
                 <Button x:Name="CopyKeyButton" AutomationProperties.AutomationId="CopyKeyButton"
                         x:Uid="Encrypt_CopyKey" Click="OnCopyKeyClick" />
-                <TextBlock x:Name="KeySaved" VerticalAlignment="Center"
-                           Style="{StaticResource CaptionTextBlockStyle}" />
             </StackPanel>
+            <TextBlock x:Name="KeySaved" Grid.Row="3" AutomationProperties.AutomationId="KeySaved"
+                       Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
         </Grid>
 
         <!-- 3. Проверка 4 слов -->
