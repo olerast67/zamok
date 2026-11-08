@@ -4,103 +4,174 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <Grid Padding="32,24,32,24" RowSpacing="16">
+    <!-- Как системный диалог: заголовок в цветах темы, шаг мастера, полоса с кнопками внизу.
+         Размер окна меняется под каждый шаг. -->
+    <Grid x:Name="Root" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="32" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel Orientation="Horizontal" Spacing="16">
-            <FontIcon Glyph="&#xE72E;" FontSize="32" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-            <TextBlock x:Name="Heading" AutomationProperties.AutomationId="Heading"
-                       Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center"
-                       TextWrapping="Wrap" MaxWidth="440" />
-        </StackPanel>
+        <Grid x:Name="TitleBar" Padding="12,0,0,0" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Image x:Name="TitleIcon" Width="16" Height="16" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Text="Zamok" VerticalAlignment="Center"
+                       Style="{StaticResource CaptionTextBlockStyle}" />
+        </Grid>
 
-        <!-- 1. Пароль -->
-        <StackPanel x:Name="PagePassword" Grid.Row="1" Spacing="12">
-            <TextBlock x:Uid="Encrypt_PasswordIntro" TextWrapping="Wrap" />
-            <PasswordBox x:Name="Password1" AutomationProperties.AutomationId="Password1"
-                         x:Uid="Encrypt_Password1" PasswordChanged="OnPasswordChanged" />
-            <PasswordBox x:Name="Password2" AutomationProperties.AutomationId="Password2"
-                         x:Uid="Encrypt_Password2" PasswordChanged="OnPasswordChanged" />
-            <ProgressBar x:Name="StrengthBar" Maximum="4" Height="4" />
-            <TextBlock x:Name="StrengthText" AutomationProperties.AutomationId="StrengthText"
-                       Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
-            <CheckBox x:Name="MakeKey" AutomationProperties.AutomationId="MakeKey"
-                      x:Uid="Encrypt_MakeKey" IsChecked="True" Margin="0,8,0,0"
-                      Checked="OnMakeKeyChanged" Unchecked="OnMakeKeyChanged" />
-            <TextBlock x:Name="NoKeyWarning" AutomationProperties.AutomationId="NoKeyWarning"
-                       x:Uid="Encrypt_NoKeyWarning" Visibility="Collapsed" TextWrapping="Wrap"
-                       Foreground="{ThemeResource SystemFillColorCautionBrush}" />
-        </StackPanel>
-
-        <!-- 2. Ключ восстановления -->
-        <Grid x:Name="PageKey" Grid.Row="1" RowSpacing="12" Visibility="Collapsed">
+        <Grid Grid.Row="1" Padding="24,8,24,16" RowSpacing="12">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <TextBlock x:Uid="Encrypt_KeyIntro" TextWrapping="Wrap" />
-            <!-- Сетка 11 x 4 из отдельных ячеек: слово никогда не уходит на другую строку от
-                 своего номера. Экранный диктор читает весь ключ из имени области. -->
-            <ScrollViewer x:Name="KeyWords" Grid.Row="1" AutomationProperties.AutomationId="KeyWords"
-                          IsTabStop="True">
-                <Grid x:Name="KeyGrid" ColumnSpacing="12" RowSpacing="6" Padding="4">
+
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Image x:Name="FolderIcon" Width="32" Height="32" VerticalAlignment="Center" />
+                <FontIcon x:Name="FallbackIcon" Glyph="&#xE72E;" FontSize="24" Visibility="Collapsed"
+                          Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock x:Name="Heading" AutomationProperties.AutomationId="Heading"
+                               FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="StepText" Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Grid>
+
+            <!-- 1. Пароль -->
+            <StackPanel x:Name="PagePassword" Grid.Row="1" Spacing="10">
+                <PasswordBox x:Name="Password1" AutomationProperties.AutomationId="Password1"
+                             x:Uid="Encrypt_Password1" PasswordRevealMode="Peek" PasswordChanged="OnPasswordChanged" />
+                <PasswordBox x:Name="Password2" AutomationProperties.AutomationId="Password2"
+                             x:Uid="Encrypt_Password2" PasswordRevealMode="Peek" PasswordChanged="OnPasswordChanged" />
+                <ProgressBar x:Name="StrengthBar" Maximum="4" Height="3" />
+                <TextBlock x:Name="StrengthText" AutomationProperties.AutomationId="StrengthText"
+                           Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <CheckBox x:Name="MakeKey" AutomationProperties.AutomationId="MakeKey"
+                          x:Uid="Encrypt_MakeKey" IsChecked="True"
+                          Checked="OnMakeKeyChanged" Unchecked="OnMakeKeyChanged" />
+                <TextBlock x:Name="NoKeyWarning" AutomationProperties.AutomationId="NoKeyWarning"
+                           x:Uid="Encrypt_NoKeyWarning" Visibility="Collapsed" TextWrapping="Wrap"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+            </StackPanel>
+
+            <!-- 2. Ключ восстановления -->
+            <Grid x:Name="PageKey" Grid.Row="1" RowSpacing="10" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock x:Uid="Encrypt_KeyIntro" TextWrapping="Wrap"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <!-- Сетка 11 x 4 из отдельных ячеек на карточке: слово не отрывается от номера.
+                     Экранный диктор читает весь ключ из имени области. -->
+                <Border Grid.Row="1" CornerRadius="6" Padding="12,10"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                    <ScrollViewer x:Name="KeyWords" AutomationProperties.AutomationId="KeyWords" IsTabStop="True">
+                        <Grid x:Name="KeyGrid" ColumnSpacing="8" RowSpacing="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                        </Grid>
+                    </ScrollViewer>
+                </Border>
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="SaveKeyButton" AutomationProperties.AutomationId="SaveKeyButton"
+                            Click="OnSaveKeyClick">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE74E;" FontSize="14" />
+                            <TextBlock x:Uid="Encrypt_SaveKeyText" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="CopyKeyButton" AutomationProperties.AutomationId="CopyKeyButton"
+                            Click="OnCopyKeyClick">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE8C8;" FontSize="14" />
+                            <TextBlock x:Uid="Encrypt_CopyKeyText" />
+                        </StackPanel>
+                    </Button>
+                    <TextBlock x:Name="KeySaved" AutomationProperties.AutomationId="KeySaved" VerticalAlignment="Center"
+                               Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" MaxWidth="200"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+            </Grid>
+
+            <!-- 3. Проверка 4 слов -->
+            <StackPanel x:Name="PageVerify" Grid.Row="1" Spacing="8" Visibility="Collapsed">
+                <TextBlock x:Uid="Encrypt_VerifyIntro" TextWrapping="Wrap"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Grid ColumnSpacing="8" RowSpacing="8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBox x:Name="Word1" AutomationProperties.AutomationId="Word1" IsSpellCheckEnabled="False" />
+                    <TextBox x:Name="Word2" Grid.Column="1" AutomationProperties.AutomationId="Word2" IsSpellCheckEnabled="False" />
+                    <TextBox x:Name="Word3" Grid.Row="1" AutomationProperties.AutomationId="Word3" IsSpellCheckEnabled="False" />
+                    <TextBox x:Name="Word4" Grid.Row="1" Grid.Column="1" AutomationProperties.AutomationId="Word4" IsSpellCheckEnabled="False" />
                 </Grid>
-            </ScrollViewer>
-            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
-                <Button x:Name="SaveKeyButton" AutomationProperties.AutomationId="SaveKeyButton"
-                        x:Uid="Encrypt_SaveKey" Click="OnSaveKeyClick" />
-                <Button x:Name="CopyKeyButton" AutomationProperties.AutomationId="CopyKeyButton"
-                        x:Uid="Encrypt_CopyKey" Click="OnCopyKeyClick" />
             </StackPanel>
-            <TextBlock x:Name="KeySaved" Grid.Row="3" AutomationProperties.AutomationId="KeySaved"
-                       Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+
+            <!-- 4. Прогресс и итог -->
+            <StackPanel x:Name="PageProgress" Grid.Row="1" Spacing="10" Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon x:Name="DoneIcon" Glyph="&#xE73E;" FontSize="18" Visibility="Collapsed"
+                              Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
+                    <TextBlock x:Name="ProgressTitle" AutomationProperties.AutomationId="ProgressTitle"
+                               TextWrapping="Wrap" MaxWidth="340" />
+                </StackPanel>
+                <ProgressBar x:Name="Progress" AutomationProperties.AutomationId="Progress" Maximum="1" />
+                <TextBlock x:Name="ProgressText" AutomationProperties.AutomationId="ProgressText"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+
+            <TextBlock x:Name="ErrorText" Grid.Row="2" AutomationProperties.AutomationId="ErrorText"
+                       AutomationProperties.LiveSetting="Assertive" Visibility="Collapsed"
+                       Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
         </Grid>
 
-        <!-- 3. Проверка 4 слов -->
-        <StackPanel x:Name="PageVerify" Grid.Row="1" Spacing="12" Visibility="Collapsed">
-            <TextBlock x:Uid="Encrypt_VerifyIntro" TextWrapping="Wrap" />
-            <TextBox x:Name="Word1" AutomationProperties.AutomationId="Word1" IsSpellCheckEnabled="False" />
-            <TextBox x:Name="Word2" AutomationProperties.AutomationId="Word2" IsSpellCheckEnabled="False" />
-            <TextBox x:Name="Word3" AutomationProperties.AutomationId="Word3" IsSpellCheckEnabled="False" />
-            <TextBox x:Name="Word4" AutomationProperties.AutomationId="Word4" IsSpellCheckEnabled="False" />
-        </StackPanel>
-
-        <!-- 4. Прогресс и итог -->
-        <StackPanel x:Name="PageProgress" Grid.Row="1" Spacing="12" Visibility="Collapsed">
-            <TextBlock x:Name="ProgressTitle" AutomationProperties.AutomationId="ProgressTitle"
-                       TextWrapping="Wrap" />
-            <ProgressBar x:Name="Progress" AutomationProperties.AutomationId="Progress" Maximum="1" />
-            <TextBlock x:Name="ProgressText" AutomationProperties.AutomationId="ProgressText"
-                       Style="{StaticResource CaptionTextBlockStyle}" />
-        </StackPanel>
-
-        <StackPanel Grid.Row="2" Spacing="12">
-            <TextBlock x:Name="ErrorText" AutomationProperties.AutomationId="ErrorText"
-                       AutomationProperties.LiveSetting="Assertive"
-                       Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-                <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20" />
-                <Button x:Name="BackButton" AutomationProperties.AutomationId="BackButton"
-                        x:Uid="Common_Back" MinWidth="110" Visibility="Collapsed" Click="OnBackClick" />
-                <Button x:Name="LockNowButton" AutomationProperties.AutomationId="LockNowButton"
-                        x:Uid="Encrypt_LockNow" MinWidth="110" Visibility="Collapsed" Click="OnLockNowClick" />
-                <Button x:Name="NextButton" AutomationProperties.AutomationId="NextButton"
-                        Style="{StaticResource AccentButtonStyle}" MinWidth="110" Click="OnNextClick" />
-                <Button x:Name="CancelButton" AutomationProperties.AutomationId="CancelButton"
-                        x:Uid="Common_Cancel" MinWidth="110" Click="OnCancelClick" />
-            </StackPanel>
-        </StackPanel>
+        <Grid Grid.Row="2" Padding="24,16" ColumnSpacing="8"
+              Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"
+              BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <ProgressRing x:Name="Busy" IsActive="False" Width="16" Height="16" VerticalAlignment="Center" />
+            <Button x:Name="BackButton" Grid.Column="1" AutomationProperties.AutomationId="BackButton"
+                    x:Uid="Common_Back" MinWidth="96" Visibility="Collapsed" Click="OnBackClick" />
+            <Button x:Name="LockNowButton" Grid.Column="1" AutomationProperties.AutomationId="LockNowButton"
+                    x:Uid="Encrypt_LockNow" MinWidth="96" Visibility="Collapsed" HorizontalAlignment="Right"
+                    Click="OnLockNowClick" />
+            <Button x:Name="NextButton" Grid.Column="2" AutomationProperties.AutomationId="NextButton"
+                    Style="{StaticResource AccentButtonStyle}" MinWidth="110" Click="OnNextClick" />
+            <Button x:Name="CancelButton" Grid.Column="3" AutomationProperties.AutomationId="CancelButton"
+                    x:Uid="Common_Cancel" MinWidth="96" Click="OnCancelClick" />
+        </Grid>
     </Grid>
 </Window>

@@ -15,8 +15,12 @@
   <data name="Unlock_UseRecovery.Content" xml:space="preserve"><value>Забыли пароль? Открыть ключом восстановления</value></data>
   <data name="Unlock_UsePassword.Content" xml:space="preserve"><value>Открыть паролем</value></data>
   <data name="Unlock_Open.Content" xml:space="preserve"><value>Открыть</value></data>
-  <data name="Encrypt_Heading" xml:space="preserve"><value>Зашифровать папку «{0}»</value></data>
-  <data name="Encrypt_PasswordIntro.Text" xml:space="preserve"><value>Пароль нужен каждый раз, когда вы открываете папку. Длинная фраза из нескольких слов надёжнее короткого сложного пароля.</value></data>
+  <data name="Encrypt_Heading" xml:space="preserve"><value>Зашифровать «{0}»</value></data>
+  <data name="Encrypt_StepPassword" xml:space="preserve"><value>Придумайте пароль: он нужен каждый раз, чтобы открыть папку</value></data>
+  <data name="Encrypt_StepKey" xml:space="preserve"><value>Ключ восстановления</value></data>
+  <data name="Encrypt_StepVerify" xml:space="preserve"><value>Проверка ключа</value></data>
+  <data name="Encrypt_StepProgress" xml:space="preserve"><value>Шифрование</value></data>
+  <data name="Encrypt_StepDone" xml:space="preserve"><value>Готово</value></data>
   <data name="Encrypt_Password1.Header" xml:space="preserve"><value>Пароль</value></data>
   <data name="Encrypt_Password2.Header" xml:space="preserve"><value>Пароль ещё раз</value></data>
   <data name="Encrypt_Strength0" xml:space="preserve"><value>Нужно хотя бы 8 знаков.</value></data>
@@ -24,15 +28,15 @@
   <data name="Encrypt_Strength2" xml:space="preserve"><value>Средний пароль.</value></data>
   <data name="Encrypt_Strength3" xml:space="preserve"><value>Хороший пароль.</value></data>
   <data name="Encrypt_Strength4" xml:space="preserve"><value>Надёжный пароль.</value></data>
-  <data name="Encrypt_MakeKey.Content" xml:space="preserve"><value>Создать ключ восстановления на случай, если забуду пароль</value></data>
+  <data name="Encrypt_MakeKey.Content" xml:space="preserve"><value>Создать ключ восстановления</value></data>
   <data name="Encrypt_NoKeyWarning.Text" xml:space="preserve"><value>Без ключа восстановления забытый пароль значит, что файлы в папке не вернуть никак: их не откроет ни Zamok, ни кто-либо другой.</value></data>
   <data name="Encrypt_Mismatch" xml:space="preserve"><value>Пароли не совпадают.</value></data>
   <data name="Encrypt_Start" xml:space="preserve"><value>Зашифровать</value></data>
   <data name="Encrypt_Check" xml:space="preserve"><value>Проверить</value></data>
   <data name="Encrypt_LockNow.Content" xml:space="preserve"><value>Запереть сейчас</value></data>
-  <data name="Encrypt_KeyIntro.Text" xml:space="preserve"><value>Это ключ восстановления. Если вы забудете пароль, папку можно открыть только им. Запишите его на бумаге или сохраните в файл и храните отдельно от компьютера. Пока вы его записываете, папка уже шифруется.</value></data>
-  <data name="Encrypt_SaveKey.Content" xml:space="preserve"><value>Сохранить в файл</value></data>
-  <data name="Encrypt_CopyKey.Content" xml:space="preserve"><value>Скопировать</value></data>
+  <data name="Encrypt_KeyIntro.Text" xml:space="preserve"><value>Если забудете пароль, папку откроет только этот ключ. Сохраните его в файл или запишите и храните отдельно от компьютера. Папка уже шифруется.</value></data>
+  <data name="Encrypt_SaveKeyText.Text" xml:space="preserve"><value>Сохранить в файл</value></data>
+  <data name="Encrypt_CopyKeyText.Text" xml:space="preserve"><value>Скопировать</value></data>
   <data name="Encrypt_KeyFileName" xml:space="preserve"><value>Ключ восстановления {0}</value></data>
   <data name="Encrypt_KeyFileType" xml:space="preserve"><value>Текстовый файл</value></data>
   <data name="Encrypt_KeyFileText" xml:space="preserve"><value>Ключ восстановления Zamok для папки «{0}»
@@ -43,13 +47,13 @@
 Как открыть папку ключом: в запертой папке дважды щёлкните «Открыть {0}.zamok», нажмите «Забыли пароль?» и вставьте весь этот файл или введите 44 слова по порядку.</value></data>
   <data name="Encrypt_KeySaved" xml:space="preserve"><value>Сохранено.</value></data>
   <data name="Encrypt_KeyCopied" xml:space="preserve"><value>Скопировано. После вставки удалите ключ из буфера обмена.</value></data>
-  <data name="Encrypt_VerifyIntro.Text" xml:space="preserve"><value>Проверим, что ключ записан. Введите слова с этими номерами.</value></data>
+  <data name="Encrypt_VerifyIntro.Text" xml:space="preserve"><value>Введите слова с этими номерами, чтобы убедиться, что ключ записан.</value></data>
   <data name="Encrypt_WordN" xml:space="preserve"><value>Слово № {0}</value></data>
   <data name="Encrypt_WordsWrong" xml:space="preserve"><value>Слова не совпали. Нажмите «Назад» и проверьте запись.</value></data>
   <data name="Encrypt_ProgressFiles" xml:space="preserve"><value>Файлов: {0} из {1}, {2:0.0} из {3:0.0} МБ</value></data>
   <data name="Encrypt_Copying" xml:space="preserve"><value>Шифрую и проверяю каждый файл. Оригинал удалю только в конце, после проверки копии.</value></data>
   <data name="Encrypt_Finishing" xml:space="preserve"><value>Подменяю папку зашифрованной.</value></data>
-  <data name="Encrypt_Done" xml:space="preserve"><value>Готово. Папка «{0}» зашифрована и открыта. Она закроется сама при блокировке экрана, перед сном и через 30 минут без работы.</value></data>
+  <data name="Encrypt_Done" xml:space="preserve"><value>Папка «{0}» зашифрована и открыта. Она запрётся сама при блокировке экрана, перед сном и через 30 минут без работы.</value></data>
   <data name="Encrypt_Failed" xml:space="preserve"><value>Папка не зашифрована. Все файлы на месте.</value></data>
   <data name="Error_core_not_running" xml:space="preserve"><value>Фоновая программа Zamok не запущена.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>На связи не программа Zamok этого пользователя. Пароль не отправлен.</value></data>

@@ -55,6 +55,8 @@ def main(out: str):
     os.makedirs(out, exist_ok=True)
     dll = system_dll("imageres.dll")
     save_ico([folder_locked(dll, s) for s in SIZES], os.path.join(out, "folder-locked.ico"))
+    # Для окон: WinUI растягивает маленькую картинку из .ico, PNG нужного размера чёткий
+    folder_locked(dll, 64).save(os.path.join(out, "folder-locked-64.png"))
     save_ico([extract(dll, LOCK, s) for s in SIZES], os.path.join(out, "open-item.ico"))
     save_ico([extract(dll, DRIVE_LOCKED, s) for s in TRAY_SIZES], os.path.join(out, "tray-locked.ico"))
     save_ico([extract(dll, DRIVE_UNLOCKED, s) for s in TRAY_SIZES], os.path.join(out, "tray-open.ico"))

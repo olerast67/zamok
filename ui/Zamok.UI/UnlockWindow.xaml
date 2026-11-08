@@ -4,52 +4,80 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <Grid Padding="32,24,32,24" RowSpacing="12">
+    <!-- Как системный запрос пароля: содержимое и полоса с кнопками внизу -->
+    <Grid x:Name="Root" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="32" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel Orientation="Horizontal" Spacing="16">
-            <FontIcon Glyph="&#xE72E;" FontSize="40" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-            <TextBlock x:Name="FolderName" AutomationProperties.AutomationId="FolderName"
-                       Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center"
-                       TextTrimming="CharacterEllipsis" MaxWidth="320" />
-        </StackPanel>
-
-        <TextBlock x:Name="Prompt" Grid.Row="1" x:Uid="Unlock_Prompt" TextWrapping="Wrap" />
-
-        <Grid x:Name="InputArea" Grid.Row="2">
-            <Grid.RenderTransform>
-                <TranslateTransform x:Name="Shake" />
-            </Grid.RenderTransform>
-            <PasswordBox x:Name="Password" AutomationProperties.AutomationId="Password"
-                         x:Uid="Unlock_Password" KeyDown="OnInputKeyDown" />
-            <TextBox x:Name="RecoveryWords" AutomationProperties.AutomationId="RecoveryWords"
-                     x:Uid="Unlock_RecoveryWords" Visibility="Collapsed" AcceptsReturn="True"
-                     TextWrapping="Wrap" Height="96" IsSpellCheckEnabled="False" />
+        <!-- Заголовок в цветах темы; кнопку закрытия рисует система -->
+        <Grid x:Name="TitleBar" Padding="12,0,0,0" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Image x:Name="TitleIcon" Width="16" Height="16" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Text="Zamok" VerticalAlignment="Center"
+                       Style="{StaticResource CaptionTextBlockStyle}" />
         </Grid>
 
-        <TextBlock x:Name="ErrorText" Grid.Row="3" AutomationProperties.AutomationId="ErrorText"
-                   AutomationProperties.LiveSetting="Assertive"
-                   Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
+        <StackPanel Grid.Row="1" Padding="24,8,24,16" Spacing="12">
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Image x:Name="FolderIcon" Width="40" Height="40" VerticalAlignment="Center" />
+                <FontIcon x:Name="FallbackIcon" Glyph="&#xE72E;" FontSize="32" Visibility="Collapsed"
+                          Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock x:Name="FolderName" AutomationProperties.AutomationId="FolderName"
+                               FontSize="18" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="FolderPath" Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Grid>
 
-        <HyperlinkButton x:Name="ModeLink" Grid.Row="4" AutomationProperties.AutomationId="ModeLink"
-                         x:Uid="Unlock_UseRecovery" VerticalAlignment="Top" Padding="0"
-                         Click="OnModeClick" />
+            <TextBlock x:Name="Prompt" x:Uid="Unlock_Prompt" TextWrapping="Wrap"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
 
-        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-            <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20" />
-            <Button x:Name="OpenButton" AutomationProperties.AutomationId="OpenButton"
-                    x:Uid="Unlock_Open" Style="{StaticResource AccentButtonStyle}" MinWidth="110"
-                    Click="OnOpenClick" />
-            <Button x:Name="CancelButton" AutomationProperties.AutomationId="CancelButton"
-                    x:Uid="Common_Cancel" MinWidth="110" Click="OnCancelClick" />
+            <Grid x:Name="InputArea">
+                <Grid.RenderTransform>
+                    <TranslateTransform x:Name="Shake" />
+                </Grid.RenderTransform>
+                <PasswordBox x:Name="Password" AutomationProperties.AutomationId="Password"
+                             x:Uid="Unlock_Password" PasswordRevealMode="Peek" KeyDown="OnInputKeyDown" />
+                <TextBox x:Name="RecoveryWords" AutomationProperties.AutomationId="RecoveryWords"
+                         x:Uid="Unlock_RecoveryWords" Visibility="Collapsed" AcceptsReturn="True"
+                         TextWrapping="Wrap" Height="88" IsSpellCheckEnabled="False" FontSize="12" />
+            </Grid>
+
+            <TextBlock x:Name="ErrorText" AutomationProperties.AutomationId="ErrorText"
+                       AutomationProperties.LiveSetting="Assertive" Visibility="Collapsed"
+                       Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
+
+            <HyperlinkButton x:Name="ModeLink" AutomationProperties.AutomationId="ModeLink"
+                             x:Uid="Unlock_UseRecovery" Padding="0" FontSize="12" Click="OnModeClick" />
         </StackPanel>
+
+        <Grid Grid.Row="2" Padding="24,16" ColumnSpacing="8"
+              Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"
+              BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Button x:Name="OpenButton" AutomationProperties.AutomationId="OpenButton"
+                    x:Uid="Unlock_Open" Style="{StaticResource AccentButtonStyle}"
+                    HorizontalAlignment="Stretch" Click="OnOpenClick">
+            </Button>
+            <Button x:Name="CancelButton" Grid.Column="1" AutomationProperties.AutomationId="CancelButton"
+                    x:Uid="Common_Cancel" HorizontalAlignment="Stretch" Click="OnCancelClick" />
+            <ProgressRing x:Name="Busy" IsActive="False" Width="16" Height="16"
+                          HorizontalAlignment="Left" Margin="12,0,0,0" />
+        </Grid>
     </Grid>
 </Window>
