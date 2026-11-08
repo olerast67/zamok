@@ -31,6 +31,8 @@ pub struct Entry {
     waiting_told: AtomicBool,
     /// Куда указывает точка подключения папки: по этому адресу находим её после переименования.
     target: Mutex<Option<String>>,
+    /// Номер точки подключения в NTFS: по нему Windows называет её новый путь после переноса.
+    file_id: Mutex<Option<i64>>,
     /// Файл обёрнутого мастер-ключа для Windows Hello (`hello\<id>.key`).
     hello_file: Mutex<Option<PathBuf>>,
 }
@@ -51,6 +53,7 @@ impl Entry {
             lock_epoch: AtomicU64::new(0),
             waiting_told: AtomicBool::new(false),
             target: Mutex::new(None),
+            file_id: Mutex::new(None),
             hello_file: Mutex::new(None),
         })
     }
@@ -100,6 +103,7 @@ impl Entry {
         *self.control.lock().unwrap() = Some(control.clone());
         *mounted = Some(m);
         *self.target.lock().unwrap() = mountpoint::mount_target(&cfg.path);
+        *self.file_id.lock().unwrap() = mountpoint::file_id(&cfg.path);
         tracing::info!(folder = %cfg.id, "mounted (locked)");
         Ok(control)
     }
@@ -166,6 +170,14 @@ impl Core {
     /// попробует подключить их ещё раз.
     pub fn start(data_dir: &Path) -> anyhow::Result<Arc<Self>> {
         let mut cfg = Config::load(data_dir)?;
+        // До первого подключения и проверки «хранилище удалено»: перенос, прерванный сбоем
+        if cfg
+            .folders
+            .iter_mut()
+            .fold(false, |any, f| f.recover_vault_move() | any)
+        {
+            cfg.save(data_dir)?;
+        }
         let folders = std::mem::take(&mut cfg.folders);
         let core = Arc::new(Core {
             data_dir: data_dir.to_path_buf(),
@@ -560,6 +572,53 @@ impl Core {
         Self::settle(&locked);
     }
 
+    /// Хранилище идёт следом за папкой, которую перенесли в другую папку: иначе, удалив старую
+    /// родительскую папку, человек удалил бы и данные. Только у запертой: открытый том читает
+    /// файлы хранилища по старому пути. Назначение занято: хранилище остаётся где было.
+    fn vault_follow(&self, e: &Arc<Entry>) {
+        let cfg = e.cfg();
+        let (Some(new_parent), Some(leaf)) = (cfg.path.parent(), cfg.vault.file_name()) else {
+            return;
+        };
+        if cfg.vault.parent() == Some(new_parent)
+            || !e.control().is_some_and(|c| c.is_locked())
+            || self.is_busy(e)
+        {
+            return;
+        }
+        let dest = new_parent.join(leaf);
+        if std::fs::symlink_metadata(&dest).is_ok() {
+            return;
+        }
+        // Пока идёт перенос, открыть папку нельзя (JobRunning)
+        self.set_busy(&cfg.path, true);
+        e.unmount();
+        let save = || {
+            let entries = self.entries.lock().unwrap();
+            self.save(&entries).is_ok()
+        };
+        {
+            let mut c = e.cfg.lock().unwrap();
+            c.vault = dest.clone();
+            c.vault_prev = Some(cfg.vault.clone());
+        }
+        let moved = save() && {
+            crate::encrypt::crash_point("vault_move");
+            crate::encrypt::rename_retry(&cfg.vault, &dest, 8).is_ok()
+        };
+        {
+            let mut c = e.cfg.lock().unwrap();
+            c.vault_prev = None;
+            if !moved {
+                c.vault = cfg.vault.clone();
+            }
+        }
+        save();
+        let mounted = e.ensure_mounted().is_ok();
+        self.set_busy(&cfg.path, false);
+        tracing::info!(folder = %cfg.id, moved, mounted, "vault follows the moved folder");
+    }
+
     /// Папки, которые человек удалил в Проводнике (DESIGN.md, раздел 5.1):
     /// - удалено хранилище, а его родительская папка на месте: данных больше нет, папка
     ///   убирается из списка, имя снова свободно. Если нет и родителя (диск не подключён),
@@ -579,19 +638,18 @@ impl Core {
                 continue;
             }
             if e.control().is_some() && !mountpoint::exists(&cfg.path) {
-                // Переименовали в Проводнике: точка подключения с тем же адресом лежит рядом.
-                // Запомнить новый путь, папку не трогать. Если папку унесли в другое место,
-                // найти её нельзя (у ссылки нет обратного адреса): она возвращается на место.
+                // Переименовали или перенесли в Проводнике в пределах диска: у точки подключения
+                // тот же номер файла NTFS, Windows называет её новый путь. Запомнить его,
+                // папку не трогать. Номер могли занять заново, поэтому сверяется и адрес тома.
                 let target = e.target.lock().unwrap().clone();
-                let moved: Vec<_> = target
-                    .zip(cfg.path.parent())
-                    .and_then(|(t, dir)| mountpoint::find_by_target(dir, &t))
-                    .into_iter()
-                    .collect();
-                if moved.len() == 1 {
-                    e.cfg.lock().unwrap().path = moved[0].clone();
+                let id = *e.file_id.lock().unwrap();
+                let moved = target
+                    .zip(id)
+                    .and_then(|(t, id)| mountpoint::find_by_id(&cfg.vault, id, &t));
+                if let Some(new_path) = moved {
+                    e.cfg.lock().unwrap().path = new_path.clone();
                     moved_any = true;
-                    zamok_fs::mount::notify_shell(&moved[0]);
+                    zamok_fs::mount::notify_shell(&new_path);
                     tracing::info!(folder = %cfg.id, "folder was moved or renamed, new path saved");
                     continue;
                 }
@@ -599,6 +657,7 @@ impl Core {
                 let restored = e.ensure_mounted().is_ok();
                 tracing::info!(folder = %cfg.id, restored, "mount point was deleted, folder restored locked");
             }
+            self.vault_follow(&e);
         }
         if gone.is_empty() {
             if moved_any {
@@ -706,6 +765,7 @@ impl Core {
             id: config::new_id().map_err(|_| ErrorCode::Internal)?,
             path,
             vault,
+            vault_prev: None,
             idle_lock_secs: idle_lock_secs.unwrap_or(DEFAULT_IDLE_LOCK_SECS),
         };
         let entry = Entry::new(cfg);

@@ -12,10 +12,12 @@ use std::path::Path;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, GetFileAttributesW, RemoveDirectoryW, FILE_ATTRIBUTE_DIRECTORY,
-    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-    FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    INVALID_FILE_ATTRIBUTES, OPEN_EXISTING,
+    CreateFileW, FileIdType, GetFileAttributesW, GetFileInformationByHandle,
+    GetFinalPathNameByHandleW, OpenFileById, RemoveDirectoryW, BY_HANDLE_FILE_INFORMATION,
+    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS,
+    FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_DESCRIPTOR, FILE_ID_DESCRIPTOR_0, FILE_READ_ATTRIBUTES,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, INVALID_FILE_ATTRIBUTES, OPEN_EXISTING,
+    VOLUME_NAME_DOS,
 };
 use windows::Win32::System::Ioctl::{FSCTL_DELETE_REPARSE_POINT, FSCTL_GET_REPARSE_POINT};
 use windows::Win32::System::IO::DeviceIoControl;
@@ -117,18 +119,62 @@ fn is_volume_target(t: &str) -> bool {
     t.starts_with(r"\Device\Volume{") || t.starts_with(r"\??\Volume{")
 }
 
-/// Найти в папке `dir` точку подключения, которая указывает на `target`: так находится папка
-/// Zamok после переименования в Проводнике (смотрятся только метки, внутрь не заходим).
-pub fn find_by_target(dir: &Path, target: &str) -> Option<std::path::PathBuf> {
-    use std::os::windows::fs::MetadataExt;
-    std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .find_map(|e| {
-            let m = e.metadata().ok()?;
-            let reparse = m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0;
-            (reparse && mount_target(&e.path()).as_deref() == Some(target)).then(|| e.path())
-        })
+/// Постоянный номер точки подключения в NTFS: при переименовании и переносе в пределах
+/// диска он не меняется. Смотрит только саму точку, внутрь тома не заходит.
+pub fn file_id(path: &Path) -> Option<i64> {
+    let h = open_reparse(path, false).ok()?;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    unsafe { GetFileInformationByHandle(h.0, &mut info) }.ok()?;
+    Some(((info.nFileIndexHigh as i64) << 32) | info.nFileIndexLow as i64)
+}
+
+/// Убрать приставку `\\?\`, которую добавляет `GetFinalPathNameByHandleW`.
+fn strip_verbatim(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix(r"\\?\")?;
+    // Сетевой путь вида `UNC\…` таким образом не упростить, а Zamok работает только с NTFS-дисками
+    (!rest.starts_with(r"UNC\")).then_some(rest)
+}
+
+fn in_recycle_bin(path: &str) -> bool {
+    path.split('\\')
+        .any(|part| part.eq_ignore_ascii_case("$Recycle.Bin"))
+}
+
+/// Текущий путь точки подключения с номером `id` на том же диске, что и `on_volume`.
+/// `None`: её нет, это уже другая папка (адрес тома не `target`) или она в Корзине,
+/// то есть для человека удалена.
+pub fn find_by_id(on_volume: &Path, id: i64, target: &str) -> Option<std::path::PathBuf> {
+    let hint = open_reparse(on_volume, false).ok()?;
+    let desc = FILE_ID_DESCRIPTOR {
+        dwSize: std::mem::size_of::<FILE_ID_DESCRIPTOR>() as u32,
+        Type: FileIdType,
+        Anonymous: FILE_ID_DESCRIPTOR_0 { FileId: id },
+    };
+    let h = Handle(
+        unsafe {
+            OpenFileById(
+                hint.0,
+                &desc,
+                FILE_READ_ATTRIBUTES.0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                None,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            )
+        }
+        .ok()?,
+    );
+    let mut buf = vec![0u16; 32 * 1024];
+    let n = unsafe { GetFinalPathNameByHandleW(h.0, &mut buf, VOLUME_NAME_DOS) } as usize;
+    if n == 0 || n >= buf.len() {
+        return None;
+    }
+    let full = String::from_utf16_lossy(&buf[..n]);
+    let path = strip_verbatim(&full)?;
+    if in_recycle_bin(path) {
+        return None;
+    }
+    let path = std::path::PathBuf::from(path);
+    (mount_target(&path).as_deref() == Some(target)).then_some(path)
 }
 
 /// Есть ли что-то на пути. Смотрит только атрибуты самой точки подключения и не заходит
@@ -214,6 +260,18 @@ pub fn prepare(path: &Path) -> Result<(), PathState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recycle_bin_counts_as_deleted() {
+        assert!(in_recycle_bin(r"C:\$RECYCLE.BIN\S-1-5\$R1"));
+        assert!(!in_recycle_bin(r"C:\Users\me\Recycle.Bin stuff\a"));
+    }
+
+    #[test]
+    fn verbatim_prefix_is_removed_only_from_local_paths() {
+        assert_eq!(strip_verbatim(r"\\?\D:\a\b"), Some(r"D:\a\b"));
+        assert_eq!(strip_verbatim(r"\\?\UNC\srv\a"), None);
+    }
 
     #[test]
     fn missing_path_is_free() {

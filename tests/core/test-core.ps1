@@ -68,8 +68,9 @@ public static class ZT {
 '@
 
 $script:proc = $null
-function StartCore {
+function StartCore([string]$crash = '') {
     $psi = New-Object Diagnostics.ProcessStartInfo $coreExe
+    if ($crash) { $psi.EnvironmentVariables['ZAMOK_TEST_CRASH'] = $crash }
     $psi.UseShellExecute = $false
     $psi.RedirectStandardError = $true
     $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
@@ -279,6 +280,43 @@ try {
             ((Get-Content "$data\folders.json" -Raw -Encoding UTF8 | ConvertFrom-Json).folders[0].path -eq $new)
         Move-Item -LiteralPath $new -Destination $mnt
         $ok -and (WaitFor { (State) -eq 'locked' } 10000)
+    }
+    # Perenos v druguyu papku togo zhe diska: hranilishche idet sledom, kogda papka zaperta
+    $other = "$root\other"; New-Item -ItemType Directory -Force $other | Out-Null
+    $mntB = "$other\$ruName"; $vaultB = "$other\.$ruName.zamok"
+    function VaultIs([string]$v, [string]$old) { WaitFor { (Test-Path -LiteralPath "$v\masterkey.cryptomator") -and -not (Test-Path -LiteralPath $old) } 12000 }
+    function FirstState { @((Send '{"cmd":"status"}').folders)[0].state }
+    Check 'locked folder moved to another folder: the vault follows, list updated' {
+        Move-Item -LiteralPath $mnt -Destination $mntB
+        (VaultIs $vaultB $vault) -and (WaitFor { (FirstState) -eq 'locked' } 10000) -and
+            ((Get-Content "$data\folders.json" -Raw -Encoding UTF8 | ConvertFrom-Json).folders[0].path -eq $mntB)
+    }
+    Check 'moved folder opens with the password' {
+        $r = Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mntB)`",`"password`":`"$pw`"}"
+        $r.ok -and (Get-Content -LiteralPath "$mntB\new.txt") -eq 'written through core'
+    }
+    Check 'open folder moved: stays open, the vault waits for the lock' {
+        Move-Item -LiteralPath $mntB -Destination $mnt
+        $seen = WaitFor { @((Send '{"cmd":"status"}').folders | Where-Object { $_.path -eq $mnt }).Count -eq 1 } 10000
+        Start-Sleep -Seconds 3
+        $seen -and (Test-Path -LiteralPath "$vaultB\masterkey.cryptomator") -and (Get-Content -LiteralPath "$mnt\new.txt") -eq 'written through core'
+    }
+    Check 'after the lock the vault follows' {
+        [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $mnt)`"}")
+        (VaultIs $vault $vaultB) -and (WaitFor { (State) -eq 'locked' } 10000)
+    }
+    Check 'core killed in the middle of a vault move: found after restart, move finished' {
+        [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(15000)
+        $script:proc = StartCore 'vault_move'
+        Move-Item -LiteralPath $mnt -Destination $mntB
+        [void]$script:proc.WaitForExit(15000)
+        $stillOld = Test-Path -LiteralPath "$vault\masterkey.cryptomator"
+        $script:proc = StartCore
+        $stillOld -and (VaultIs $vaultB $vault) -and (WaitFor { (FirstState) -eq 'locked' } 10000)
+    }
+    Check 'moved back: the vault returns too' {
+        Move-Item -LiteralPath $mntB -Destination $mnt
+        (VaultIs $vault $vaultB) -and (WaitFor { (State) -eq 'locked' } 10000)
     }
     Check 'vault deleted: folder leaves the list, the name is free again' {
         Remove-Item $vault -Recurse -Force
