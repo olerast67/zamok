@@ -13,6 +13,7 @@
 //! - [`tray`]: значок в трее со списком папок и «Запереть всё».
 
 pub mod autolock;
+pub mod clipguard;
 pub mod config;
 pub mod core;
 pub mod decrypt;

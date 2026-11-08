@@ -318,6 +318,18 @@ try {
         Move-Item -LiteralPath $mntB -Destination $mnt
         (VaultIs $vault $vaultB) -and (WaitFor { (State) -eq 'locked' } 10000)
     }
+    # Vyrezat v Provodnike: papka v bufere obmena s pometkoy "perenos" (2) ili "kopirovanie" (5)
+    function PutOnClipboard([string]$path, [int]$effect) {
+        $env:ZC_PATH = $path; $env:ZC_EFFECT = "$effect"; $env:ZC_FORMAT = 'Preferred DropEffect'
+        & powershell -NoProfile -Sta -Command 'Add-Type -AssemblyName System.Windows.Forms; $d = New-Object Windows.Forms.DataObject; $c = New-Object Collections.Specialized.StringCollection; [void]$c.Add($env:ZC_PATH); $d.SetFileDropList($c); $m = New-Object IO.MemoryStream(,[BitConverter]::GetBytes([int]$env:ZC_EFFECT)); $d.SetData($env:ZC_FORMAT, $m); [Windows.Forms.Clipboard]::SetDataObject($d, $true, 20, 200)'
+    }
+    function ClipHasFiles { (& powershell -NoProfile -Sta -Command 'Add-Type -AssemblyName System.Windows.Forms; [Windows.Forms.Clipboard]::ContainsFileDropList()') -eq 'True' }
+    $savedClip = Get-Clipboard -Raw -ErrorAction SilentlyContinue
+    # Snachala kopirovanie: esli pomoshchnik slomaetsya, eta proverka upadet, a ne proydet vpustuyu
+    Check 'copy of a zamok folder stays on the clipboard' { PutOnClipboard $mnt 5; Start-Sleep -Seconds 2; ClipHasFiles }
+    Check 'cut of a zamok folder is cancelled, the clipboard is emptied' { PutOnClipboard $mnt 2; WaitFor { -not (ClipHasFiles) } 8000 }
+    Check 'cut of another folder stays on the clipboard' { PutOnClipboard $data 2; Start-Sleep -Seconds 2; ClipHasFiles }
+    if ($savedClip) { Set-Clipboard -Value $savedClip } else { & powershell -NoProfile -Sta -Command 'Add-Type -AssemblyName System.Windows.Forms; [Windows.Forms.Clipboard]::Clear()' }
     Check 'vault deleted: folder leaves the list, the name is free again' {
         Remove-Item $vault -Recurse -Force
         (WaitFor { -not (State) } 10000) -and (WaitFor { -not (Test-Path $mnt) } 5000) -and
