@@ -5,6 +5,7 @@
 //! Значки берутся из `zamok.ico` и `zamok-open.ico` рядом с программой. Переменная
 //! `ZAMOK_NO_TRAY` отключает значок (тесты запускают много экземпляров core).
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -16,13 +17,14 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetSystemMetrics, LoadIconW,
-    LoadImageW, PostMessageW, RegisterWindowMessageW, SetForegroundWindow, TrackPopupMenu, HICON,
-    IDI_APPLICATION, IMAGE_ICON, LR_LOADFROMFILE, MF_GRAYED, MF_SEPARATOR, MF_STRING, SM_CXSMICON,
-    SM_CYSMICON, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_NULL,
+    LoadImageW, MessageBoxW, PostMessageW, RegisterWindowMessageW, SetForegroundWindow,
+    TrackPopupMenu, HICON, IDI_APPLICATION, IDOK, IMAGE_ICON, LR_LOADFROMFILE, MB_DEFBUTTON2,
+    MB_ICONWARNING, MB_OKCANCEL, MB_SETFOREGROUND, MB_TOPMOST, MF_GRAYED, MF_SEPARATOR, MF_STRING,
+    SM_CXSMICON, SM_CYSMICON, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_NULL,
 };
 
 use crate::core::Core;
-use crate::protocol::FolderState;
+use crate::protocol::{ErrorCode, FolderState, JobInfo, JobState};
 
 /// Сообщение от значка в трее окну core.
 pub const WM_TRAY: u32 = WM_APP + 2;
@@ -39,6 +41,8 @@ static ENABLED: AtomicBool = AtomicBool::new(false);
 static ICONS: [AtomicIsize; 2] = [AtomicIsize::new(0), AtomicIsize::new(0)];
 /// Что сейчас показано: есть ли открытые папки и подсказка.
 static SHOWN: Mutex<Option<(bool, String)>> = Mutex::new(None);
+/// Работы, которые при прошлой проверке ещё шли: их конец надо показать уведомлением.
+static RUNNING_JOBS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
 fn russian() -> bool {
     use windows::Win32::Globalization::GetUserDefaultUILanguage;
@@ -126,7 +130,7 @@ fn summary(core: &Core) -> (bool, String) {
     let tip = if russian() {
         format!("Zamok: папок {}, открыто {}", folders.len(), open)
     } else {
-        format!("Zamok: {} folders, {} open", folders.len(), open)
+        format!("Zamok: folders {}, open {}", folders.len(), open)
     };
     (open > 0, tip)
 }
@@ -158,6 +162,7 @@ pub fn refresh(hwnd: HWND, core: &Core) {
     if !ENABLED.load(Ordering::SeqCst) {
         return;
     }
+    notify_finished_jobs(core);
     let (open, tip) = summary(core);
     {
         let mut shown = SHOWN.lock().unwrap();
@@ -215,9 +220,70 @@ pub fn notify(title: &str, text: &str) {
     }
 }
 
+/// Имя папки для заголовка: заголовок уведомления ограничен 63 знаками, и хвост
+/// «заперта» не должен потеряться за длинным именем.
+fn short(name: &str) -> String {
+    const MAX: usize = 32;
+    if name.chars().count() <= MAX {
+        name.to_string()
+    } else {
+        name.chars()
+            .take(MAX - 1)
+            .chain(std::iter::once('…'))
+            .collect()
+    }
+}
+
+/// Сказать о конце шифрования или расшифровки: окно могли закрыть, а работа шла дальше.
+fn notify_finished_jobs(core: &Core) {
+    let jobs = core.jobs();
+    let was = {
+        let mut seen = RUNNING_JOBS.lock().unwrap();
+        let running = jobs
+            .iter()
+            .filter(|j| j.state == JobState::Running)
+            .map(|j| j.id.clone())
+            .collect();
+        seen.replace(running).unwrap_or_default()
+    };
+    let finished: Vec<&JobInfo> = jobs
+        .iter()
+        .filter(|j| j.state != JobState::Running && was.contains(&j.id))
+        .collect();
+    if finished.is_empty() {
+        return;
+    }
+    let folders = core.status();
+    for j in finished {
+        // Шифрование оставляет папку в списке, расшифровка убирает
+        let encrypted = folders.iter().any(|f| f.path.eq_ignore_ascii_case(&j.path));
+        notify_job_end(j, encrypted);
+    }
+}
+
+fn notify_job_end(job: &JobInfo, encrypted: bool) {
+    let name = short(&crate::clipguard::display_name(&job.path));
+    match (job.state, job.error) {
+        (JobState::Done, _) if encrypted => notify(
+            &if russian() { format!("Папка «{name}» зашифрована") } else { format!("\u{201c}{name}\u{201d} is encrypted") },
+            t("Она открыта. Запереть её можно из меню папки или значка Zamok.", "It is open. Lock it from the folder menu or the Zamok icon."),
+        ),
+        (JobState::Done, _) => notify(
+            &if russian() { format!("Папка «{name}» расшифрована") } else { format!("\u{201c}{name}\u{201d} is decrypted") },
+            t("Она снова обычная.", "It is an ordinary folder again."),
+        ),
+        // Отмену человек нажал сам
+        (_, Some(ErrorCode::Cancelled)) => {}
+        _ => notify(
+            &if russian() { format!("Папка «{name}»: работа не завершена") } else { format!("\u{201c}{name}\u{201d}: not finished") },
+            t("Шифрование или расшифровка не закончились, папка осталась как была. Файлы на месте.", "Encryption or decryption did not finish; the folder stays as it was. The files are in place."),
+        ),
+    }
+}
+
 pub fn notify_cut(name: &str) {
     notify(
-        &if russian() { format!("Папку «{name}» нельзя вырезать") } else { format!("\u{201c}{name}\u{201d} cannot be cut") },
+        &if russian() { format!("Папку «{}» нельзя вырезать", short(name)) } else { format!("\u{201c}{}\u{201d} cannot be cut", short(name)) },
         t(
             "Проводник перенёс бы её файлы без шифрования. Чтобы переместить папку, расшифруйте её, перенесите и зашифруйте снова.",
             "Explorer would move its files unencrypted. To move the folder, decrypt it, move it and encrypt it again.",
@@ -229,7 +295,7 @@ pub fn notify_idle(ev: &crate::core::IdleEvent) {
     use crate::core::IdleEvent;
     match ev {
         IdleEvent::Locked { name, minutes } => notify(
-            &if russian() { format!("Папка «{name}» заперта") } else { format!("\u{201c}{name}\u{201d} is locked") },
+            &if russian() { format!("Папка «{}» заперта", short(name)) } else { format!("\u{201c}{}\u{201d} is locked", short(name)) },
             &if russian() {
                 format!("С ней не работали {minutes} мин. Чтобы открыть, дважды щёлкните значок замка в папке.")
             } else {
@@ -237,7 +303,7 @@ pub fn notify_idle(ev: &crate::core::IdleEvent) {
             },
         ),
         IdleEvent::Waiting { name, .. } => notify(
-            &if russian() { format!("Папка «{name}» пока открыта") } else { format!("\u{201c}{name}\u{201d} stays open for now") },
+            &if russian() { format!("Папка «{}» пока открыта", short(name)) } else { format!("\u{201c}{}\u{201d} stays open for now", short(name)) },
             t(
                 "В ней открыт файл в другой программе. Zamok запрёт папку, когда файл закроют.",
                 "A file from it is open in another program. Zamok locks the folder when the file is closed.",
@@ -256,6 +322,21 @@ pub fn on_taskbar_created(hwnd: HWND, core: &Core) {
     if ENABLED.load(Ordering::SeqCst) {
         add(hwnd, core);
     }
+}
+
+/// Спросить в системном окне; `true`, если человек нажал ОК. Отмена выбрана заранее.
+fn confirm(text: &str) -> bool {
+    let body = wide(text);
+    let title = wide("Zamok");
+    let answer = unsafe {
+        MessageBoxW(
+            None,
+            PCWSTR(body.as_ptr()),
+            PCWSTR(title.as_ptr()),
+            MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2 | MB_TOPMOST | MB_SETFOREGROUND,
+        )
+    };
+    answer == IDOK
 }
 
 /// Окно настроек: Zamok.exe рядом с core.
@@ -328,6 +409,15 @@ pub fn on_message(hwnd: HWND, lparam: LPARAM, core: &Arc<Core>) {
         let _ = DestroyMenu(menu);
         match cmd.0 as usize {
             CMD_LOCK_ALL => {
+                let open_files: usize = folders.iter().map(|f| core.open_files(&f.path)).sum();
+                if open_files > 0
+                    && !confirm(t(
+                        "В папках есть открытые файлы. Несохранённые изменения пропадут: программа не сможет их записать. Запереть всё равно?",
+                        "Some files in the folders are in use. Unsaved changes will be lost: the program will not be able to save them. Lock anyway?",
+                    ))
+                {
+                    return;
+                }
                 let core = core.clone();
                 let h = hwnd.0 as isize;
                 std::thread::spawn(move || {
@@ -335,7 +425,14 @@ pub fn on_message(hwnd: HWND, lparam: LPARAM, core: &Arc<Core>) {
                     refresh(HWND(h as *mut _), &core);
                 });
             }
-            CMD_QUIT => crate::autolock::post_quit(),
+            CMD_QUIT => {
+                if confirm(t(
+                    "Все папки будут заперты и исчезнут из Проводника, пока Zamok снова не запустится. Он запустится при входе в Windows или когда вы откроете любое окно Zamok. Выйти?",
+                    "All folders will be locked and disappear from Explorer until Zamok runs again. It starts at the next sign-in or when you open any Zamok window. Quit?",
+                )) {
+                    crate::autolock::post_quit();
+                }
+            }
             CMD_SETTINGS => open_settings(),
             _ => {}
         }
