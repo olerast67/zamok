@@ -271,6 +271,15 @@ try {
         cmd /c rmdir "$mnt" | Out-Null
         (WaitFor { Test-Path "$mnt\$openWord $ruName.zamok" } 10000) -and (State) -eq 'locked' -and (Test-Path "$vault\masterkey.cryptomator")
     }
+    Check 'folder renamed in Explorer: core keeps it at the new path' {
+        $new = "$root\renamed"
+        Move-Item -LiteralPath $mnt -Destination $new
+        $ok = (WaitFor { @((Send '{"cmd":"status"}').folders | Where-Object { $_.path -eq $new }).Count -eq 1 } 10000) -and
+            (Test-Path "$new\$openWord $ruName.zamok") -and -not (Test-Path $mnt) -and
+            ((Get-Content "$data\folders.json" -Raw -Encoding UTF8 | ConvertFrom-Json).folders[0].path -eq $new)
+        Move-Item -LiteralPath $new -Destination $mnt
+        $ok -and (WaitFor { (State) -eq 'locked' } 10000)
+    }
     Check 'vault deleted: folder leaves the list, the name is free again' {
         Remove-Item $vault -Recurse -Force
         (WaitFor { -not (State) } 10000) -and (WaitFor { -not (Test-Path $mnt) } 5000) -and

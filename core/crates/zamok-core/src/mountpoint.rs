@@ -117,6 +117,20 @@ fn is_volume_target(t: &str) -> bool {
     t.starts_with(r"\Device\Volume{") || t.starts_with(r"\??\Volume{")
 }
 
+/// Найти в папке `dir` точку подключения, которая указывает на `target`: так находится папка
+/// Zamok после переименования в Проводнике (смотрятся только метки, внутрь не заходим).
+pub fn find_by_target(dir: &Path, target: &str) -> Option<std::path::PathBuf> {
+    use std::os::windows::fs::MetadataExt;
+    std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .find_map(|e| {
+            let m = e.metadata().ok()?;
+            let reparse = m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0;
+            (reparse && mount_target(&e.path()).as_deref() == Some(target)).then(|| e.path())
+        })
+}
+
 /// Есть ли что-то на пути. Смотрит только атрибуты самой точки подключения и не заходит
 /// внутрь подключённой папки (чтение внутри считалось бы работой с папкой и сбивало бы
 /// автозапирание по бездействию).

@@ -29,6 +29,8 @@ pub struct Entry {
     lock_epoch: AtomicU64,
     /// Уже сказали, что запирание ждёт закрытия файла (чтобы не повторять каждые 2 секунды).
     waiting_told: AtomicBool,
+    /// Куда указывает точка подключения папки: по этому адресу находим её после переименования.
+    target: Mutex<Option<String>>,
 }
 
 /// Что произошло при запирании по бездействию (для уведомления в трее).
@@ -46,6 +48,7 @@ impl Entry {
             error: Mutex::new(None),
             lock_epoch: AtomicU64::new(0),
             waiting_told: AtomicBool::new(false),
+            target: Mutex::new(None),
         })
     }
 
@@ -87,6 +90,7 @@ impl Entry {
         let control = m.control().clone();
         *self.control.lock().unwrap() = Some(control.clone());
         *mounted = Some(m);
+        *self.target.lock().unwrap() = mountpoint::mount_target(&cfg.path);
         tracing::info!(folder = %cfg.id, "mounted (locked)");
         Ok(control)
     }
@@ -475,6 +479,7 @@ impl Core {
     pub fn check_folders(&self) {
         let entries = self.entries.lock().unwrap().clone();
         let mut gone = Vec::new();
+        let mut moved_any = false;
         for e in entries {
             let cfg = e.cfg();
             if std::fs::symlink_metadata(&cfg.vault).is_err() {
@@ -484,12 +489,32 @@ impl Core {
                 continue;
             }
             if e.control().is_some() && !mountpoint::exists(&cfg.path) {
+                // Переименовали в Проводнике: точка подключения с тем же адресом лежит рядом.
+                // Запомнить новый путь, папку не трогать. Если папку унесли в другое место,
+                // найти её нельзя (у ссылки нет обратного адреса): она возвращается на место.
+                let target = e.target.lock().unwrap().clone();
+                let moved: Vec<_> = target
+                    .zip(cfg.path.parent())
+                    .and_then(|(t, dir)| mountpoint::find_by_target(dir, &t))
+                    .into_iter()
+                    .collect();
+                if moved.len() == 1 {
+                    e.cfg.lock().unwrap().path = moved[0].clone();
+                    moved_any = true;
+                    zamok_fs::mount::notify_shell(&moved[0]);
+                    tracing::info!(folder = %cfg.id, "folder was moved or renamed, new path saved");
+                    continue;
+                }
                 e.unmount();
                 let restored = e.ensure_mounted().is_ok();
                 tracing::info!(folder = %cfg.id, restored, "mount point was deleted, folder restored locked");
             }
         }
         if gone.is_empty() {
+            if moved_any {
+                let entries = self.entries.lock().unwrap();
+                let _ = self.save(&entries);
+            }
             return;
         }
         let mut entries = self.entries.lock().unwrap();
