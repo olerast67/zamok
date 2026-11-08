@@ -30,7 +30,10 @@ public sealed partial class EncryptWindow : Window
         _path = path.TrimEnd('\\');
         _name = Path.GetFileName(_path);
         InitializeComponent();
-        WindowHelper.SetupDialog(this, 580, 620);
+        WindowHelper.SetupDialog(this, Root, TitleBar, TitleIcon, 440, 420);
+        var icon = WindowHelper.FolderIcon(32);
+        if (icon is not null) FolderIcon.Source = icon;
+        else FallbackIcon.Visibility = Visibility.Visible;
         Heading.Text = Strings.Format("Encrypt_Heading", _name);
         ShowPage(Page.Password);
         Activated += (_, _) => { if (_page == Page.Password) Password1.Focus(FocusState.Programmatic); };
@@ -46,7 +49,25 @@ public sealed partial class EncryptWindow : Window
         PageProgress.Visibility = Vis(page is Page.Progress or Page.Done);
         BackButton.Visibility = Vis(page == Page.Verify);
         LockNowButton.Visibility = Vis(page == Page.Done && _lastJob?.IsDone == true);
-        ErrorText.Text = "";
+        DoneIcon.Visibility = Vis(page == Page.Done && _lastJob?.IsDone == true);
+        ShowError("");
+        StepText.Text = Strings.Get(page switch
+        {
+            Page.Password => "Encrypt_StepPassword",
+            Page.Key => "Encrypt_StepKey",
+            Page.Verify => "Encrypt_StepVerify",
+            Page.Progress => "Encrypt_StepProgress",
+            _ => "Encrypt_StepDone",
+        });
+        // Окно ровно под шаг: на ключ нужно место, на прогресс нет
+        var (w, h) = page switch
+        {
+            Page.Password => (460, MakeKey.IsChecked == true ? 380 : 430),
+            Page.Key => (520, 500),
+            Page.Verify => (440, 330),
+            _ => (440, 290),
+        };
+        WindowHelper.Resize(this, w, h);
         NextButton.Content = Strings.Get(page switch
         {
             Page.Password => "Encrypt_Start",
@@ -60,6 +81,12 @@ public sealed partial class EncryptWindow : Window
     }
 
     private static Visibility Vis(bool v) => v ? Visibility.Visible : Visibility.Collapsed;
+
+    private void ShowError(string text)
+    {
+        ErrorText.Text = text;
+        ErrorText.Visibility = Vis(!string.IsNullOrEmpty(text));
+    }
 
     // 1. Пароль
 
@@ -76,8 +103,9 @@ public sealed partial class EncryptWindow : Window
     private void OnMakeKeyChanged(object sender, RoutedEventArgs e)
     {
         // Checked срабатывает ещё при загрузке разметки, когда предупреждения пока нет
-        if (NoKeyWarning is null || MakeKey is null) return;
+        if (NoKeyWarning is null || MakeKey is null || Root is null) return;
         NoKeyWarning.Visibility = Vis(MakeKey.IsChecked != true);
+        if (_page == Page.Password) WindowHelper.Resize(this, 460, MakeKey.IsChecked == true ? 380 : 430);
     }
 
     private void UpdateNext()
@@ -100,8 +128,8 @@ public sealed partial class EncryptWindow : Window
             var r = await _client.EncryptAsync(_path, Password1.Password);
             if (!r.Ok)
             {
-                ErrorText.Text = Strings.Error(r.Error) +
-                    (r.Examples is { Length: > 0 } ex ? "\n" + string.Join("\n", ex.Take(8)) : "");
+                ShowError(Strings.Error(r.Error) +
+                    (r.Examples is { Length: > 0 } ex ? "\n" + string.Join("\n", ex.Take(8)) : ""));
                 return;
             }
             _jobId = r.Job!.Id;
@@ -122,11 +150,11 @@ public sealed partial class EncryptWindow : Window
         }
         catch (CoreNotRunningException)
         {
-            ErrorText.Text = Strings.Error("core_not_running");
+            ShowError(Strings.Error("core_not_running"));
         }
         catch (CoreNotTrustedException)
         {
-            ErrorText.Text = Strings.Error("core_not_trusted");
+            ShowError(Strings.Error("core_not_trusted"));
         }
         finally
         {
@@ -149,6 +177,7 @@ public sealed partial class EncryptWindow : Window
             {
                 Text = $"{i + 1,2}. {words[i]}",
                 FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas"),
+                FontSize = 13,
                 IsTextSelectionEnabled = true,
             };
             Grid.SetRow(cell, i / 4);
@@ -206,7 +235,7 @@ public sealed partial class EncryptWindow : Window
         }
         else
         {
-            ErrorText.Text = Strings.Get("Encrypt_WordsWrong");
+            ShowError(Strings.Get("Encrypt_WordsWrong"));
         }
     }
 
@@ -225,7 +254,7 @@ public sealed partial class EncryptWindow : Window
             catch (Exception ex) when (ex is CoreNotRunningException or CoreNotTrustedException)
             {
                 _poll?.Stop();
-                if (_page == Page.Progress) ErrorText.Text = Strings.Error("core_not_running");
+                if (_page == Page.Progress) ShowError(Strings.Error("core_not_running"));
             }
         };
         _poll.Start();
@@ -260,7 +289,7 @@ public sealed partial class EncryptWindow : Window
         {
             _finished = true;
             ProgressTitle.Text = Strings.Get("Encrypt_Failed");
-            ErrorText.Text = Strings.Error(job.Error);
+            ShowError(Strings.Error(job.Error));
             NextButton.Content = Strings.Get("Common_Close");
             NextButton.Visibility = Visibility.Visible;
             CancelButton.Visibility = Visibility.Collapsed;

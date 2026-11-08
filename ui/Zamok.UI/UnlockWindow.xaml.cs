@@ -7,8 +7,9 @@ using Zamok.Client;
 namespace Zamok.UI;
 
 /// <summary>
-/// Окно пароля (DESIGN.md, раздел 2.2): имя папки крупно, поле пароля в фокусе, Enter открывает.
-/// Неверный пароль: поле вздрагивает, «Пароль не подошёл». Запасной путь: ключ восстановления.
+/// Окно пароля (DESIGN.md, раздел 2.2): как системный запрос пароля. Значок и имя папки,
+/// поле пароля в фокусе, Enter открывает. Неверный пароль: поле вздрагивает,
+/// «Пароль не подошёл». Запасной путь: ключ восстановления.
 /// </summary>
 public sealed partial class UnlockWindow : Window
 {
@@ -20,8 +21,11 @@ public sealed partial class UnlockWindow : Window
     {
         _path = path;
         InitializeComponent();
-        WindowHelper.SetupDialog(this, 460, 400);
-        FolderName.Text = Path.GetFileName(path.TrimEnd('\\'));
+        WindowHelper.SetupDialog(this, Root, TitleBar, TitleIcon, 420, 340);
+        var icon = WindowHelper.FolderIcon(40);
+        if (icon is not null) FolderIcon.Source = icon;
+        else FallbackIcon.Visibility = Visibility.Visible;
+        ShowFolder(path.TrimEnd('\\'), null);
         Activated += OnFirstActivated;
     }
 
@@ -38,7 +42,7 @@ public sealed partial class UnlockWindow : Window
                 ShowFatal(Strings.Error("not_found"));
                 return;
             }
-            FolderName.Text = folder.Name;
+            ShowFolder(folder.Path, folder.Name);
             if (folder.IsUnlocked) Close(); // уже открыта: окно не нужно
         }
         catch (CoreNotRunningException)
@@ -60,9 +64,25 @@ public sealed partial class UnlockWindow : Window
             want.StartsWith(f.Path.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase));
     }
 
-    private void ShowFatal(string text)
+    /// <summary>Имя папки крупно и где она лежит (без самого значка .zamok в пути).</summary>
+    private void ShowFolder(string path, string? name)
+    {
+        var folder = path.EndsWith(".zamok", StringComparison.OrdinalIgnoreCase)
+            ? Path.GetDirectoryName(path) ?? path
+            : path;
+        FolderName.Text = name ?? Path.GetFileName(folder);
+        FolderPath.Text = Path.GetDirectoryName(folder) ?? "";
+    }
+
+    private void ShowError(string text)
     {
         ErrorText.Text = text;
+        ErrorText.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void ShowFatal(string text)
+    {
+        ShowError(text);
         Password.IsEnabled = false;
         RecoveryWords.IsEnabled = false;
         OpenButton.IsEnabled = false;
@@ -89,7 +109,8 @@ public sealed partial class UnlockWindow : Window
         RecoveryWords.Visibility = _recoveryMode ? Visibility.Visible : Visibility.Collapsed;
         Prompt.Text = Strings.Get(_recoveryMode ? "Unlock_PromptRecovery/Text" : "Unlock_Prompt/Text");
         ModeLink.Content = Strings.Get(_recoveryMode ? "Unlock_UsePassword/Content" : "Unlock_UseRecovery/Content");
-        ErrorText.Text = "";
+        ShowError("");
+        WindowHelper.Resize(this, 420, _recoveryMode ? 420 : 340);
         if (_recoveryMode) RecoveryWords.Focus(FocusState.Programmatic);
         else Password.Focus(FocusState.Programmatic);
     }
@@ -111,12 +132,12 @@ public sealed partial class UnlockWindow : Window
                 Close();
                 return;
             }
-            ErrorText.Text = Strings.Error(r.Error);
+            ShowError(Strings.Error(r.Error));
             if (r.Error is "wrong_password" or "wrong_recovery_key") ShakeInput();
         }
         catch (CoreNotRunningException)
         {
-            ErrorText.Text = Strings.Error("core_not_running");
+            ShowError(Strings.Error("core_not_running"));
         }
         catch (CoreNotTrustedException)
         {

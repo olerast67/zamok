@@ -15,8 +15,12 @@
   <data name="Unlock_UseRecovery.Content" xml:space="preserve"><value>Forgot the password? Use the recovery key</value></data>
   <data name="Unlock_UsePassword.Content" xml:space="preserve"><value>Use the password</value></data>
   <data name="Unlock_Open.Content" xml:space="preserve"><value>Open</value></data>
-  <data name="Encrypt_Heading" xml:space="preserve"><value>Encrypt the folder “{0}”</value></data>
-  <data name="Encrypt_PasswordIntro.Text" xml:space="preserve"><value>You will need the password every time you open the folder. A long phrase of several words is stronger than a short complex password.</value></data>
+  <data name="Encrypt_Heading" xml:space="preserve"><value>Encrypt “{0}”</value></data>
+  <data name="Encrypt_StepPassword" xml:space="preserve"><value>Choose a password: you will need it every time you open the folder</value></data>
+  <data name="Encrypt_StepKey" xml:space="preserve"><value>Recovery key</value></data>
+  <data name="Encrypt_StepVerify" xml:space="preserve"><value>Checking the key</value></data>
+  <data name="Encrypt_StepProgress" xml:space="preserve"><value>Encrypting</value></data>
+  <data name="Encrypt_StepDone" xml:space="preserve"><value>Done</value></data>
   <data name="Encrypt_Password1.Header" xml:space="preserve"><value>Password</value></data>
   <data name="Encrypt_Password2.Header" xml:space="preserve"><value>Repeat the password</value></data>
   <data name="Encrypt_Strength0" xml:space="preserve"><value>At least 8 characters are needed.</value></data>
@@ -24,15 +28,15 @@
   <data name="Encrypt_Strength2" xml:space="preserve"><value>Fair password.</value></data>
   <data name="Encrypt_Strength3" xml:space="preserve"><value>Good password.</value></data>
   <data name="Encrypt_Strength4" xml:space="preserve"><value>Strong password.</value></data>
-  <data name="Encrypt_MakeKey.Content" xml:space="preserve"><value>Create a recovery key in case I forget the password</value></data>
+  <data name="Encrypt_MakeKey.Content" xml:space="preserve"><value>Create a recovery key</value></data>
   <data name="Encrypt_NoKeyWarning.Text" xml:space="preserve"><value>Without a recovery key, a forgotten password means the files are lost for good: nobody, Zamok included, can open them.</value></data>
   <data name="Encrypt_Mismatch" xml:space="preserve"><value>The passwords do not match.</value></data>
   <data name="Encrypt_Start" xml:space="preserve"><value>Encrypt</value></data>
   <data name="Encrypt_Check" xml:space="preserve"><value>Check</value></data>
   <data name="Encrypt_LockNow.Content" xml:space="preserve"><value>Lock now</value></data>
-  <data name="Encrypt_KeyIntro.Text" xml:space="preserve"><value>This is the recovery key. If you forget the password, it is the only way to open the folder. Write it down or save it to a file and keep it away from this computer. The folder is being encrypted while you do this.</value></data>
-  <data name="Encrypt_SaveKey.Content" xml:space="preserve"><value>Save to file</value></data>
-  <data name="Encrypt_CopyKey.Content" xml:space="preserve"><value>Copy</value></data>
+  <data name="Encrypt_KeyIntro.Text" xml:space="preserve"><value>If you forget the password, only this key opens the folder. Save it to a file or write it down and keep it away from this computer. The folder is already being encrypted.</value></data>
+  <data name="Encrypt_SaveKeyText.Text" xml:space="preserve"><value>Save to file</value></data>
+  <data name="Encrypt_CopyKeyText.Text" xml:space="preserve"><value>Copy</value></data>
   <data name="Encrypt_KeyFileName" xml:space="preserve"><value>Recovery key {0}</value></data>
   <data name="Encrypt_KeyFileType" xml:space="preserve"><value>Text file</value></data>
   <data name="Encrypt_KeyFileText" xml:space="preserve"><value>Zamok recovery key for the folder “{0}”
@@ -43,13 +47,13 @@ Saved {1}
 How to open the folder with the key: in the locked folder double-click “Open {0}.zamok”, press “Forgot the password?” and paste this whole file or type the 44 words in order.</value></data>
   <data name="Encrypt_KeySaved" xml:space="preserve"><value>Saved.</value></data>
   <data name="Encrypt_KeyCopied" xml:space="preserve"><value>Copied. Clear the clipboard after pasting the key.</value></data>
-  <data name="Encrypt_VerifyIntro.Text" xml:space="preserve"><value>Let us check that the key is written down. Enter the words with these numbers.</value></data>
+  <data name="Encrypt_VerifyIntro.Text" xml:space="preserve"><value>Enter the words with these numbers to make sure the key is written down.</value></data>
   <data name="Encrypt_WordN" xml:space="preserve"><value>Word {0}</value></data>
   <data name="Encrypt_WordsWrong" xml:space="preserve"><value>The words do not match. Press Back and check what you wrote down.</value></data>
   <data name="Encrypt_ProgressFiles" xml:space="preserve"><value>Files: {0} of {1}, {2:0.0} of {3:0.0} MB</value></data>
   <data name="Encrypt_Copying" xml:space="preserve"><value>Encrypting and checking every file. The original is deleted only at the end, after the copy is checked.</value></data>
   <data name="Encrypt_Finishing" xml:space="preserve"><value>Replacing the folder with the encrypted one.</value></data>
-  <data name="Encrypt_Done" xml:space="preserve"><value>Done. The folder “{0}” is encrypted and open. It locks by itself when the screen locks, before sleep and after 30 minutes without use.</value></data>
+  <data name="Encrypt_Done" xml:space="preserve"><value>The folder “{0}” is encrypted and open. It locks by itself when the screen locks, before sleep and after 30 minutes without use.</value></data>
   <data name="Encrypt_Failed" xml:space="preserve"><value>The folder was not encrypted. All files are in place.</value></data>
   <data name="Error_core_not_running" xml:space="preserve"><value>The Zamok background program is not running.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>The other side is not this user's Zamok program. The password was not sent.</value></data>
