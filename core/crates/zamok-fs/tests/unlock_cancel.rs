@@ -25,7 +25,8 @@ fn cancel_during_password_check_keeps_folder_locked() {
     let c2 = Arc::clone(&c);
     let t = std::thread::spawn(move || c2.unlock_with_password("pw"));
     std::thread::sleep(std::time::Duration::from_millis(100));
-    c.cancel_unlocks();
+    // Запирание запертой папки отменяет идущее открытие
+    assert!(!c.lock());
     assert!(matches!(t.join().unwrap(), Err(UnlockError::Cancelled)));
     assert!(c.is_locked());
     // Следующая попытка без помех открывает
@@ -41,4 +42,19 @@ fn wrong_password_is_reported_as_such() {
         fs.control().unlock_with_password("nope"),
         Err(UnlockError::Crypto(zamok_crypto::Error::WrongPassword))
     ));
+}
+
+#[test]
+fn still_wanted_false_cancels_and_true_unlocks() {
+    let (_d, v) = vault();
+    let fs = ZamokFs::new(&v, "T").unwrap();
+    let c = fs.control();
+    assert!(matches!(
+        c.unlock_with_password_if("pw", &|| false),
+        Err(UnlockError::Cancelled)
+    ));
+    assert!(c.is_locked());
+    c.unlock_with_password_if("pw", &|| true).unwrap();
+    assert!(c.lock());
+    assert!(c.is_locked());
 }

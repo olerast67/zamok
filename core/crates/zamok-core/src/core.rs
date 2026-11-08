@@ -5,7 +5,7 @@
 //! других папок не ждут, пока кто-то вводит пароль.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use zamok_fs::fs::{Control, UnlockError};
@@ -22,6 +22,10 @@ pub struct Entry {
     /// Копия управления томом, чтобы открывать и запирать, не держа `mounted`.
     control: Mutex<Option<Arc<Control>>>,
     error: Mutex<Option<ErrorCode>>,
+    /// Растёт при каждом запирании этой папки. Открытие читает его в самом начале (ещё до
+    /// подключения тома) и ставит ключ, только если число не изменилось: запирание,
+    /// пришедшее посреди открытия, всегда его отменяет.
+    lock_epoch: AtomicU64,
 }
 
 impl Entry {
@@ -31,6 +35,7 @@ impl Entry {
             mounted: Mutex::new(None),
             control: Mutex::new(None),
             error: Mutex::new(None),
+            lock_epoch: AtomicU64::new(0),
         })
     }
 
@@ -74,6 +79,13 @@ impl Entry {
         *mounted = Some(m);
         tracing::info!(folder = %cfg.id, "mounted (locked)");
         Ok(control)
+    }
+
+    /// Запереть и отменить идущие открытия. `true`, если папка была открыта.
+    fn lock_now(&self) -> Option<Arc<Control>> {
+        self.lock_epoch.fetch_add(1, Ordering::SeqCst);
+        let c = self.control()?;
+        c.lock().then_some(c)
     }
 
     fn unmount(&self) {
@@ -178,9 +190,11 @@ impl Core {
 
     pub fn unlock(&self, path: &str, password: &str) -> Result<FolderInfo, ErrorCode> {
         let e = self.find(path)?;
+        let epoch = e.lock_epoch.load(Ordering::SeqCst);
         let control = e.ensure_mounted()?;
         let id = e.cfg().id;
-        match control.unlock_with_password(password) {
+        let still_wanted = || e.lock_epoch.load(Ordering::SeqCst) == epoch;
+        match control.unlock_with_password_if(password, &still_wanted) {
             Ok(()) => {
                 notify_shell(&e.cfg().path);
                 tracing::info!(folder = %id, "unlocked with password");
@@ -203,10 +217,12 @@ impl Core {
 
     pub fn unlock_recovery(&self, path: &str, words: &str) -> Result<FolderInfo, ErrorCode> {
         let e = self.find(path)?;
+        let epoch = e.lock_epoch.load(Ordering::SeqCst);
         let key = zamok_crypto::recovery::decode(words).map_err(|_| ErrorCode::WrongRecoveryKey)?;
         let control = e.ensure_mounted()?;
         let id = e.cfg().id;
-        match control.unlock_with_key(key) {
+        let still_wanted = || e.lock_epoch.load(Ordering::SeqCst) == epoch;
+        match control.unlock_with_key_if(key, &still_wanted) {
             Ok(()) => {
                 notify_shell(&e.cfg().path);
                 tracing::info!(folder = %id, "unlocked with recovery key");
@@ -226,14 +242,9 @@ impl Core {
 
     pub fn lock(&self, path: &str) -> Result<FolderInfo, ErrorCode> {
         let e = self.find(path)?;
-        if let Some(c) = e.control() {
-            if c.is_locked() {
-                c.cancel_unlocks();
-            } else {
-                c.lock();
-                settle_lock(&c, &e.cfg().path);
-                tracing::info!(folder = %e.cfg().id, "locked by request");
-            }
+        if let Some(c) = e.lock_now() {
+            settle_lock(&c, &e.cfg().path);
+            tracing::info!(folder = %e.cfg().id, "locked by request");
         }
         Ok(e.info())
     }
@@ -244,14 +255,9 @@ impl Core {
         let entries = self.entries.lock().unwrap().clone();
         let mut locked = Vec::new();
         for e in entries {
-            if let Some(c) = e.control() {
-                if c.is_locked() {
-                    // Пароль к этой папке, возможно, как раз проверяется: отменить
-                    c.cancel_unlocks();
-                } else {
-                    c.lock();
-                    locked.push((c, e.cfg().path));
-                }
+            // Всем папкам, и запертым тоже: к ним сейчас может проверяться пароль
+            if let Some(c) = e.lock_now() {
+                locked.push((c, e.cfg().path));
             }
         }
         if !locked.is_empty() {
@@ -283,8 +289,7 @@ impl Core {
                 continue;
             }
             if let Some(c) = e.control() {
-                if !c.is_locked() && c.idle_for().as_secs() >= secs {
-                    c.lock();
+                if !c.is_locked() && c.idle_for().as_secs() >= secs && c.lock() {
                     settle_lock(&c, &e.cfg().path);
                     tracing::info!(folder = %e.cfg().id, "locked after idle timeout");
                 }

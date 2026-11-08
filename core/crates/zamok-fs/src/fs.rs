@@ -193,31 +193,55 @@ fn valid_name(name: &str) -> bool {
 
 impl Control {
     /// Открыть паролем. Неверный пароль оставляет папку запертой.
-    ///
-    /// Проверка пароля (scrypt) идёт около секунды. Если за это время папку заперли или
-    /// отменили открытие ([`Control::cancel_unlocks`], например по Win+L), ключ выбрасывается
-    /// и возвращается [`UnlockError::Cancelled`].
     pub fn unlock_with_password(&self, password: &str) -> Result<(), UnlockError> {
+        self.unlock_with_password_if(password, &|| true)
+    }
+
+    /// Открыть паролем, если к моменту установки ключа открытие всё ещё нужно.
+    ///
+    /// Проверка пароля (scrypt) занимает заметное время. Если за это время папку заперли
+    /// ([`Control::lock`], например по Win+L) или `still_wanted` вернул `false`, ключ
+    /// выбрасывается и возвращается [`UnlockError::Cancelled`]. `still_wanted` вызывается
+    /// под тем же замком, под которым ставится ключ.
+    pub fn unlock_with_password_if(
+        &self,
+        password: &str,
+        still_wanted: &dyn Fn() -> bool,
+    ) -> Result<(), UnlockError> {
         let started = self.generation.load(Ordering::SeqCst);
         let mk = MasterkeyFile::from_json(&fs::read_to_string(
             self.root.join("masterkey.cryptomator"),
         )?)?;
         let key = mk.unlock(password)?;
-        self.commit_unlock(key, started)
+        self.commit_unlock(key, started, still_wanted)
     }
 
-    /// Открыть ключом (ключ восстановления). Отмена так же, как у пароля.
+    /// Открыть ключом (ключ восстановления).
     pub fn unlock_with_key(&self, key: MasterKey) -> Result<(), UnlockError> {
-        let started = self.generation.load(Ordering::SeqCst);
-        self.commit_unlock(key, started)
+        self.unlock_with_key_if(key, &|| true)
     }
 
-    fn commit_unlock(&self, key: MasterKey, started: u64) -> Result<(), UnlockError> {
+    /// Открыть ключом с той же отменой, что у [`Control::unlock_with_password_if`].
+    pub fn unlock_with_key_if(
+        &self,
+        key: MasterKey,
+        still_wanted: &dyn Fn() -> bool,
+    ) -> Result<(), UnlockError> {
+        let started = self.generation.load(Ordering::SeqCst);
+        self.commit_unlock(key, started, still_wanted)
+    }
+
+    fn commit_unlock(
+        &self,
+        key: MasterKey,
+        started: u64,
+        still_wanted: &dyn Fn() -> bool,
+    ) -> Result<(), UnlockError> {
         let jwt = fs::read_to_string(self.root.join("vault.cryptomator"))?;
         let config = VaultConfig::from_jwt(&jwt, &key)?;
         let mut st = self.state.write().unwrap();
-        // lock и cancel_unlocks меняют поколение под этим же замком
-        if self.generation.load(Ordering::SeqCst) != started {
+        // lock меняет поколение под этим же замком
+        if self.generation.load(Ordering::SeqCst) != started || !still_wanted() {
             return Err(UnlockError::Cancelled); // key стирается при удалении
         }
         *st = Some(Unlocked { key, config });
@@ -226,17 +250,16 @@ impl Control {
         Ok(())
     }
 
-    /// Отменить открытия, которые сейчас идут (проверяют пароль). Для запертой папки:
-    /// запирание всех папок должно остановить и их.
-    pub fn cancel_unlocks(&self) {
-        let _st = self.state.write().unwrap();
-        self.generation.fetch_add(1, Ordering::SeqCst);
-    }
-
-    /// Запереть: стереть мастер-ключ и ключи всех открытых файлов.
-    pub fn lock(&self) {
+    /// Запереть: стереть мастер-ключ и ключи всех открытых файлов. Поколение меняется
+    /// всегда, и у запертой папки тоже: так отменяются открытия, которые сейчас проверяют
+    /// пароль. Проверка состояния и запирание идут под одним замком.
+    /// Возвращает `true`, если папка была открыта (тогда нужен [`crate::mount::settle_lock`]).
+    pub fn lock(&self) -> bool {
         let mut st = self.state.write().unwrap();
         self.generation.fetch_add(1, Ordering::SeqCst);
+        if st.is_none() {
+            return false;
+        }
         for weak in self.open_files.lock().unwrap().drain().map(|(_, w)| w) {
             if let Some(f) = weak.upgrade() {
                 f.lock().unwrap().seal();
@@ -248,6 +271,7 @@ impl Control {
         seen.push("\\".to_string());
         self.pending_invalidate.lock().unwrap().extend(seen);
         *st = None; // MasterKey стирается при удалении (ZeroizeOnDrop)
+        true
     }
 
     pub fn is_locked(&self) -> bool {
