@@ -34,6 +34,8 @@ internal static partial class WindowHelper
             p.IsMinimizable = false;
         }
         window.Title = "Zamok";
+        var icon = Path.Combine(AppContext.BaseDirectory, "zamok.ico");
+        if (File.Exists(icon)) appWindow.SetIcon(icon);
         if (MicaController.IsSupported())
             window.SystemBackdrop = new MicaBackdrop();
     }

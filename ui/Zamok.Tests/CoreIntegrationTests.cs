@@ -31,6 +31,7 @@ public sealed class CoreIntegrationTests : IDisposable
         Directory.CreateDirectory(_root);
         var psi = new ProcessStartInfo(exe) { UseShellExecute = false };
         psi.Environment["ZAMOK_DATA_DIR"] = Path.Combine(_root, "data");
+        psi.Environment["ZAMOK_NO_TRAY"] = "1";
         psi.Environment["ZAMOK_PIPE"] = $@"\\.\pipe\{_pipe}";
         _core = Process.Start(psi)!;
         var deadline = DateTime.UtcNow.AddSeconds(15);

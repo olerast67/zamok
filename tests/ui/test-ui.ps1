@@ -64,6 +64,7 @@ function StartCore {
     $psi.UseShellExecute = $false
     $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
     $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipeName"
+    $psi.EnvironmentVariables['ZAMOK_NO_TRAY'] = '1'
     $p = [Diagnostics.Process]::Start($psi)
     [void](WaitFor { (Test-Path "\\.\pipe\$pipeName") -or $p.HasExited } 15000)
     $p
@@ -98,8 +99,10 @@ Start-Sleep -Milliseconds 500
 Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $root | Out-Null
 Push-Location "$repo\core"; & "$env:USERPROFILE\.cargo\bin\cargo.exe" build -q --release -p zamok-core 2>&1 | Out-Null; Pop-Location
-& dotnet build "$repo\ui\Zamok.UI\Zamok.UI.csproj" -c Release -v q 2>&1 | Out-Null
-$uiExe = (Get-ChildItem "$repo\ui\Zamok.UI\bin\Release" -Recurse -Filter Zamok.exe | Select-Object -First 1).FullName
+# Proveryaem opublikovannuyu sborku: imenno ona stavitsya (v obychnoy sborke est fayly,
+# kotoryh v publikacii mozhet ne okazatsya, tak uzhe bylo s Zamok.pri)
+& dotnet publish "$repo\ui\Zamok.UI\Zamok.UI.csproj" -c Release -o "$root-publish" -v q 2>&1 | Out-Null
+$uiExe = "$root-publish\Zamok.exe"
 
 $script:core = $null
 $ui = $null

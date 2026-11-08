@@ -33,6 +33,7 @@ function StartCore([string]$crash = '') {
     $psi.UseShellExecute = $false
     $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
     $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipeName"
+    $psi.EnvironmentVariables['ZAMOK_NO_TRAY'] = '1'
     if ($crash) { $psi.EnvironmentVariables['ZAMOK_TEST_CRASH'] = $crash }
     $p = [Diagnostics.Process]::Start($psi)
     [void](WaitFor { (Test-Path "\\.\pipe\$pipeName") -or $p.HasExited } 60000)

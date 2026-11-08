@@ -74,6 +74,7 @@ function StartCore {
     $psi.RedirectStandardError = $true
     $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
     $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipeName"
+    $psi.EnvironmentVariables['ZAMOK_NO_TRAY'] = '1'
     $p = [Diagnostics.Process]::Start($psi)
     [void](WaitFor { (Test-Path "\\.\pipe\$pipeName") -or $p.HasExited } 15000)
     [void](WaitFor { $p.HasExited -or [ZT]::CoreWindow($p.Id) -ne [IntPtr]::Zero } 5000)

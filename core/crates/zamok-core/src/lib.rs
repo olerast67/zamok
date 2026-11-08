@@ -7,6 +7,7 @@
 //! - [`protocol`], [`pipe`]: команды по каналу, доступному только этому пользователю.
 //! - [`preflight`], [`encrypt`]: шифрование существующей папки на месте с журналом.
 //! - [`autolock`]: блокировка экрана, сон, выход из системы, бездействие.
+//! - [`tray`]: значок в трее со списком папок и «Запереть всё».
 
 pub mod autolock;
 pub mod config;
@@ -16,3 +17,4 @@ pub mod mountpoint;
 pub mod pipe;
 pub mod preflight;
 pub mod protocol;
+pub mod tray;

@@ -27,6 +27,24 @@ Get-AuthenticodeSignature .\файл.msi | Format-List Status, SignerCertificate
 
 `Status` должен быть `Valid`, а в `SignerCertificate` должна стоять компания, которая делает программу.
 
+## Поставить альфу для себя
+
+Нужны WinFsp, Rust и .NET 10 SDK (всё выше). Права администратора не нужны.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-dev.ps1
+```
+
+Скрипт собирает `zamok-core` и `Zamok.exe`, кладёт их в `%LOCALAPPDATA%\Programs\Zamok`, добавляет пункт «Зашифровать паролем» в меню правой кнопки на папке, связывает значок `.zamok` с окном пароля, включает автозапуск core и запускает его. Повторный запуск обновляет установку: core запирает папки и перезапускается.
+
+Удалить:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\uninstall-dev.ps1
+```
+
+Если есть зашифрованные папки, удаление попросит `-Force`: папки останутся зашифрованными и вернутся после новой установки, без Zamok их открывает Cryptomator или `zamok-recover`. Журнал core: `%LOCALAPPDATA%\Zamok\core.log`.
+
 ## Ещё не сделано
 
 - Виртуальная машина с Windows 11 в Hyper-V. Включение Hyper-V требует прав администратора и перезагрузки, это делает автор:
