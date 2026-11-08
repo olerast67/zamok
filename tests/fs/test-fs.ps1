@@ -132,7 +132,7 @@ Check 'ciphertext on disk has no plaintext names' {
 # Запирание
 $held = [IO.File]::Open((Join-Path $mnt 'report.docx'), 'Open', 'Read', 'ReadWrite, Delete')
 $b = New-Object byte[] 2; $held.Read($b, 0, 2) | Out-Null
-Check 'lock command' { (Send 'lock') -eq 'locked' }
+Check 'lock command' { $r = Send 'lock'; if ($r -ne 'locked') { throw "reply: [$r], exited: $($proc.HasExited), code: $(if ($proc.HasExited) { $proc.ExitCode })" }; $r }
 Check 'locked: only the open item is visible' {
     $items = @(Get-ChildItem $mnt | ForEach-Object Name)
     if ($items.Count -ne 1 -or $items[0] -notlike '*TestBox.zamok') { return "items=[$($items -join ', ')]" -eq '' }; $items[0]

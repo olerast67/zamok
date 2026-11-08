@@ -102,6 +102,14 @@ fn main() {
     match std::env::args().nth(1).as_deref() {
         Some("--watch") => watch(),
         Some("--quit") => quit_running(),
+        Some("--uninstall-notes") => {
+            use windows::Win32::Globalization::GetUserDefaultUILanguage;
+            let russian = (unsafe { GetUserDefaultUILanguage() } & 0x3FF) == 0x19;
+            if let Ok(dir) = data_dir() {
+                zamok_core::howto::write_notes(&dir, russian);
+            }
+            std::process::exit(0);
+        }
         _ => {}
     }
     if let Err(e) = run() {

@@ -40,7 +40,8 @@ fn main() -> anyhow::Result<()> {
 
     for line in std::io::stdin().lock().lines() {
         let line = line?;
-        let line = line.trim();
+        // PowerShell с кодировкой UTF-8 ставит в начало ввода невидимый знак BOM
+        let line = line.trim().trim_start_matches('\u{feff}');
         if line == "lock" {
             // Ответить «заперто» только после того, как ядро забыло сведения о файлах
             m.lock();

@@ -18,6 +18,7 @@ pub mod config;
 pub mod core;
 pub mod decrypt;
 pub mod encrypt;
+pub mod howto;
 pub mod mountpoint;
 pub mod pipe;
 pub mod preflight;
