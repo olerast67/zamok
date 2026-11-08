@@ -87,6 +87,11 @@ impl Vault {
         &self.key
     }
 
+    /// Папка хранилища на диске.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     /// Все узлы дерева, начиная с корня (ID корня пустой).
     pub fn walk(&self) -> Result<Vec<Node>> {
         let mut out = Vec::new();
