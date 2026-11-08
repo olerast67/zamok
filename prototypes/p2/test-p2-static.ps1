@@ -31,7 +31,7 @@ try {
     # Условие: только папка с этим путём
     Set-ItemProperty $verb 'AppliesTo' ("System.ItemPathDisplay:=""$locked""")
     Set-ItemProperty "$verb\command" '(default)' ("cmd.exe /c echo invoke %1>>""$log""")
-    Set-ItemProperty $shellKey '(default)' 'ZamokP2Static open'
+    Set-ItemProperty $shellKey '(default)' 'ZamokP2Static none'
     }
 
     foreach ($name in 'Locked', 'Normal') {
