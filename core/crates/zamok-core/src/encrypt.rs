@@ -689,6 +689,8 @@ pub fn start(
     if password.is_empty() {
         return Err(refuse(ErrorCode::BadRequest));
     }
+    // До любой подготовки: если с этого момента экран заблокировали, в конце папка не откроется
+    let locks_at_start = core.lock_all_count();
     // Пока не разобран журнал прошлой работы, новую не начинаем
     if Journal::any_left(data_dir) {
         return Err(refuse(ErrorCode::RecoveryPending));
@@ -747,7 +749,16 @@ pub fn start(
     let pr = progress.clone();
     let dir = data_dir.to_path_buf();
     std::thread::spawn(move || {
-        let result = run(&core, &mut journal, &dir, &vault, &plan, &pr, &password);
+        let result = run(
+            &core,
+            &mut journal,
+            &dir,
+            &vault,
+            &plan,
+            &pr,
+            &password,
+            locks_at_start,
+        );
         if let Err(code) = result {
             tracing::warn!(job = %journal.id, ?code, "encryption stopped");
         }
@@ -764,10 +775,9 @@ fn run(
     plan: &Plan,
     progress: &Progress,
     password: &str,
+    locks_at_start: u64,
 ) -> Result<(), ErrorCode> {
     crash_point("copying");
-    // Если за время работы экран заблокировали, в конце папка не откроется
-    let locks_at_start = core.lock_all_count();
     let attrs_later = match copy_and_verify(vault, &j.path, plan, progress) {
         Ok(a) => a,
         Err(code) => {
