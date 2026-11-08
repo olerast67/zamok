@@ -122,6 +122,9 @@
     <!-- Перед установкой, обновлением и удалением: core запирает папки и выходит -->
     <CustomAction Id="QuitCore" Directory="INSTALLFOLDER"
                   ExeCommand="&quot;[INSTALLFOLDER]zamok-core.exe&quot; --quit" Execute="immediate" Return="ignore" />
+    <!-- При удалении: рядом с хранилищами памятка, как открыть папку без Zamok -->
+    <CustomAction Id="WriteNotes" Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]zamok-core.exe&quot; --uninstall-notes" Execute="immediate" Return="ignore" />
     <!-- Собрать значки из значков этой Windows -->
     <CustomAction Id="MakeIcons" Directory="INSTALLFOLDER"
                   ExeCommand="&quot;[INSTALLFOLDER]Zamok.exe&quot; --make-icons &quot;[INSTALLFOLDER].&quot;"
@@ -131,6 +134,7 @@
                   ExeCommand="&quot;[INSTALLFOLDER]zamok-core.exe&quot; --watch" Execute="immediate" Return="asyncNoWait" />
 
     <InstallExecuteSequence>
+      <Custom Action="WriteNotes" Before="QuitCore" Condition="(REMOVE=&quot;ALL&quot;) AND (NOT UPGRADINGPRODUCTCODE)" />
       <Custom Action="QuitCore" Before="InstallValidate" Condition="Installed OR WIX_UPGRADE_DETECTED" />
       <Custom Action="MakeIcons" After="InstallFiles" Condition="NOT REMOVE" />
       <Custom Action="StartCore" After="InstallFinalize" Condition="NOT REMOVE" />

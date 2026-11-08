@@ -105,6 +105,7 @@ Say "uninstall exit: $($p.ExitCode)"
 Check 'uninstall succeeded and removed zamok' { $p.ExitCode -eq 0 -and -not (Test-Path "$env:LOCALAPPDATA\Programs\Zamok\zamok-core.exe") }
 Check 'winfsp stays' { WinFsp }
 Check 'encrypted data stays' { Test-Path "$root\.f.zamok\masterkey.cryptomator" }
+Check 'a note next to the vault says how to open it' { @(Get-ChildItem "$root\*.txt" | Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match 'vault\.cryptomator' }).Count -eq 1 }
 Say 'DONE'
 '@.Replace('PASSWORD', $pw) | Set-Content "$box\guest.ps1" -Encoding ASCII
 
