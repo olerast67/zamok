@@ -84,6 +84,26 @@ impl MasterKey {
     }
 }
 
+/// Завернуть мастер-ключ 32-байтовым ключом обёртки (AES-KW, RFC 3394), как в файле
+/// `masterkey.cryptomator`, только без scrypt: ключ обёртки уже случайный (вход по Windows Hello).
+pub fn wrap_with(key: &MasterKey, kek: &[u8; 32]) -> Result<Vec<u8>> {
+    let kw = aes_kw::KekAes256::from(*kek);
+    kw.wrap_vec(&key.to_raw()[..])
+        .map_err(|_| Error::MalformedMasterkey)
+}
+
+/// Развернуть мастер-ключ. Чужой ключ обёртки или испорченные данные: [`Error::WrongPassword`].
+pub fn unwrap_with(blob: &[u8], kek: &[u8; 32]) -> Result<MasterKey> {
+    if blob.len() != 72 {
+        return Err(Error::MalformedMasterkey);
+    }
+    let kw = aes_kw::KekAes256::from(*kek);
+    let raw = Zeroizing::new(kw.unwrap_vec(blob).map_err(|_| Error::WrongPassword)?);
+    let mut arr = Zeroizing::new([0u8; 64]);
+    arr.copy_from_slice(&raw);
+    Ok(MasterKey::from_raw(&arr))
+}
+
 impl std::fmt::Debug for MasterKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("MasterKey(..)")
@@ -270,5 +290,18 @@ mod tests {
         let mut f = MasterkeyFile::lock_with(&k, "p", FAST).unwrap();
         f.scrypt_cost_param = 1 << 30;
         assert!(matches!(f.unlock("p"), Err(Error::UnsupportedScrypt)));
+    }
+
+    #[test]
+    fn wrap_with_roundtrip_and_wrong_key() {
+        let k = MasterKey::generate().unwrap();
+        let kek = [7u8; 32];
+        let blob = wrap_with(&k, &kek).unwrap();
+        assert_eq!(blob.len(), 72);
+        assert_eq!(&*unwrap_with(&blob, &kek).unwrap().to_raw(), &*k.to_raw());
+        assert!(matches!(
+            unwrap_with(&blob, &[8u8; 32]),
+            Err(Error::WrongPassword)
+        ));
     }
 }

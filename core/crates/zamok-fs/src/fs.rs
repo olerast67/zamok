@@ -111,9 +111,22 @@ impl From<std::io::Error> for UnlockError {
 /// Значок запертой папки для `desktop.ini` (путь к .ico). Не задан: замок из imageres.dll.
 static FOLDER_ICON: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
+/// Значок открытой папки: показывается служебным `desktop.ini` в корне открытой папки,
+/// если у человека там нет своего `desktop.ini`.
+static FOLDER_ICON_OPEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 /// Задать значок запертой папки один раз при старте программы.
 pub fn set_folder_icon(path: &str) {
     let _ = FOLDER_ICON.set(path.to_string());
+}
+
+/// Задать значок открытой папки один раз при старте программы.
+pub fn set_open_folder_icon(path: &str) {
+    let _ = FOLDER_ICON_OPEN.set(path.to_string());
+}
+
+fn is_root_desktop_ini(path: &str) -> bool {
+    matches!(split(path).as_slice(), [n] if n.eq_ignore_ascii_case("desktop.ini"))
 }
 
 pub struct ZFile {
@@ -550,6 +563,11 @@ impl ZamokFs {
         unreachable!()
     }
 
+    /// Показывать ли служебный `desktop.ini` в открытой папке (значок открытой папки задан).
+    fn open_ini_virtual(&self, path: &str) -> bool {
+        FOLDER_ICON_OPEN.get().is_some() && is_root_desktop_ini(path)
+    }
+
     fn virtual_of(&self, path: &str) -> Option<Virtual> {
         let parts = split(path);
         match parts.as_slice() {
@@ -572,8 +590,12 @@ impl ZamokFs {
             }
             Virtual::DesktopIni => {
                 // UTF-16LE с BOM: так desktop.ini понимает Проводник
-                let icon = FOLDER_ICON
-                    .get()
+                let icon = if self.is_locked() {
+                    FOLDER_ICON.get()
+                } else {
+                    FOLDER_ICON_OPEN.get()
+                };
+                let icon = icon
                     .map(|p| format!("{p},0"))
                     .unwrap_or_else(|| r"%SystemRoot%\System32\imageres.dll,54".to_string());
                 let text = format!("[.ShellClassInfo]\r\nIconResource={icon}\r\nInfoTip=Zamok\r\n");
@@ -846,11 +868,16 @@ impl FileSystemContext for ZamokFs {
             };
             self.fill_virtual(&v, &mut info);
         } else {
-            self.with_key(|u| {
+            let r = self.with_key(|u| {
                 let r = self.resolve(u, &path)?;
                 self.ctl.remember(&r.clear);
                 self.fill_info(&r, &mut info)
-            })?;
+            });
+            if r.is_err() && self.open_ini_virtual(&path) {
+                self.fill_virtual(&Virtual::DesktopIni, &mut info);
+            } else {
+                r?;
+            }
         }
         let sz = self.security_copy(security_descriptor);
         Ok(FileSecurity {
@@ -874,6 +901,14 @@ impl FileSystemContext for ZamokFs {
             };
             self.fill_virtual(&v, file_info.as_mut());
             return Ok(self.new_context(path, None, Some(v), None));
+        }
+        let virtual_ini = self.open_ini_virtual(&path)
+            && self
+                .with_key(|u| self.resolve(u, &path).map(|_| ()))
+                .is_err();
+        if virtual_ini {
+            self.fill_virtual(&Virtual::DesktopIni, file_info.as_mut());
+            return Ok(self.new_context(path, None, Some(Virtual::DesktopIni), None));
         }
         self.with_key(|u| {
             let r = self.resolve(u, &path)?;
@@ -1090,6 +1125,17 @@ impl FileSystemContext for ZamokFs {
                 }
                 Ok(())
             })?;
+            // Своего desktop.ini нет: служебный со значком открытой папки
+            if is_root
+                && FOLDER_ICON_OPEN.get().is_some()
+                && !entries
+                    .iter()
+                    .any(|(n, _)| n.eq_ignore_ascii_case("desktop.ini"))
+            {
+                let mut fi = FileInfo::default();
+                self.fill_virtual(&Virtual::DesktopIni, &mut fi);
+                entries.push(("desktop.ini".into(), fi));
+            }
         }
         if let Ok(lock) = context.dir_buffer.acquire(marker.is_none(), None) {
             let mut di: DirInfo = DirInfo::new();

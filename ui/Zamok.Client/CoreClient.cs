@@ -104,6 +104,30 @@ public sealed partial class CoreClient
             w.WriteBoolean("on", on);
         }, ct);
 
+    public Task<Response> HelloEnableAsync(string path, string password, string wrapKey, CancellationToken ct = default) =>
+        SendAsync(w =>
+        {
+            w.WriteString("cmd", "hello_enable");
+            w.WriteString("path", path);
+            w.WriteString("password", password);
+            w.WriteString("wrap_key", wrapKey);
+        }, ct);
+
+    public Task<Response> HelloDisableAsync(string path, CancellationToken ct = default) =>
+        SendAsync(w =>
+        {
+            w.WriteString("cmd", "hello_disable");
+            w.WriteString("path", path);
+        }, ct);
+
+    public Task<Response> UnlockHelloAsync(string path, string wrapKey, CancellationToken ct = default) =>
+        SendAsync(w =>
+        {
+            w.WriteString("cmd", "unlock_hello");
+            w.WriteString("path", path);
+            w.WriteString("wrap_key", wrapKey);
+        }, ct);
+
     public Task<Response> DecryptAsync(string path, string password, CancellationToken ct = default) =>
         SendAsync(w =>
         {

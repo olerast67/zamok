@@ -23,7 +23,8 @@ public sealed record FolderInfo(
     string Path,
     string State,
     ulong IdleLockSecs,
-    string? Error)
+    string? Error,
+    bool Hello = false)
 {
     public bool IsLocked => State == "locked";
     public bool IsUnlocked => State == "unlocked";

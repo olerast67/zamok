@@ -19,6 +19,7 @@ public sealed partial class SettingsWindow : Window
     private FolderInfo[] _folders = [];
     private string? _selectedId;
     private bool _updating;
+    private bool _helloAvailable;
 
     public SettingsWindow()
     {
@@ -29,7 +30,13 @@ public sealed partial class SettingsWindow : Window
         foreach (var m in IdleMinutes)
             IdleBox.Items.Add(m == 0 ? Strings.Get("Settings_IdleNever") : Strings.Format("Settings_IdleMinutes", m));
         _timer.Tick += async (_, _) => await RefreshAsync();
-        Activated += async (_, _) => { if (!_timer.IsEnabled) { _timer.Start(); await RefreshAsync(); } };
+        Activated += async (_, _) =>
+        {
+            if (_timer.IsEnabled) return;
+            _helloAvailable = await Hello.IsAvailableAsync();
+            _timer.Start();
+            await RefreshAsync();
+        };
         Closed += (_, _) => _timer.Stop();
     }
 
@@ -118,6 +125,8 @@ public sealed partial class SettingsWindow : Window
         ToggleButton.IsEnabled = f.State != "unavailable";
         PropPath.Text = Strings.Format("Settings_PropPath", f.Path);
         PropVault.Text = Strings.Format("Settings_PropVault", VaultPath(f.Path));
+        HelloPanel.Visibility = _helloAvailable ? Visibility.Visible : Visibility.Collapsed;
+        HelloSwitch.IsOn = f.Hello;
         var minutes = f.IdleLockSecs / 60;
         var idx = Array.IndexOf(IdleMinutes, minutes);
         IdleBox.SelectedIndex = idx >= 0 ? idx : Array.IndexOf(IdleMinutes, 30UL);
@@ -177,6 +186,49 @@ public sealed partial class SettingsWindow : Window
         if (_updating) return;
         try { await _client.SetLockOnScreenLockAsync(ScreenLockSwitch.IsOn); }
         catch (CoreNotRunningException) { ShowError(Strings.Error("core_not_running")); }
+    }
+
+    private async void OnHelloToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating || Selected is not { } f || HelloSwitch.IsOn == f.Hello) return;
+        ShowError("");
+        try
+        {
+            if (!HelloSwitch.IsOn)
+            {
+                await _client.HelloDisableAsync(f.Path);
+            }
+            else
+            {
+                // Включить: пароль папки, затем подтверждение Windows Hello
+                var box = new PasswordBox { Header = Strings.Get("Manage_Password/Header") };
+                var dialog = new ContentDialog
+                {
+                    XamlRoot = Root.XamlRoot,
+                    Title = Strings.Get("Settings_HelloTitle"),
+                    Content = box,
+                    PrimaryButtonText = Strings.Get("Settings_HelloEnable"),
+                    CloseButtonText = Strings.Get("Common_Cancel/Content"),
+                    DefaultButton = ContentDialogButton.Primary,
+                };
+                var ok = await dialog.ShowAsync() == ContentDialogResult.Primary && box.Password.Length > 0;
+                var password = box.Password;
+                box.Password = "";
+                string? key = ok ? await Hello.WrapKeyAsync(f.Id, create: true) : null;
+                if (key is null)
+                {
+                    if (ok) ShowError(Strings.Error("hello_failed"));
+                }
+                else
+                {
+                    var r = await _client.HelloEnableAsync(f.Path, password, key);
+                    if (!r.Ok) ShowError(Strings.Error(r.Error));
+                }
+            }
+        }
+        catch (CoreNotRunningException) { ShowError(Strings.Error("core_not_running")); }
+        await RefreshAsync();
+        HelloSwitch.IsOn = Selected?.Hello ?? false;
     }
 
     private void OnCloseClick(object sender, RoutedEventArgs e) => Close();

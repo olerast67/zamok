@@ -84,6 +84,12 @@
   <data name="Settings_EmptyHow.Text" xml:space="preserve"><value>Чтобы зашифровать папку, щёлкните её правой кнопкой и выберите «Зашифровать паролем».</value></data>
   <data name="Settings_ScreenLock.Header" xml:space="preserve"><value>Запирать все папки при блокировке экрана (Win+L)</value></data>
   <data name="Settings_Close.Content" xml:space="preserve"><value>Закрыть</value></data>
+  <data name="Settings_Hello.Header" xml:space="preserve"><value>Открывать через Windows Hello (PIN-код, отпечаток, лицо)</value></data>
+  <data name="Settings_HelloNote.Text" xml:space="preserve"><value>Кто знает PIN-код Windows, тот откроет и папку. Вход работает только на этом компьютере, пароль и ключ восстановления остаются главными.</value></data>
+  <data name="Settings_HelloTitle" xml:space="preserve"><value>Включить Windows Hello</value></data>
+  <data name="Settings_HelloEnable" xml:space="preserve"><value>Включить</value></data>
+  <data name="Unlock_HelloText.Text" xml:space="preserve"><value>Открыть через Windows Hello</value></data>
+  <data name="Error_hello_failed" xml:space="preserve"><value>Windows Hello не подтвердил вход. Введите пароль.</value></data>
   <data name="Settings_StateOpen" xml:space="preserve"><value>открыта</value></data>
   <data name="Settings_StateLocked" xml:space="preserve"><value>заперта</value></data>
   <data name="Settings_StateUnavailable" xml:space="preserve"><value>недоступна</value></data>

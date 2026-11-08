@@ -81,6 +81,22 @@ pub enum Request {
     SetLockOnScreenLock {
         on: bool,
     },
+    /// Включить вход по Windows Hello: после проверки пароля мастер-ключ заворачивается ключом
+    /// из подписи Windows Hello (окно получает её после PIN-кода или отпечатка).
+    HelloEnable {
+        path: String,
+        password: Zeroizing<String>,
+        /// 32 байта в base64.
+        wrap_key: Zeroizing<String>,
+    },
+    HelloDisable {
+        path: String,
+    },
+    /// Открыть ключом из подписи Windows Hello.
+    UnlockHello {
+        path: String,
+        wrap_key: Zeroizing<String>,
+    },
     /// Запереть всё, отключить папки и завершиться.
     Quit,
 }
@@ -131,6 +147,8 @@ pub enum ErrorCode {
     FolderInUse,
     /// Отменено человеком: оригинал цел.
     Cancelled,
+    /// Windows Hello не подошёл или не включён для этой папки.
+    HelloFailed,
     /// Папку заперли (Win+L, сон, «запереть всё»), пока проверялся пароль.
     UnlockCancelled,
     Internal,
@@ -152,6 +170,8 @@ pub struct FolderInfo {
     pub path: String,
     pub state: FolderState,
     pub idle_lock_secs: u64,
+    /// Включён вход по Windows Hello.
+    pub hello: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorCode>,
 }

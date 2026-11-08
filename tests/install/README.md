@@ -14,3 +14,7 @@
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\install\test-install.ps1
 ```
+
+## Установщик MSI
+
+`test-msi.ps1`: 11 проверок установщика `installer/out/Zamok-*.msi` (собирается `installer/build-msi.ps1`). Тихая установка без прав администратора, файлы, значки собраны из значков этой Windows, core запущен через сторожа, автозапуск, пункты меню на языке Windows, `.zamok` ведёт к окну пароля, core сам ведёт условия меню; тихое удаление убирает процесс, файлы, значки и записи реестра, список папок остаётся. Запускается только там, где Zamok не установлен.

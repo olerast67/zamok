@@ -16,6 +16,25 @@ public sealed partial class UnlockWindow : Window
     private readonly string _path;
     private readonly CoreClient _client = new();
     private bool _recoveryMode;
+    private string? _folderId;
+
+    private async void OnHelloClick(object sender, RoutedEventArgs e) => await TryHelloAsync();
+
+    private async Task TryHelloAsync()
+    {
+        if (_folderId is null) return;
+        HelloButton.IsEnabled = false;
+        try
+        {
+            var key = await Hello.WrapKeyAsync(_folderId, create: false);
+            if (key is null) { ShowError(Strings.Error("hello_failed")); return; }
+            var r = await _client.UnlockHelloAsync(_path, key);
+            if (r.Ok) { Close(); return; }
+            ShowError(Strings.Error(r.Error));
+        }
+        catch (CoreNotRunningException) { ShowError(Strings.Error("core_not_running")); }
+        finally { HelloButton.IsEnabled = true; Password.Focus(FocusState.Programmatic); }
+    }
 
     public UnlockWindow(string path)
     {
@@ -44,7 +63,14 @@ public sealed partial class UnlockWindow : Window
                 return;
             }
             ShowFolder(folder.Path, folder.Name);
-            if (folder.IsUnlocked) Close(); // уже открыта: окно не нужно
+            if (folder.IsUnlocked) { Close(); return; } // уже открыта: окно не нужно
+            if (folder.Hello && await Hello.IsAvailableAsync())
+            {
+                _folderId = folder.Id;
+                HelloButton.Visibility = Visibility.Visible;
+                WindowHelper.FitHeight(this, Root, 420);
+                await TryHelloAsync(); // запрос появляется сам, пароль остаётся запасным путём
+            }
         }
         catch (CoreNotRunningException)
         {

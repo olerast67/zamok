@@ -84,6 +84,12 @@ How to open the folder with the key: in the locked folder double-click “Open {
   <data name="Settings_EmptyHow.Text" xml:space="preserve"><value>To encrypt a folder, right-click it and choose “Encrypt with password”.</value></data>
   <data name="Settings_ScreenLock.Header" xml:space="preserve"><value>Lock all folders when the screen locks (Win+L)</value></data>
   <data name="Settings_Close.Content" xml:space="preserve"><value>Close</value></data>
+  <data name="Settings_Hello.Header" xml:space="preserve"><value>Open with Windows Hello (PIN, fingerprint, face)</value></data>
+  <data name="Settings_HelloNote.Text" xml:space="preserve"><value>Anyone who knows the Windows PIN can open the folder too. It works only on this computer; the password and the recovery key stay the main way in.</value></data>
+  <data name="Settings_HelloTitle" xml:space="preserve"><value>Turn on Windows Hello</value></data>
+  <data name="Settings_HelloEnable" xml:space="preserve"><value>Turn on</value></data>
+  <data name="Unlock_HelloText.Text" xml:space="preserve"><value>Open with Windows Hello</value></data>
+  <data name="Error_hello_failed" xml:space="preserve"><value>Windows Hello did not confirm. Enter the password.</value></data>
   <data name="Settings_StateOpen" xml:space="preserve"><value>open</value></data>
   <data name="Settings_StateLocked" xml:space="preserve"><value>locked</value></data>
   <data name="Settings_StateUnavailable" xml:space="preserve"><value>unavailable</value></data>

@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Установщик Zamok (MSI, WiX 5). Ставится для текущего пользователя без прав администратора
+  в %LOCALAPPDATA%\Programs\Zamok и пишет только в HKCU, как scripts\install-dev.ps1:
+  пункты меню Проводника, тип .zamok, автозапуск core через сторожа.
+  WinFsp не вложен: если его нет, установка останавливается и говорит, где его взять.
+  Сборка: installer\build-msi.ps1
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Zamok" Manufacturer="olerast" Version="$(Version)"
+           UpgradeCode="0AB3538F-B5F5-495A-B728-3619649FC6BC"
+           Scope="perUser" Compressed="yes" Language="1049" Codepage="1251">
+
+    <MajorUpgrade DowngradeErrorMessage="Уже установлена более новая версия Zamok." />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="ZamokIcon" SourceFile="$(AppDir)\zamok.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ZamokIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/olerast67/zamok" />
+
+    <!-- WinFsp: драйвер ставится отдельно, с правами администратора -->
+    <Property Id="WINFSPDIR">
+      <RegistrySearch Root="HKLM" Key="SOFTWARE\WinFsp" Name="InstallDir" Type="raw" Bitness="always32" />
+    </Property>
+    <Launch Condition="Installed OR WINFSPDIR"
+            Message="Для Zamok нужен WinFsp (бесплатный драйвер файловых систем): https://winfsp.dev/rel/ . Установите его и запустите установку Zamok снова." />
+
+    <!-- Тексты пунктов меню: русские, если язык пользователя русский -->
+    <Property Id="T_ENCRYPT" Value="Encrypt with password" />
+    <Property Id="T_LOCK" Value="Lock" />
+    <Property Id="T_UNLOCK" Value="Open with password" />
+    <Property Id="T_CHANGE" Value="Change password" />
+    <Property Id="T_SHOWKEY" Value="Show recovery key" />
+    <Property Id="T_DECRYPT" Value="Decrypt permanently" />
+    <Property Id="T_TYPE" Value="Zamok folder" />
+    <SetProperty Id="T_ENCRYPT" Value="Зашифровать паролем" Before="CostFinalize" Condition="UserLanguageID = 1049" Sequence="both" />
+    <SetProperty Id="T_LOCK" Value="Запереть" Before="CostFinalize" Condition="UserLanguageID = 1049" Sequence="both" />
+    <SetProperty Id="T_UNLOCK" Value="Открыть паролем" Before="CostFinalize" Condition="UserLanguageID = 1049" Sequence="both" />
+    <SetProperty Id="T_CHANGE" Value="Сменить пароль" Before="CostFinalize" Condition="UserLanguageID = 1049" Sequence="both" />
+    <SetProperty Id="T_SHOWKEY" Value="Показать ключ восстановления" Before="CostFinalize" Condition="UserLanguageID = 1049" Sequence="both" />
+    <SetProperty Id="T_DECRYPT" Value="Расшифровать навсегда" Before="CostFinalize" Condition="UserLanguageID = 1049" Sequence="both" />
+    <SetProperty Id="T_TYPE" Value="Папка Zamok" Before="CostFinalize" Condition="UserLanguageID = 1049" Sequence="both" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsDir" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Zamok" />
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="Registration" />
+    </Feature>
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(AppDir)\**" />
+    </ComponentGroup>
+
+    <Component Id="Registration" Directory="INSTALLFOLDER" Guid="6D2D7C55-3C33-4B9B-9A55-61B7E0E2C001">
+      <RegistryValue Root="HKCU" Key="Software\Zamok" Name="InstallDir" Value="[INSTALLFOLDER]" Type="string" KeyPath="yes" />
+
+      <!-- Пункты меню папок. Действие по умолчанию у папок не меняется. Условия AppliesTo
+           («только на папках Zamok») переписывает zamok-core -->
+      <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\ZamokEncrypt">
+        <RegistryValue Name="MUIVerb" Value="[T_ENCRYPT]" Type="string" />
+        <RegistryValue Name="Icon" Value="[INSTALLFOLDER]open-item.ico" Type="string" />
+        <RegistryValue Key="command" Value="&quot;[INSTALLFOLDER]Zamok.exe&quot; --encrypt &quot;%1&quot;" Type="string" />
+      </RegistryKey>
+      <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\ZamokLock">
+        <RegistryValue Name="MUIVerb" Value="[T_LOCK]" Type="string" />
+        <RegistryValue Name="Icon" Value="[INSTALLFOLDER]open-item.ico" Type="string" />
+        <RegistryValue Name="AppliesTo" Value="System.ItemPathDisplay:=&quot;::zamok-none::&quot;" Type="string" />
+        <RegistryValue Key="command" Value="&quot;[INSTALLFOLDER]Zamok.exe&quot; --lock &quot;%1&quot;" Type="string" />
+      </RegistryKey>
+      <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\ZamokUnlock">
+        <RegistryValue Name="MUIVerb" Value="[T_UNLOCK]" Type="string" />
+        <RegistryValue Name="Icon" Value="[INSTALLFOLDER]open-item.ico" Type="string" />
+        <RegistryValue Name="AppliesTo" Value="System.ItemPathDisplay:=&quot;::zamok-none::&quot;" Type="string" />
+        <RegistryValue Key="command" Value="&quot;[INSTALLFOLDER]Zamok.exe&quot; --unlock &quot;%1&quot;" Type="string" />
+      </RegistryKey>
+      <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\ZamokMore">
+        <RegistryValue Name="MUIVerb" Value="Zamok" Type="string" />
+        <RegistryValue Name="Icon" Value="[INSTALLFOLDER]open-item.ico" Type="string" />
+        <RegistryValue Name="SubCommands" Value="" Type="string" />
+        <RegistryValue Name="AppliesTo" Value="System.ItemPathDisplay:=&quot;::zamok-none::&quot;" Type="string" />
+        <RegistryValue Key="shell\1ChangePassword" Name="MUIVerb" Value="[T_CHANGE]" Type="string" />
+        <RegistryValue Key="shell\1ChangePassword\command" Value="&quot;[INSTALLFOLDER]Zamok.exe&quot; --change-password &quot;%1&quot;" Type="string" />
+        <RegistryValue Key="shell\2ShowKey" Name="MUIVerb" Value="[T_SHOWKEY]" Type="string" />
+        <RegistryValue Key="shell\2ShowKey\command" Value="&quot;[INSTALLFOLDER]Zamok.exe&quot; --show-key &quot;%1&quot;" Type="string" />
+        <RegistryValue Key="shell\3Decrypt" Name="MUIVerb" Value="[T_DECRYPT]" Type="string" />
+        <RegistryValue Key="shell\3Decrypt\command" Value="&quot;[INSTALLFOLDER]Zamok.exe&quot; --decrypt &quot;%1&quot;" Type="string" />
+      </RegistryKey>
+
+      <!-- Значок «Открыть <Имя>.zamok» внутри запертой папки -->
+      <RegistryValue Root="HKCU" Key="Software\Classes\.zamok" Value="Zamok.OpenItem" Type="string" />
+      <RegistryKey Root="HKCU" Key="Software\Classes\Zamok.OpenItem">
+        <RegistryValue Value="[T_TYPE]" Type="string" />
+        <RegistryValue Name="FriendlyTypeName" Value="[T_TYPE]" Type="string" />
+        <RegistryValue Key="DefaultIcon" Value="[INSTALLFOLDER]open-item.ico" Type="string" />
+        <RegistryValue Key="shell\open\command" Value="&quot;[INSTALLFOLDER]Zamok.exe&quot; --unlock &quot;%1&quot;" Type="string" />
+      </RegistryKey>
+
+      <!-- Автозапуск core через сторожа -->
+      <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="Zamok"
+                     Value="&quot;[INSTALLFOLDER]zamok-core.exe&quot; --watch" Type="string" />
+
+      <!-- Значки, которые Zamok.exe собирает при установке из значков этой Windows -->
+      <RemoveFile Id="RmFolderLocked" Name="folder-locked.ico" On="uninstall" />
+      <RemoveFile Id="RmFolderLockedPng" Name="folder-locked-64.png" On="uninstall" />
+      <RemoveFile Id="RmFolderOpen" Name="folder-open.ico" On="uninstall" />
+      <RemoveFile Id="RmOpenItem" Name="open-item.ico" On="uninstall" />
+      <RemoveFile Id="RmTrayLocked" Name="tray-locked.ico" On="uninstall" />
+      <RemoveFile Id="RmTrayOpen" Name="tray-open.ico" On="uninstall" />
+      <RemoveFolder Id="RmInstallFolder" On="uninstall" />
+      <RemoveFolder Id="RmProgramsDir" Directory="ProgramsDir" On="uninstall" />
+    </Component>
+
+    <!-- Перед установкой, обновлением и удалением: core запирает папки и выходит -->
+    <CustomAction Id="QuitCore" Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]zamok-core.exe&quot; --quit" Execute="immediate" Return="ignore" />
+    <!-- Собрать значки из значков этой Windows -->
+    <CustomAction Id="MakeIcons" Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]Zamok.exe&quot; --make-icons &quot;[INSTALLFOLDER].&quot;"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+    <!-- Запустить core после установки -->
+    <CustomAction Id="StartCore" Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]zamok-core.exe&quot; --watch" Execute="immediate" Return="asyncNoWait" />
+
+    <InstallExecuteSequence>
+      <Custom Action="QuitCore" Before="InstallValidate" Condition="Installed OR WIX_UPGRADE_DETECTED" />
+      <Custom Action="MakeIcons" After="InstallFiles" Condition="NOT REMOVE" />
+      <Custom Action="StartCore" After="InstallFinalize" Condition="NOT REMOVE" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

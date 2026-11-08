@@ -59,6 +59,14 @@
                        AutomationProperties.LiveSetting="Assertive" Visibility="Collapsed"
                        Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
 
+            <Button x:Name="HelloButton" AutomationProperties.AutomationId="HelloButton"
+                    Visibility="Collapsed" Click="OnHelloClick" HorizontalAlignment="Stretch">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xEB68;" FontSize="16" />
+                    <TextBlock x:Uid="Unlock_HelloText" />
+                </StackPanel>
+            </Button>
+
             <HyperlinkButton x:Name="ModeLink" AutomationProperties.AutomationId="ModeLink"
                              x:Uid="Unlock_UseRecovery" Padding="0" FontSize="12" Click="OnModeClick" />
         </StackPanel>
