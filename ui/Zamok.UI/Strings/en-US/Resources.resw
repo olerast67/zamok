@@ -34,6 +34,8 @@
   <data name="Encrypt_Start" xml:space="preserve"><value>Encrypt</value></data>
   <data name="Encrypt_Check" xml:space="preserve"><value>Check</value></data>
   <data name="Encrypt_LockNow.Content" xml:space="preserve"><value>Lock now</value></data>
+  <data name="Encrypt_SkipKey" xml:space="preserve"><value>No key</value></data>
+  <data name="Encrypt_SkipKeySure" xml:space="preserve"><value>Yes, no key</value></data>
   <data name="Encrypt_KeyIntro.Text" xml:space="preserve"><value>If you forget the password, only this key opens the folder. Save it to a file or write it down and keep it away from this computer. The folder is already being encrypted.</value></data>
   <data name="Encrypt_SaveKeyText.Text" xml:space="preserve"><value>Save to file</value></data>
   <data name="Encrypt_CopyKeyText.Text" xml:space="preserve"><value>Copy</value></data>
@@ -68,6 +70,25 @@ How to open the folder with the key: in the locked folder double-click “Open {
   <data name="Manage_DecryptWarning.Text" xml:space="preserve"><value>The files become ordinary, unencrypted, and stay in the same place. A checked decrypted copy is made first, the encrypted data is deleted last.</value></data>
   <data name="Manage_Decrypt" xml:space="preserve"><value>Decrypt</value></data>
   <data name="Manage_Decrypted" xml:space="preserve"><value>The folder “{0}” is decrypted and ordinary again.</value></data>
+  <data name="Settings_Title.Text" xml:space="preserve"><value>Zamok settings</value></data>
+  <data name="Settings_Folders.Text" xml:space="preserve"><value>Encrypted folders</value></data>
+  <data name="Settings_Show.Content" xml:space="preserve"><value>Show in Explorer</value></data>
+  <data name="Settings_Idle.Header" xml:space="preserve"><value>Lock when the folder is not used</value></data>
+  <data name="Settings_IdleMinutes" xml:space="preserve"><value>after {0} min</value></data>
+  <data name="Settings_IdleNever" xml:space="preserve"><value>do not lock by time</value></data>
+  <data name="Settings_Properties.Text" xml:space="preserve"><value>Encryption properties</value></data>
+  <data name="Settings_PropPath" xml:space="preserve"><value>Folder: {0}</value></data>
+  <data name="Settings_PropVault" xml:space="preserve"><value>Encrypted data: {0}</value></data>
+  <data name="Settings_Crypto.Text" xml:space="preserve"><value>Cryptomator format 8: contents AES-256-GCM, names AES-SIV, key from the password via scrypt. Without Zamok, Cryptomator opens the folder on any system.</value></data>
+  <data name="Settings_Empty.Text" xml:space="preserve"><value>No encrypted folders yet.</value></data>
+  <data name="Settings_EmptyHow.Text" xml:space="preserve"><value>To encrypt a folder, right-click it and choose “Encrypt with password”.</value></data>
+  <data name="Settings_ScreenLock.Header" xml:space="preserve"><value>Lock all folders when the screen locks (Win+L)</value></data>
+  <data name="Settings_Close.Content" xml:space="preserve"><value>Close</value></data>
+  <data name="Settings_StateOpen" xml:space="preserve"><value>open</value></data>
+  <data name="Settings_StateLocked" xml:space="preserve"><value>locked</value></data>
+  <data name="Settings_StateUnavailable" xml:space="preserve"><value>unavailable</value></data>
+  <data name="Settings_Lock" xml:space="preserve"><value>Lock</value></data>
+  <data name="Settings_Open" xml:space="preserve"><value>Open</value></data>
   <data name="Error_core_not_running" xml:space="preserve"><value>The Zamok background program is not running.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>The other side is not this user's Zamok program. The password was not sent.</value></data>
   <data name="Error_bad_request" xml:space="preserve"><value>Internal request error.</value></data>

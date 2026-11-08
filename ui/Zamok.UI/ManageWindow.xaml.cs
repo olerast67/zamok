@@ -20,6 +20,7 @@ public sealed partial class ManageWindow : Window
     private readonly CoreClient _client = new();
     private string? _key;
     private bool _done;
+    private int _width = 440;
 
     public ManageWindow(Mode mode, string path)
     {
@@ -50,6 +51,7 @@ public sealed partial class ManageWindow : Window
             _ => "Manage_Show",
         });
         UpdateOk();
+        WindowHelper.FitHeight(this, Root, _width);
         Activated += (_, _) => { if (!_done) Password.Focus(FocusState.Programmatic); };
         Password.PasswordChanged += (_, _) => UpdateOk();
     }
@@ -58,6 +60,7 @@ public sealed partial class ManageWindow : Window
     {
         ErrorText.Text = text;
         ErrorText.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+        WindowHelper.FitHeight(this, Root, _width);
     }
 
     private void OnNewChanged(object sender, RoutedEventArgs e)
@@ -115,6 +118,7 @@ public sealed partial class ManageWindow : Window
                 PageInput.Visibility = Visibility.Collapsed;
                 PageProgress.Visibility = Visibility.Visible;
                 OkButton.Visibility = CancelButton.Visibility = Visibility.Collapsed;
+                WindowHelper.FitHeight(this, Root, _width);
                 await WatchJob(r.Job!.Id);
             }
             else
@@ -181,7 +185,8 @@ public sealed partial class ManageWindow : Window
         if (text is not null) DoneText.Text = text;
         OkButton.Content = Strings.Get("Common_Close");
         CancelButton.Visibility = Visibility.Collapsed;
-        WindowHelper.Resize(this, width, height);
+        _width = width;
+        WindowHelper.FitHeight(this, Root, width);
     }
 
     private async void OnSaveKeyClick(object sender, RoutedEventArgs e)

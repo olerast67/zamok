@@ -100,7 +100,7 @@ function SetKey([string]$path, [hashtable]$values) {
     foreach ($k in $values.Keys) { Set-ItemProperty -Path $path -Name $k -Value $values[$k] }
 }
 $nothing = 'System.ItemPathDisplay:="::zamok-none::"'
-SetKey "$cls\Directory\shell\ZamokEncrypt" @{ 'MUIVerb' = $verbText; 'Icon' = "$InstallDir\folder-locked.ico" }
+SetKey "$cls\Directory\shell\ZamokEncrypt" @{ 'MUIVerb' = $verbText; 'Icon' = "$InstallDir\open-item.ico" }
 SetKey "$cls\Directory\shell\ZamokEncrypt\command" @{ '(default)' = "`"$exe`" --encrypt `"%1`"" }
 SetKey "$cls\Directory\shell\ZamokLock" @{ 'MUIVerb' = $lockText; 'Icon' = "$InstallDir\open-item.ico"; 'AppliesTo' = $nothing }
 SetKey "$cls\Directory\shell\ZamokLock\command" @{ '(default)' = "`"$exe`" --lock `"%1`"" }

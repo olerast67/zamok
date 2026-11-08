@@ -212,6 +212,21 @@ try {
     }
     $ui.Kill()
 
+    # Peredumal hranit klyuch: knopka "Bez klyucha" na shage s klyuchom, s podtverzhdeniem
+    $dir3 = "$root\skipkey"; MakeSample $dir3
+    $ui = StartUi '--encrypt', $dir3
+    $w = Window $ui.Id
+    Check 'wizard: No key on the key page asks again, then skips to the result' {
+        SetValue $w 'Password1' $pw; SetValue $w 'Password2' $pw; Start-Sleep -Milliseconds 300
+        Press $w 'NextButton'
+        if (-not (WaitFor { (Text $w 'KeyWords') -match '44\.' } 20000)) { throw 'no key page' }
+        Press $w 'SkipKeyButton'; Start-Sleep -Milliseconds 300
+        if (-not (IsText 'Encrypt_NoKeyWarning.Text' (Text $w 'ErrorText'))) { throw 'no warning' }
+        Press $w 'SkipKeyButton'
+        (WaitFor { (Text $w 'ProgressTitle') -like '*skipkey*' } 60000) -and (Folder $dir3).state -eq 'unlocked'
+    }
+    $ui.Kill()
+
     # Rasshifrovat navsegda cherez okno
     $ui = StartUi '--decrypt', $dir2
     $w = Window $ui.Id
@@ -254,6 +269,30 @@ try {
     }
     $ui.Kill()
     $pw = $pw2
+
+    # Okno nastroek: spisok papok, obshchaya nastroyka Win+L, Zaperet iz okna
+    [void](Send "{`"cmd`":`"unlock`",`"path`":`"$(J $dir)`",`"password`":`"$pw`"}")
+    $ui = StartUi '--settings'
+    $w = Window $ui.Id
+    Check 'settings: folder list and properties are shown' {
+        WaitFor { (Text $w 'DetailName') -and (Text $w 'PropVault') -like '*.zamok*' } 10000
+    }
+    Check 'settings: screen lock switch changes the core setting' {
+        $sw = El $w 'ScreenLockSwitch'
+        $sw.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Toggle()
+        $off = WaitFor { (Send '{"cmd":"status"}').settings.lock_on_screen_lock -eq $false } 5000
+        $sw.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Toggle()
+        $off -and (WaitFor { (Send '{"cmd":"status"}').settings.lock_on_screen_lock -eq $true } 5000)
+    }
+    Check 'settings: Lock button locks the open folder' {
+        $list = El $w 'FolderList'
+        $item = $list.FindAll('Children', [Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -like "*$ruName*" -or $_.FindFirst('Descendants', (New-Object Windows.Automation.PropertyCondition ($AE::NameProperty), $ruName)) } | Select-Object -First 1
+        if ($item) { $item.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select(); Start-Sleep -Milliseconds 500 }
+        if ((Text $w 'DetailName') -ne $ruName) { throw "selected: $(Text $w 'DetailName')" }
+        Press $w 'ToggleButton'
+        WaitFor { (Folder $dir).state -eq 'locked' } 10000
+    }
+    $ui.Kill()
 
     # 4. Oshibki
     $ui = StartUi '--unlock', "$root\not-encrypted"

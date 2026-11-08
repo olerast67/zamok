@@ -32,6 +32,7 @@ public partial class App : Application
             "--change-password" => new ManageWindow(ManageWindow.Mode.ChangePassword, path!),
             "--show-key" => new ManageWindow(ManageWindow.Mode.ShowKey, path!),
             "--decrypt" => new ManageWindow(ManageWindow.Mode.Decrypt, path!),
+            "--settings" => new SettingsWindow(),
             _ => null,
         };
         if (_window is null)
@@ -50,6 +51,7 @@ public partial class App : Application
 
     internal static (string? Action, string? Path) ParseArgs(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--settings") return (args[0], null);
         if (args.Length == 2 && args[0] is "--unlock" or "--encrypt" or "--lock" or "--change-password" or "--show-key" or "--decrypt" && args[1].Length > 0)
             return (args[0], args[1]);
         return (null, null);

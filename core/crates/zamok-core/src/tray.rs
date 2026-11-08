@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex};
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
 use windows::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
-    NOTIFYICONDATAW,
+    Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE,
+    NIM_MODIFY, NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetSystemMetrics, LoadIconW,
@@ -29,6 +29,9 @@ pub const WM_TRAY: u32 = WM_APP + 2;
 const TRAY_ID: u32 = 1;
 const CMD_LOCK_ALL: usize = 1;
 const CMD_QUIT: usize = 2;
+const CMD_SETTINGS: usize = 3;
+/// Окно core, к значку которого привязаны уведомления.
+static HWND_FOR_NOTIFY: AtomicIsize = AtomicIsize::new(0);
 
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 static ENABLED: AtomicBool = AtomicBool::new(false);
@@ -133,6 +136,7 @@ pub fn install(hwnd: HWND, core: &Core) {
         return;
     }
     ENABLED.store(true, Ordering::SeqCst);
+    HWND_FOR_NOTIFY.store(hwnd.0 as isize, Ordering::SeqCst);
     TASKBAR_CREATED.store(
         unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) },
         Ordering::SeqCst,
@@ -183,6 +187,55 @@ pub fn remove(hwnd: HWND) {
     }
 }
 
+/// Уведомление у значка в трее (Windows 10 и 11 показывают его как обычное уведомление).
+pub fn notify(title: &str, text: &str) {
+    if !ENABLED.load(Ordering::SeqCst) {
+        return;
+    }
+    let mut nid = NOTIFYICONDATAW {
+        cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+        hWnd: HWND(HWND_FOR_NOTIFY.load(Ordering::SeqCst) as *mut _),
+        uID: TRAY_ID,
+        uFlags: NIF_INFO,
+        dwInfoFlags: NIIF_INFO,
+        ..Default::default()
+    };
+    for (dst, src) in nid
+        .szInfoTitle
+        .iter_mut()
+        .zip(title.encode_utf16().take(63))
+    {
+        *dst = src;
+    }
+    for (dst, src) in nid.szInfo.iter_mut().zip(text.encode_utf16().take(255)) {
+        *dst = src;
+    }
+    unsafe {
+        let _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
+    }
+}
+
+pub fn notify_idle(ev: &crate::core::IdleEvent) {
+    use crate::core::IdleEvent;
+    match ev {
+        IdleEvent::Locked { name, minutes } => notify(
+            &if russian() { format!("Папка «{name}» заперта") } else { format!("\u{201c}{name}\u{201d} is locked") },
+            &if russian() {
+                format!("С ней не работали {minutes} мин. Чтобы открыть, дважды щёлкните значок замка в папке.")
+            } else {
+                format!("It was not used for {minutes} min. To open it, double-click the padlock inside the folder.")
+            },
+        ),
+        IdleEvent::Waiting { name, .. } => notify(
+            &if russian() { format!("Папка «{name}» пока открыта") } else { format!("\u{201c}{name}\u{201d} stays open for now") },
+            t(
+                "В ней открыт файл в другой программе. Zamok запрёт папку, когда файл закроют.",
+                "A file from it is open in another program. Zamok locks the folder when the file is closed.",
+            ),
+        ),
+    }
+}
+
 /// Проводник перезапустился: значки трея надо добавить заново.
 pub fn is_taskbar_created(msg: u32) -> bool {
     let id = TASKBAR_CREATED.load(Ordering::SeqCst);
@@ -192,6 +245,17 @@ pub fn is_taskbar_created(msg: u32) -> bool {
 pub fn on_taskbar_created(hwnd: HWND, core: &Core) {
     if ENABLED.load(Ordering::SeqCst) {
         add(hwnd, core);
+    }
+}
+
+/// Окно настроек: Zamok.exe рядом с core.
+fn open_settings() {
+    if let Some(exe) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.join("Zamok.exe")))
+        .filter(|p| p.is_file())
+    {
+        let _ = std::process::Command::new(exe).arg("--settings").spawn();
     }
 }
 
@@ -229,6 +293,8 @@ pub fn on_message(hwnd: HWND, lparam: LPARAM, core: &Arc<Core>) {
             MF_STRING | MF_GRAYED
         };
         let _ = AppendMenuW(menu, flags, CMD_LOCK_ALL, PCWSTR(lock.as_ptr()));
+        let settings = wide(t("Настройки", "Settings"));
+        let _ = AppendMenuW(menu, MF_STRING, CMD_SETTINGS, PCWSTR(settings.as_ptr()));
         let quit = wide(t(
             "Выйти из Zamok (запереть и отключить папки)",
             "Quit Zamok (lock and unmount folders)",
@@ -260,6 +326,7 @@ pub fn on_message(hwnd: HWND, lparam: LPARAM, core: &Arc<Core>) {
                 });
             }
             CMD_QUIT => crate::autolock::post_quit(),
+            CMD_SETTINGS => open_settings(),
             _ => {}
         }
     }

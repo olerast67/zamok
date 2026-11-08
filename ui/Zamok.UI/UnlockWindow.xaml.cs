@@ -26,6 +26,7 @@ public sealed partial class UnlockWindow : Window
         if (icon is not null) FolderIcon.Source = icon;
         else FallbackIcon.Visibility = Visibility.Visible;
         ShowFolder(path.TrimEnd('\\'), null);
+        WindowHelper.FitHeight(this, Root, 420);
         Activated += OnFirstActivated;
     }
 
@@ -78,6 +79,7 @@ public sealed partial class UnlockWindow : Window
     {
         ErrorText.Text = text;
         ErrorText.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+        WindowHelper.FitHeight(this, Root, 420);
     }
 
     private void ShowFatal(string text)
@@ -110,7 +112,7 @@ public sealed partial class UnlockWindow : Window
         Prompt.Text = Strings.Get(_recoveryMode ? "Unlock_PromptRecovery/Text" : "Unlock_Prompt/Text");
         ModeLink.Content = Strings.Get(_recoveryMode ? "Unlock_UsePassword/Content" : "Unlock_UseRecovery/Content");
         ShowError("");
-        WindowHelper.Resize(this, 420, _recoveryMode ? 420 : 340);
+        WindowHelper.FitHeight(this, Root, 420);
         if (_recoveryMode) RecoveryWords.Focus(FocusState.Programmatic);
         else Password.Focus(FocusState.Programmatic);
     }
