@@ -64,6 +64,11 @@ pub struct Journal {
     pub vault: PathBuf,
     pub aside: PathBuf,
     pub idle_lock_secs: u64,
+    /// SHA-256 файла `masterkey.cryptomator` копии этой работы. Любое переименование и
+    /// удаление после сбоя идёт, только если отпечаток совпал: журнал никогда не тронет
+    /// чужое хранилище с тем же именем.
+    #[serde(default)]
+    pub masterkey_sha256: Option<String>,
 }
 
 fn jobs_dir(data_dir: &Path) -> PathBuf {
@@ -97,6 +102,16 @@ impl Journal {
 
     fn remove(&self, data_dir: &Path) {
         let _ = std::fs::remove_file(self.file(data_dir));
+    }
+
+    /// Остались ли журналы (в том числе нечитаемые).
+    pub fn any_left(data_dir: &Path) -> bool {
+        std::fs::read_dir(jobs_dir(data_dir))
+            .map(|rd| {
+                rd.filter_map(|e| e.ok())
+                    .any(|e| e.file_name().to_string_lossy().ends_with(".json"))
+            })
+            .unwrap_or(false)
     }
 
     pub fn load_all(data_dir: &Path) -> Vec<Journal> {
@@ -230,11 +245,38 @@ fn set_hidden(path: &Path) {
     }
 }
 
-/// Удалить нашу временную копию. Только папку с именем `.….zamok.tmp` из журнала.
+/// SHA-256 файла `masterkey.cryptomator` в папке хранилища.
+fn masterkey_digest(dir: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let bytes = std::fs::read(dir.join("masterkey.cryptomator")).ok()?;
+    Some(
+        Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect(),
+    )
+}
+
+/// Хранилище в `dir` создано этой работой.
+fn is_ours(j: &Journal, dir: &Path) -> bool {
+    j.masterkey_sha256.is_some() && masterkey_digest(dir) == j.masterkey_sha256
+}
+
+/// Удалить нашу временную копию. Только папку с именем `.….zamok.tmp` из журнала и
+/// только нашу: с нашим мастер-ключом, или (если отпечаток ещё не записан) созданную
+/// после журнала (раньше проверки не пускают, пока на этом месте что-то есть).
 fn remove_tmp(j: &Journal) -> std::io::Result<()> {
     let name = j.tmp.file_name().map(|n| n.to_string_lossy().into_owned());
     if !name.is_some_and(|n| n.starts_with('.') && n.ends_with(".zamok.tmp")) {
         return Err(std::io::Error::other("refusing to delete: not a tmp vault"));
+    }
+    if std::fs::symlink_metadata(&j.tmp).is_err() {
+        return Ok(());
+    }
+    if j.masterkey_sha256.is_some() && !is_ours(j, &j.tmp) {
+        return Err(std::io::Error::other(
+            "refusing to delete: tmp vault is not from this job",
+        ));
     }
     match std::fs::remove_dir_all(&j.tmp) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
@@ -374,8 +416,9 @@ fn flush_tree(root: &Path) -> std::io::Result<()> {
 
 /// Откат до подмены папки: удалить временную копию и журнал. Оригинал не тронут.
 fn rollback_copy(j: &Journal, data_dir: &Path) {
-    // Если копия уже переименована в итоговое имя, вернуть ей имя .tmp перед удалением
-    if std::fs::symlink_metadata(&j.vault).is_ok() && std::fs::symlink_metadata(&j.tmp).is_err() {
+    // Если копия уже переименована в итоговое имя, вернуть ей имя .tmp перед удалением.
+    // Только нашу: хранилище с тем же именем, но другим ключом не трогаем.
+    if std::fs::symlink_metadata(&j.tmp).is_err() && is_ours(j, &j.vault) {
         if let Err(e) = rename_retry(&j.vault, &j.tmp, 20) {
             tracing::error!(job = %j.id, error = %e, "rollback: cannot rename vault back; journal kept");
             return;
@@ -413,7 +456,7 @@ fn delete_aside(j: &Journal) -> std::io::Result<()> {
         .map(|n| n.to_string_lossy().into_owned());
     anyhow_guard(
         name.is_some_and(|n| n.starts_with('.') && n.ends_with(".zamok-original"))
-            && j.vault.join("masterkey.cryptomator").is_file(),
+            && is_ours(j, &j.vault),
     )?;
     match std::fs::remove_dir_all(&j.aside) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
@@ -444,6 +487,11 @@ fn finish_from(
         }
         Ok(())
     };
+    // Дальше двигается оригинал: только если копия на месте и она наша
+    if !(is_ours(j, &j.tmp) || is_ours(j, &j.vault)) {
+        tracing::error!(job = %j.id, "encrypted copy is missing or not from this job; journal kept");
+        return Err(ErrorCode::Internal);
+    }
     if j.phase == Phase::Verified {
         if std::fs::symlink_metadata(&j.tmp).is_ok() {
             if rename_retry(&j.tmp, &j.vault, 20).is_err() {
@@ -521,6 +569,10 @@ pub fn start(
     if password.is_empty() {
         return Err(refuse(ErrorCode::BadRequest));
     }
+    // Пока не разобран журнал прошлой работы, новую не начинаем
+    if Journal::any_left(data_dir) {
+        return Err(refuse(ErrorCode::RecoveryPending));
+    }
     let plan = preflight::check(path, &core.taken_paths(), data_dir)?;
     let sib = preflight::siblings(path).ok_or_else(|| refuse(ErrorCode::BadRequest))?;
     let id = crate::config::new_id().map_err(|_| refuse(ErrorCode::Internal))?;
@@ -533,6 +585,7 @@ pub fn start(
         vault: sib.vault,
         aside: sib.aside,
         idle_lock_secs,
+        masterkey_sha256: None,
     };
     // Журнал раньше копии: сбой во время создания хранилища откатится при старте
     journal
@@ -550,6 +603,11 @@ pub fn start(
         }
     };
     set_hidden(&journal.tmp);
+    journal.masterkey_sha256 = masterkey_digest(&journal.tmp);
+    if journal.masterkey_sha256.is_none() || journal.save(data_dir).is_err() {
+        rollback_copy(&journal, data_dir);
+        return Err(refuse(ErrorCode::CopyFailed));
+    }
     let words = zamok_crypto::recovery::encode(vault.key());
     let progress = Progress::new(&id, path, &plan);
     tracing::info!(job = %id, files = plan.files, bytes = plan.bytes, "encryption started");
@@ -739,6 +797,7 @@ mod tests {
             vault: sib.vault.clone(),
             aside: sib.aside.clone(),
             idle_lock_secs: 0,
+            masterkey_sha256: None,
         };
         let data = d.path().join("data");
         j.save(&data).unwrap();
@@ -770,8 +829,50 @@ mod tests {
             vault: sib.vault,
             aside: src.clone(),
             idle_lock_secs: 0,
+            masterkey_sha256: None,
         };
         assert!(delete_aside(&j).is_err());
         assert!(src.join("а.txt").exists());
+    }
+
+    #[test]
+    fn stale_journal_never_touches_a_foreign_vault() {
+        let d = tempdir();
+        let src = d.path().join("Клиенты");
+        sample(&src);
+        let sib = preflight::siblings(&src).unwrap();
+        // Наша копия когда-то была, журнал помнит её отпечаток
+        let ours = Vault::create_empty(&sib.tmp, "pw", 1 << 10).unwrap();
+        let digest = masterkey_digest(ours.root());
+        std::fs::remove_dir_all(&sib.tmp).unwrap();
+        // Теперь рядом лежит другое, настоящее хранилище с тем же именем
+        Vault::create_empty(&sib.vault, "pw2", 1 << 10).unwrap();
+        let data = d.path().join("data");
+        let j = Journal {
+            version: 1,
+            id: "s1".into(),
+            phase: Phase::Copying,
+            path: src.clone(),
+            tmp: sib.tmp.clone(),
+            vault: sib.vault.clone(),
+            aside: sib.aside.clone(),
+            idle_lock_secs: 0,
+            masterkey_sha256: digest,
+        };
+        j.save(&data).unwrap();
+        rollback_copy(&j, &data);
+        assert!(sib.vault.join("masterkey.cryptomator").exists());
+        // Чужая папка .tmp с тем же именем тоже не удаляется
+        Vault::create_empty(&sib.tmp, "pw3", 1 << 10).unwrap();
+        assert!(remove_tmp(&j).is_err());
+        assert!(sib.tmp.exists());
+        // Оригинал не удаляется ради чужого хранилища
+        std::fs::create_dir(&sib.aside).unwrap();
+        let j2 = Journal {
+            phase: Phase::Registered,
+            ..j
+        };
+        assert!(delete_aside(&j2).is_err());
+        assert!(sib.aside.exists());
     }
 }

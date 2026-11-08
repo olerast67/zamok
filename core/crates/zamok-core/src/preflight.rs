@@ -8,8 +8,11 @@ use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use windows::core::PCWSTR;
+use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Storage::FileSystem::{
-    GetDiskFreeSpaceExW, GetVolumeInformationW, GetVolumePathNameW,
+    FindClose, FindFirstStreamW, FindNextStreamW, FindStreamInfoStandard, GetDiskFreeSpaceExW,
+    GetFileInformationByHandle, GetVolumeInformationW, GetVolumePathNameW,
+    BY_HANDLE_FILE_INFORMATION, WIN32_FIND_STREAM_DATA,
 };
 
 use crate::config::normalize;
@@ -177,6 +180,56 @@ pub fn free_space(dir: &Path) -> Option<u64> {
     Some(free)
 }
 
+/// Число жёстких ссылок на файл. Больше одной: открытый текст остался бы по другой
+/// ссылке после удаления оригинала.
+fn link_count(path: &Path) -> Option<u32> {
+    use std::os::windows::io::AsRawHandle;
+    let f = std::fs::OpenOptions::new()
+        .access_mode(0x80) // FILE_READ_ATTRIBUTES
+        .share_mode(0x7)
+        .open(path)
+        .ok()?;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    unsafe { GetFileInformationByHandle(HANDLE(f.as_raw_handle()), &mut info) }.ok()?;
+    Some(info.nNumberOfLinks)
+}
+
+/// Есть ли у файла альтернативные потоки NTFS с данными (кроме пометок «скачано из
+/// интернета», которые не жалко потерять). Формат хранилища их не хранит.
+fn has_extra_streams(path: &Path) -> bool {
+    let w = wide(&path.to_string_lossy());
+    let mut data = WIN32_FIND_STREAM_DATA::default();
+    let Ok(h) = (unsafe {
+        FindFirstStreamW(
+            PCWSTR(w.as_ptr()),
+            FindStreamInfoStandard,
+            &mut data as *mut _ as *mut _,
+            None,
+        )
+    }) else {
+        return false; // у файла нет потоков (или не NTFS): лишних нет
+    };
+    let mut extra = false;
+    loop {
+        let len = data.cStreamName.iter().position(|&c| c == 0).unwrap_or(0);
+        let name = String::from_utf16_lossy(&data.cStreamName[..len]).to_lowercase();
+        if !matches!(
+            name.as_str(),
+            "::$data" | ":zone.identifier:$data" | ":smartscreen:$data"
+        ) {
+            extra = true;
+            break;
+        }
+        if unsafe { FindNextStreamW(h, &mut data as *mut _ as *mut _) }.is_err() {
+            break;
+        }
+    }
+    unsafe {
+        let _ = FindClose(h);
+    }
+    extra
+}
+
 fn mtime(m: &std::fs::Metadata) -> u64 {
     m.last_write_time()
 }
@@ -212,6 +265,8 @@ pub fn walk(root: &Path, bad: &mut Vec<String>) -> std::io::Result<Plan> {
                     != 0
                 || !good_name
                 || depth + 1 > MAX_DEPTH
+                || (!m.is_dir() && link_count(&e.path()).is_none_or(|n| n > 1))
+                || has_extra_streams(&e.path())
             {
                 bad.push(child_rel);
                 continue;
@@ -448,6 +503,30 @@ pub(crate) mod tests {
         let e = check(&r, &[], &d.path().join("data")).unwrap_err();
         assert_eq!(e.code, ErrorCode::FilesInUse);
         assert_eq!(e.examples, ["а.txt"]);
+    }
+
+    #[test]
+    fn hard_links_and_alternate_streams_are_refused() {
+        let d = tree();
+        let r = d.path().join("Работа");
+        let data = d.path().join("data");
+        // Пометка «скачано из интернета» не мешает
+        std::fs::write(
+            r.join("а.txt:Zone.Identifier"),
+            b"[ZoneTransfer]\r\nZoneId=3",
+        )
+        .unwrap();
+        assert!(check(&r, &[], &data).is_ok());
+        // Вторая жёсткая ссылка снаружи папки
+        std::fs::hard_link(r.join("а.txt"), d.path().join("снаружи.txt")).unwrap();
+        let e = check(&r, &[], &data).unwrap_err();
+        assert_eq!(e.code, ErrorCode::UnsupportedItems);
+        assert_eq!(e.examples, ["а.txt"]);
+        std::fs::remove_file(d.path().join("снаружи.txt")).unwrap();
+        // Данные в альтернативном потоке
+        std::fs::write(r.join("б").join("в").join("г.bin:секрет"), b"hidden").unwrap();
+        let e = check(&r, &[], &data).unwrap_err();
+        assert_eq!(e.examples, ["б\\в\\г.bin"]);
     }
 
     #[test]
