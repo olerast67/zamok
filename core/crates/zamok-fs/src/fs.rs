@@ -123,6 +123,8 @@ pub struct Control {
     /// Расшифрованное содержимое каталогов по ID: имя в нижнем регистре -> (имя, узел).
     /// Сбрасывается при каждом изменении в каталоге.
     listings: Mutex<HashMap<String, Listing>>,
+    /// Растёт при каждом изменении каталогов: кэш, собранный во время изменения, не сохраняется.
+    listing_epoch: AtomicU64,
 }
 
 pub struct ZamokFs {
@@ -206,6 +208,7 @@ impl ZamokFs {
             open_files: Mutex::new(HashMap::new()),
             dir_cache: Mutex::new(HashMap::new()),
             listings: Mutex::new(HashMap::new()),
+            listing_epoch: AtomicU64::new(0),
         });
         Ok(ZamokFs {
             root: root.to_path_buf(),
@@ -264,24 +267,33 @@ impl ZamokFs {
                 return Ok(f(l));
             }
         }
+        let epoch = self.ctl.listing_epoch.load(Ordering::SeqCst);
         let mut map = Listing::new();
         for (clear, node) in self.list_physical(u, dir_id)? {
             map.insert(clear.to_lowercase(), (clear, node));
         }
         let mut all = self.ctl.listings.lock().unwrap();
+        if self.ctl.listing_epoch.load(Ordering::SeqCst) != epoch {
+            // Пока читали диск, каталоги менялись: ответ годится один раз, в кэш не кладём
+            return Ok(f(&mut map));
+        }
         let l = all.entry(dir_id.to_string()).or_insert(map);
         Ok(f(l))
     }
 
     /// Обновить кэш каталога, только если он уже загружен.
     fn listing_update(&self, dir_id: &str, f: impl FnOnce(&mut Listing)) {
-        if let Some(l) = self.ctl.listings.lock().unwrap().get_mut(dir_id) {
+        let mut all = self.ctl.listings.lock().unwrap();
+        self.ctl.listing_epoch.fetch_add(1, Ordering::SeqCst);
+        if let Some(l) = all.get_mut(dir_id) {
             f(l);
         }
     }
 
     fn invalidate(&self, dir_id: &str) {
-        self.ctl.listings.lock().unwrap().remove(dir_id);
+        let mut all = self.ctl.listings.lock().unwrap();
+        self.ctl.listing_epoch.fetch_add(1, Ordering::SeqCst);
+        all.remove(dir_id);
     }
 
     /// Все дети каталога: (имя в открытом виде, узел на диске).
@@ -616,7 +628,8 @@ impl ZamokFs {
     }
 
     fn dir_is_empty(&self, u: &Unlocked, id: &str) -> FsResult<bool> {
-        self.with_listing(u, id, |l| l.is_empty())
+        // Проверка перед удалением читает диск, а не кэш
+        Ok(self.list_physical(u, id)?.is_empty())
     }
 
     fn remove_node(&self, u: &Unlocked, r: &Resolved) -> FsResult<()> {
@@ -631,11 +644,17 @@ impl ZamokFs {
         };
         match &r.kind {
             Kind::Dir { id } => {
+                // Без рекурсивного удаления: если в каталоге что-то появилось,
+                // remove_dir откажет и данные останутся целы
                 let phys = self.dir_physical(u, id);
                 if phys.exists() {
-                    fs::remove_dir_all(&phys).map_err(ioerr)?;
+                    let _ = fs::remove_file(phys.join(DIRID_BACKUP_FILE));
+                    fs::remove_dir(&phys)
+                        .map_err(|_| FspError::from(STATUS_DIRECTORY_NOT_EMPTY))?;
                 }
-                fs::remove_dir_all(node).map_err(ioerr)?;
+                let _ = fs::remove_file(node.join(DIR_FILE));
+                let _ = fs::remove_file(node.join(NAME_FILE));
+                fs::remove_dir(node).map_err(ioerr)?;
                 self.ctl.dir_cache.lock().unwrap().clear();
             }
             Kind::File { .. } => {
