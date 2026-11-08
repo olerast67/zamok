@@ -39,3 +39,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\core\test-core.ps1
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\core\test-encrypt.ps1
 ```
+
+## Расшифровать навсегда
+
+`test-decrypt.ps1`: 15 проверок. Неверный пароль и открытый файл отклоняются, папка остаётся зашифрованной; после расшифровки папка обычная, содержимое совпадает с эталоном, даты файлов сохранены, хранилища, временной копии и журнала нет, папку можно зашифровать снова. Авария core на каждом из 7 шагов: до шага `copied` папка остаётся зашифрованной и открывается паролем, после него становится обычной с тем же содержимым.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\core\test-decrypt.ps1
+```

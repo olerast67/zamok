@@ -21,7 +21,7 @@ const BASE: &str = r"Software\Classes\Directory\shell\";
 /// Условие, которому не подходит ни одна папка.
 const NOTHING: &str = r#"System.ItemPathDisplay:="::zamok-none::""#;
 
-static LAST: Mutex<Option<[Option<String>; 3]>> = Mutex::new(None);
+static LAST: Mutex<Option<[Option<String>; 4]>> = Mutex::new(None);
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -40,9 +40,9 @@ fn any_of(paths: &[&str]) -> Option<String> {
     )
 }
 
-/// Условия трёх пунктов: (Запереть, Открыть паролем, Зашифровать). `None` у «Зашифровать»
-/// значит «без условия, на всех папках».
-pub fn conditions(folders: &[FolderInfo]) -> [Option<String>; 3] {
+/// Условия пунктов: (Запереть, Открыть паролем, Зашифровать, подменю Zamok). `None` у
+/// «Зашифровать» значит «без условия, на всех папках».
+pub fn conditions(folders: &[FolderInfo]) -> [Option<String>; 4] {
     let pick = |st: FolderState| -> Vec<&str> {
         folders
             .iter()
@@ -55,6 +55,7 @@ pub fn conditions(folders: &[FolderInfo]) -> [Option<String>; 3] {
         Some(any_of(&pick(FolderState::Unlocked)).unwrap_or_else(|| NOTHING.into())),
         Some(any_of(&pick(FolderState::Locked)).unwrap_or_else(|| NOTHING.into())),
         any_of(&all).map(|c| format!("NOT ({c})")),
+        Some(any_of(&all).unwrap_or_else(|| NOTHING.into())),
     ]
 }
 
@@ -107,7 +108,8 @@ pub fn update(folders: &[FolderInfo]) {
     }
     let ok = set_applies_to("ZamokLock", want[0].as_deref())
         & set_applies_to("ZamokUnlock", want[1].as_deref())
-        & set_applies_to("ZamokEncrypt", want[2].as_deref());
+        & set_applies_to("ZamokEncrypt", want[2].as_deref())
+        & set_applies_to("ZamokMore", want[3].as_deref());
     // Пункты не установлены (запуск из папки сборки): не пытаться каждые 2 секунды
     *last = Some(want);
     if !ok {
@@ -149,6 +151,10 @@ mod tests {
             .as_deref()
             .unwrap()
             .starts_with("NOT (System.ItemPathDisplay:="));
+        assert!(
+            c[3].as_deref().unwrap().contains("Новая папка")
+                && c[3].as_deref().unwrap().contains("Архив")
+        );
     }
 
     #[test]
@@ -157,5 +163,6 @@ mod tests {
         assert_eq!(c[0].as_deref(), Some(NOTHING));
         assert_eq!(c[1].as_deref(), Some(NOTHING));
         assert_eq!(c[2], None);
+        assert_eq!(c[3].as_deref(), Some(NOTHING));
     }
 }

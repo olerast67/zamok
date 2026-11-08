@@ -61,6 +61,22 @@ pub enum Request {
     CancelJob {
         id: String,
     },
+    /// Сменить пароль. Мастер-ключ тот же, поэтому ключ восстановления остаётся прежним.
+    ChangePassword {
+        path: String,
+        old_password: Zeroizing<String>,
+        new_password: Zeroizing<String>,
+    },
+    /// Показать ключ восстановления (после ввода пароля).
+    ShowRecoveryKey {
+        path: String,
+        password: Zeroizing<String>,
+    },
+    /// Расшифровать навсегда: папка снова станет обычной. Ответ сразу, ход в `job_status`.
+    Decrypt {
+        path: String,
+        password: Zeroizing<String>,
+    },
     /// Запереть всё, отключить папки и завершиться.
     Quit,
 }

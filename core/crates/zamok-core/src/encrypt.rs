@@ -137,25 +137,29 @@ impl Journal {
 pub struct Progress {
     pub id: String,
     pub path: PathBuf,
-    files_done: AtomicU64,
+    pub(crate) files_done: AtomicU64,
     files_total: AtomicU64,
-    bytes_done: AtomicU64,
+    pub(crate) bytes_done: AtomicU64,
     bytes_total: AtomicU64,
-    phase: Mutex<Phase>,
+    pub(crate) phase: Mutex<Phase>,
     state: Mutex<JobState>,
     error: Mutex<Option<ErrorCode>>,
-    cancel: AtomicBool,
+    pub(crate) cancel: AtomicBool,
 }
 
 impl Progress {
     pub fn new(id: &str, path: &Path, plan: &Plan) -> Arc<Self> {
+        Self::with_totals(id, path, plan.files, plan.bytes)
+    }
+
+    pub fn with_totals(id: &str, path: &Path, files: u64, bytes: u64) -> Arc<Self> {
         Arc::new(Progress {
             id: id.to_string(),
             path: path.to_path_buf(),
             files_done: AtomicU64::new(0),
-            files_total: AtomicU64::new(plan.files),
+            files_total: AtomicU64::new(files),
             bytes_done: AtomicU64::new(0),
-            bytes_total: AtomicU64::new(plan.bytes),
+            bytes_total: AtomicU64::new(bytes),
             phase: Mutex::new(Phase::Copying),
             state: Mutex::new(JobState::Running),
             error: Mutex::new(None),
@@ -192,7 +196,7 @@ impl Progress {
         }
     }
 
-    fn finish(&self, result: Result<(), ErrorCode>) {
+    pub(crate) fn finish(&self, result: Result<(), ErrorCode>) {
         *self.error.lock().unwrap() = result.err();
         *self.state.lock().unwrap() = if result.is_ok() {
             JobState::Done
@@ -204,7 +208,7 @@ impl Progress {
 
 /// Точки аварийного завершения для теста «выключение на каждом шаге»: переменная
 /// `ZAMOK_TEST_CRASH` с именем точки. Процесс снимается так же грубо, как при сбое.
-fn crash_point(name: &str) {
+pub(crate) fn crash_point(name: &str) {
     if std::env::var("ZAMOK_TEST_CRASH").is_ok_and(|v| v == name) {
         use windows::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
         unsafe {
@@ -218,7 +222,7 @@ fn crash_point(name: &str) {
 }
 
 /// Переименование с повторами: антивирус и индексатор ненадолго держат свежие папки.
-fn rename_retry(from: &Path, to: &Path, attempts: u32) -> std::io::Result<()> {
+pub(crate) fn rename_retry(from: &Path, to: &Path, attempts: u32) -> std::io::Result<()> {
     let mut last = None;
     for i in 0..attempts {
         if std::fs::symlink_metadata(to).is_ok() {
@@ -251,7 +255,7 @@ pub fn set_hidden(path: &Path) {
 }
 
 /// SHA-256 файла `masterkey.cryptomator` в папке хранилища.
-fn masterkey_digest(dir: &Path) -> Option<String> {
+pub(crate) fn masterkey_digest(dir: &Path) -> Option<String> {
     use sha2::{Digest, Sha256};
     let bytes = std::fs::read(dir.join("masterkey.cryptomator")).ok()?;
     Some(
@@ -289,7 +293,7 @@ fn remove_tmp(j: &Journal) -> std::io::Result<()> {
     }
 }
 
-fn file_mtime(m: &std::fs::Metadata) -> u64 {
+pub(crate) fn file_mtime(m: &std::fs::Metadata) -> u64 {
     use std::os::windows::fs::MetadataExt;
     m.last_write_time()
 }
@@ -401,7 +405,7 @@ fn keep_meta(
 }
 
 /// Сбросить все файлы хранилища на диск (FlushFileBuffers).
-fn flush_tree(root: &Path) -> std::io::Result<()> {
+pub(crate) fn flush_tree(root: &Path) -> std::io::Result<()> {
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
         for e in std::fs::read_dir(&dir)? {

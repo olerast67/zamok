@@ -302,6 +302,36 @@ pub fn dispatch(line: &[u8], core: &Arc<Core>) -> Response {
             Err(code) => Response::err(code),
         },
         Request::SetIdleLock { path, secs } => one(core.set_idle_lock(&path, secs)),
+        Request::ChangePassword {
+            path,
+            old_password,
+            new_password,
+        } => one(core.change_password(&path, &old_password, &new_password)),
+        Request::ShowRecoveryKey { path, password } => match core.recovery_key(&path, &password) {
+            Ok(words) => Response {
+                ok: true,
+                recovery_key: Some(words.to_string()),
+                ..Default::default()
+            },
+            Err(code) => Response::err(code),
+        },
+        Request::Decrypt { path, password } => {
+            if core.job_running() {
+                return Response::err(ErrorCode::JobRunning);
+            }
+            let data_dir = core.data_dir().to_path_buf();
+            match crate::decrypt::start(core.clone(), &data_dir, &path, &password) {
+                Ok(progress) => {
+                    core.add_job(progress.clone());
+                    Response {
+                        ok: true,
+                        job: Some(progress.info()),
+                        ..Default::default()
+                    }
+                }
+                Err(code) => Response::err(code),
+            }
+        }
         Request::Quit => {
             core.request_quit();
             Response::ok()

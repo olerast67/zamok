@@ -105,6 +105,16 @@ public sealed class CoreIntegrationTests : IDisposable
         await _client.LockAsync(dir);
         var byKey = await _client.UnlockRecoveryAsync(dir, started.RecoveryKey!);
         Assert.True(byKey.Folder!.IsUnlocked);
+
+        // Смена пароля: старый не открывает, новый открывает, ключ восстановления тот же
+        Assert.Equal("wrong_password", (await _client.ChangePasswordAsync(dir, "не тот", "новый пароль 1")).Error);
+        Assert.True((await _client.ChangePasswordAsync(dir, "верный пароль", "новый пароль 1")).Ok);
+        await _client.LockAsync(dir);
+        Assert.Equal("wrong_password", (await _client.UnlockAsync(dir, "верный пароль")).Error);
+        Assert.True((await _client.UnlockAsync(dir, "новый пароль 1")).Folder!.IsUnlocked);
+        Assert.Equal("wrong_password", (await _client.ShowRecoveryKeyAsync(dir, "верный пароль")).Error);
+        Assert.Equal(started.RecoveryKey, (await _client.ShowRecoveryKeyAsync(dir, "новый пароль 1")).RecoveryKey);
+        Assert.False(File.Exists(Path.Combine(_root, ".Клиенты.zamok", "masterkey.cryptomator.tmp")));
     }
 
     [Fact]

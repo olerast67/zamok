@@ -88,14 +88,14 @@ try {
         $p -and (Send '{"cmd":"status"}').ok
     }
     Check 'install: autostart entry points to the core' {
-        (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run').Zamok -eq "`"$installDir\zamok-core.exe`""
+        (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run').Zamok -eq "`"$installDir\zamok-core.exe`" --watch"
     }
     Check 'install: .zamok opens Zamok.exe --unlock' {
         (Get-ItemProperty "$cls\.zamok").'(default)' -eq 'Zamok.OpenItem' -and
             (Get-ItemProperty "$cls\Zamok.OpenItem\shell\open\command").'(default)' -eq "`"$installDir\Zamok.exe`" --unlock `"%1`""
     }
     Check 'install: only the Zamok items added, default actions of folders unchanged' {
-        $now = Snapshot 'ZamokEncrypt|ZamokLock|ZamokUnlock'
+        $now = Snapshot 'ZamokEncrypt|ZamokLock|ZamokUnlock|ZamokMore'
         if ($now -ne $before -or -not (Test-Path "$cls\Directory\shell\ZamokEncrypt")) { throw "before:`n$before`nnow:`n$(Snapshot)" }
         'same plus the Zamok items'
     }
@@ -139,7 +139,18 @@ try {
         ($has -join ',') -eq $want
     }
     New-Item -ItemType Directory -Force "$root\plain" | Out-Null
+    Check 'menu items are in the Windows display language' {
+        Add-Type -Namespace ZamokTest -Name Lang -MemberDefinition '[DllImport("kernel32.dll")] public static extern ushort GetUserDefaultUILanguage();'
+        $ru = ([ZamokTest.Lang]::GetUserDefaultUILanguage() -band 0x3FF) -eq 0x19
+        $t = $verbName['ZamokUnlock']
+        if ($ru) { $t -ne 'Open with password' } else { $t -eq 'Open with password' }
+    }
     Check 'menu: open Zamok folder has only Lock' { WaitFor { HasOnly $ruName 'ZamokLock' } 8000 }
+    # Podmenyu Zamok Shell.Application pokazyvaet bez imeni: proveryaem ego uslovie v reestre
+    Check 'menu: Zamok submenu applies to Zamok folders only' {
+        $at = (Get-ItemProperty "$cls\Directory\shell\ZamokMore").AppliesTo
+        $at.Contains('System.ItemPathDisplay:="' + $dir + '"') -and -not $at.Contains("$root\plain")
+    }
     Check 'menu: ordinary folder has only Encrypt' { HasOnly 'plain' 'ZamokEncrypt' }
     Check 'menu: Lock locks the folder without a window' {
         $shell.Namespace($root).ParseName($ruName).InvokeVerb('ZamokLock')
@@ -178,6 +189,7 @@ Check 'uninstall: core stopped, files and registry entries gone' {
     -not (Test-Path "\\.\pipe\$pipe") -and -not (Test-Path $installDir) -and -not (Test-Path "$cls\.zamok") -and
         -not (Test-Path "$cls\Zamok.OpenItem") -and -not (Test-Path "$cls\Directory\shell\ZamokEncrypt") -and
         -not (Test-Path "$cls\Directory\shell\ZamokLock") -and -not (Test-Path "$cls\Directory\shell\ZamokUnlock") -and
+        -not (Test-Path "$cls\Directory\shell\ZamokMore") -and
         -not (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run').Zamok
 }
 Check 'uninstall: registry folder actions exactly as before the test' { $now = Snapshot; if ($now -ne $before) { throw "before:`n$before`nnow:`n$now" }; 'same' }

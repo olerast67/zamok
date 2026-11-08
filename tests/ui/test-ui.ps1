@@ -212,6 +212,49 @@ try {
     }
     $ui.Kill()
 
+    # Rasshifrovat navsegda cherez okno
+    $ui = StartUi '--decrypt', $dir2
+    $w = Window $ui.Id
+    Check 'decrypt window: wrong password is reported' {
+        SetValue $w 'Password' 'not it'; Start-Sleep -Milliseconds 300; Press $w 'OkButton'
+        WaitFor { IsText 'Error_wrong_password' (Text $w 'ErrorText') } 10000
+    }
+    Check 'decrypt window: folder becomes ordinary again' {
+        SetValue $w 'Password' $pw; Start-Sleep -Milliseconds 300; Press $w 'OkButton'
+        (WaitFor { (Text $w 'DoneText') -like '*nokey*' } 60000) -and -not (Folder $dir2) -and
+            -not ((Get-Item -LiteralPath $dir2 -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+            (Get-Content "$dir2\note.txt") -eq 'hello from ui test'
+    }
+    $ui.Kill()
+
+    # Smenit parol i pokazat klyuch (podmenyu Zamok)
+    $ui = StartUi '--change-password', $dir
+    $w = Window $ui.Id
+    $pw2 = 'Novyy parol dlya testa 2026'
+    Check 'change password: wrong current password is reported' {
+        SetValue $w 'Password' 'not it'; SetValue $w 'NewPassword1' $pw2; SetValue $w 'NewPassword2' $pw2
+        Start-Sleep -Milliseconds 300; Press $w 'OkButton'
+        WaitFor { IsText 'Error_wrong_password' (Text $w 'ErrorText') } 10000
+    }
+    Check 'change password: done, the new password opens the folder' {
+        SetValue $w 'Password' $pw; SetValue $w 'NewPassword1' $pw2; SetValue $w 'NewPassword2' $pw2
+        Start-Sleep -Milliseconds 300; Press $w 'OkButton'
+        if (-not (WaitFor { IsText 'Manage_Changed' (Text $w 'DoneText') } 10000)) { throw 'not changed' }
+        Press $w 'OkButton'; [void]$ui.WaitForExit(10000)
+        [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $dir)`"}")
+        (Send "{`"cmd`":`"unlock`",`"path`":`"$(J $dir)`",`"password`":`"$pw2`"}").ok
+    }
+    $ui = StartUi '--show-key', $dir
+    $w = Window $ui.Id
+    Check 'show key: the password shows the same 44 words' {
+        SetValue $w 'Password' $pw2; Start-Sleep -Milliseconds 300; Press $w 'OkButton'
+        if (-not (WaitFor { (Text $w 'KeyWords') -match '44\.' } 10000)) { throw 'no key' }
+        $shown = @([regex]::Matches((Text $w 'KeyWords'), '\d+\.\s+(\S+)') | ForEach-Object { $_.Groups[1].Value })
+        ($shown -join ' ') -eq ($words -join ' ')
+    }
+    $ui.Kill()
+    $pw = $pw2
+
     # 4. Oshibki
     $ui = StartUi '--unlock', "$root\not-encrypted"
     $w = Window $ui.Id

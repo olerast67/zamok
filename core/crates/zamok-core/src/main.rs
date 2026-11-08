@@ -3,6 +3,9 @@
 //! Переменные для разработки и тестов:
 //! - `ZAMOK_DATA_DIR`: папка со списком и журналом вместо `%LOCALAPPDATA%\Zamok`;
 //! - `ZAMOK_PIPE`: имя канала вместо `\\.\pipe\zamok-<SID>`.
+//!
+//! `zamok-core --watch`: сторож для автозапуска. Запускает core и перезапускает его, если тот
+//! упал. Обычный выход (из трея, по команде `quit`) и «уже запущен» сторож уважает.
 
 // В сборке для людей без окна консоли
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -43,11 +46,43 @@ fn init_log(dir: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Код выхода «core уже запущен»: сторож не перезапускает.
+const EXIT_ALREADY_RUNNING: i32 = 3;
+
+/// Сторож: перезапускать core после падения, не чаще 5 раз за минуту.
+fn watch() -> ! {
+    let exe = match std::env::current_exe() {
+        Ok(e) => e,
+        Err(_) => std::process::exit(1),
+    };
+    let mut recent: Vec<std::time::Instant> = Vec::new();
+    loop {
+        let status = std::process::Command::new(&exe).status();
+        match status.map(|s| s.code()) {
+            Ok(Some(0)) | Ok(Some(EXIT_ALREADY_RUNNING)) => std::process::exit(0),
+            _ => {}
+        }
+        let now = std::time::Instant::now();
+        recent.retain(|t| now.duration_since(*t).as_secs() < 60);
+        recent.push(now);
+        let pause = if recent.len() > 5 { 60 } else { 2 };
+        std::thread::sleep(std::time::Duration::from_secs(pause));
+    }
+}
+
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--watch") {
+        watch();
+    }
     if let Err(e) = run() {
         tracing::error!(error = %e, "zamok-core stopped");
         eprintln!("zamok-core: {e}");
-        std::process::exit(1);
+        let code = if e.to_string().contains("already running") {
+            EXIT_ALREADY_RUNNING
+        } else {
+            1
+        };
+        std::process::exit(code);
     }
 }
 

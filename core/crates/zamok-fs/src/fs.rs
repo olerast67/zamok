@@ -17,7 +17,7 @@ use std::ffi::c_void;
 use std::fs;
 use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use windows::Win32::Foundation::{
@@ -125,6 +125,16 @@ pub struct ZFile {
     dir_buffer: DirBuffer,
     generation: u64,
     delete_on_close: AtomicBool,
+    /// Счётчик открытых файлов папки (у каталогов и виртуальных файлов `None`).
+    open_files: Option<Arc<AtomicUsize>>,
+}
+
+impl Drop for ZFile {
+    fn drop(&mut self) {
+        if let Some(c) = &self.open_files {
+            c.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
 }
 
 type Listing = HashMap<String, (String, PathBuf)>;
@@ -156,6 +166,9 @@ pub struct Control {
     /// Какой-то путь не удалось сбросить уведомлением (переполнение или слишком длинный путь):
     /// перед ответом «заперто» нужно дождаться, пока кэш ядра истечёт сам.
     fallback_wait: AtomicBool,
+    /// Сколько файлов папки сейчас открыто программами (каталоги не считаются: окно
+    /// Проводника на папке не должно держать её открытой).
+    open_handles: Arc<AtomicUsize>,
     /// Отсчёт для [`Control::idle_for`].
     started: std::time::Instant,
     /// Когда в папке последний раз читали, писали, создавали, переименовывали или смотрели
@@ -302,6 +315,11 @@ impl Control {
         self.last_activity_ms.fetch_max(ms, Ordering::Relaxed);
     }
 
+    /// Сколько файлов папки сейчас открыто программами.
+    pub fn open_files(&self) -> usize {
+        self.open_handles.load(Ordering::SeqCst)
+    }
+
     /// Сколько времени с папкой ничего не делали (с момента открытия или последнего обращения).
     pub fn idle_for(&self) -> std::time::Duration {
         let now = self.started.elapsed().as_millis() as u64;
@@ -333,6 +351,7 @@ impl ZamokFs {
             seen: Mutex::new(std::collections::HashSet::new()),
             pending_invalidate: Mutex::new(Vec::new()),
             fallback_wait: AtomicBool::new(false),
+            open_handles: Arc::new(AtomicUsize::new(0)),
             started: std::time::Instant::now(),
             last_activity_ms: AtomicU64::new(0),
         });
@@ -653,7 +672,13 @@ impl ZamokFs {
         virt: Option<Virtual>,
         cipher: Option<Arc<Mutex<CipherFile>>>,
     ) -> ZFile {
+        let counted = virt.is_none() && matches!(kind, Some(Kind::File { .. }));
+        let open_files = counted.then(|| {
+            self.ctl.open_handles.fetch_add(1, Ordering::SeqCst);
+            self.ctl.open_handles.clone()
+        });
         ZFile {
+            open_files,
             path: Mutex::new(path),
             kind: Mutex::new(kind),
             virt,

@@ -55,6 +55,19 @@ How to open the folder with the key: in the locked folder double-click “Open {
   <data name="Encrypt_Finishing" xml:space="preserve"><value>Replacing the folder with the encrypted one.</value></data>
   <data name="Encrypt_Done" xml:space="preserve"><value>The folder “{0}” is encrypted and open. It locks by itself when the screen locks, before sleep and after 30 minutes without use.</value></data>
   <data name="Encrypt_Failed" xml:space="preserve"><value>The folder was not encrypted. All files are in place.</value></data>
+  <data name="Manage_Password.Header" xml:space="preserve"><value>Current password</value></data>
+  <data name="Manage_NewPassword1.Header" xml:space="preserve"><value>New password</value></data>
+  <data name="Manage_NewPassword2.Header" xml:space="preserve"><value>Repeat the new password</value></data>
+  <data name="Manage_ChangeStep" xml:space="preserve"><value>Change the password. The recovery key stays the same.</value></data>
+  <data name="Manage_KeyStep" xml:space="preserve"><value>Recovery key: enter the password to see it</value></data>
+  <data name="Manage_Change" xml:space="preserve"><value>Change</value></data>
+  <data name="Manage_Show" xml:space="preserve"><value>Show</value></data>
+  <data name="Manage_Changed" xml:space="preserve"><value>The password has been changed. The old one no longer opens the folder.</value></data>
+  <data name="Menu_More" xml:space="preserve"><value>Zamok</value></data>
+  <data name="Manage_DecryptStep" xml:space="preserve"><value>Decrypt permanently</value></data>
+  <data name="Manage_DecryptWarning.Text" xml:space="preserve"><value>The files become ordinary, unencrypted, and stay in the same place. A checked decrypted copy is made first, the encrypted data is deleted last.</value></data>
+  <data name="Manage_Decrypt" xml:space="preserve"><value>Decrypt</value></data>
+  <data name="Manage_Decrypted" xml:space="preserve"><value>The folder “{0}” is decrypted and ordinary again.</value></data>
   <data name="Error_core_not_running" xml:space="preserve"><value>The Zamok background program is not running.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>The other side is not this user's Zamok program. The password was not sent.</value></data>
   <data name="Error_bad_request" xml:space="preserve"><value>Internal request error.</value></data>
