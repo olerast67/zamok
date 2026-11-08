@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Общий установщик Zamok-Setup-<версия>.exe (WiX 5, Burn): один файл, внутри два MSI.
+  Сначала неизменённый установщик WinFsp, только если WinFsp ещё нет: ему нужны права
+  администратора. Потом Zamok.msi, которому прав администратора не нужно.
+  WinFsp помечен Permanent: при удалении Zamok он остаётся, им могут пользоваться другие программы.
+  Сборка: installer\build-msi.ps1
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Bundle Name="Zamok" Manufacturer="olerast" Version="$(Version)"
+          UpgradeCode="7E1C4A92-5B3D-4F6E-9A21-C0D48B6F2E17"
+          IconSourceFile="$(AppDir)\zamok.ico"
+          AboutUrl="https://github.com/olerast67/zamok">
+
+    <BootstrapperApplication>
+      <!-- thm.xml: стандартная тема hyperlinkLicense плюс строка InstallMessage, которой в ней нет -->
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl=""
+                                              ThemeFile="$(InstallerDir)\thm.xml"
+                                              LocalizationFile="$(InstallerDir)\thm-en.wxl"
+                                              LogoFile="$(Logo)"
+                                              SuppressOptionsUI="yes" SuppressRepair="yes" />
+      <Payload Name="1049\thm.wxl" SourceFile="$(InstallerDir)\thm-ru.wxl" />
+    </BootstrapperApplication>
+
+    <util:RegistrySearch Id="FindWinFsp" Root="HKLM" Key="SOFTWARE\WinFsp" Value="InstallDir"
+                         Bitness="always32" Variable="WinFspDir" />
+
+    <Chain>
+      <MsiPackage Id="WinFsp" SourceFile="$(WinFspMsi)" Compressed="yes" Permanent="yes" Vital="yes"
+                  InstallCondition="NOT WinFspDir" />
+      <MsiPackage Id="ZamokMsi" SourceFile="$(ZamokMsi)" Compressed="yes" Vital="yes" />
+    </Chain>
+  </Bundle>
+</Wix>
