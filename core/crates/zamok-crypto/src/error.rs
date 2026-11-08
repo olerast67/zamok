@@ -18,6 +18,8 @@ pub enum Error {
     Authentication,
     #[error("encrypted data has invalid length")]
     BadLength,
+    #[error("recovery key is wrong: unknown word, wrong number of words or checksum mismatch")]
+    BadRecoveryKey,
     #[error("operating system random number generator failed")]
     Random,
     #[error("I/O error: {0}")]

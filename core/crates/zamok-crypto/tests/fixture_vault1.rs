@@ -157,3 +157,22 @@ fn directory_cycle_is_rejected() {
     let _ = fs::remove_dir_all(&dst);
     assert!(res.is_err());
 }
+
+#[test]
+fn cryptomator_recovery_key_matches() {
+    // Ключ восстановления создан кодом Cryptomator 1.19.6 (RecoveryKeyFactory) для vault1
+    let r = repo();
+    let words = fs::read_to_string(r.join("tests/fixtures/vault1-recovery.txt")).unwrap();
+    let key = zamok_crypto::recovery::decode(&words).unwrap();
+    let hex = fs::read_to_string(r.join("tests/fixtures/vault1-masterkey-hex.txt")).unwrap();
+    let expected: Vec<u8> = (0..128)
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex.trim()[i..i + 2], 16).unwrap())
+        .collect();
+    assert_eq!(key.to_raw().as_slice(), expected.as_slice());
+    // и в обратную сторону: наш код записывает тот же ключ теми же словами
+    assert_eq!(zamok_crypto::recovery::encode(&key).as_str(), words.trim());
+    // ключом восстановления открывается всё хранилище
+    let vault = Vault::open_with_key(&r.join("tests/fixtures/vault1"), key).unwrap();
+    assert!(!vault.walk().unwrap().is_empty());
+}

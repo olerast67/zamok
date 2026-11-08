@@ -207,6 +207,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crc32fast"
+version = "1.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f97d3416d5337d15c4b0d78c8c91df922ca143f57ec20e2d1c188333047ef04"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "crypto-common"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -841,6 +850,7 @@ dependencies = [
  "aes-kw",
  "aes-siv",
  "base64",
+ "crc32fast",
  "data-encoding",
  "getrandom 0.2.17",
  "hmac",
