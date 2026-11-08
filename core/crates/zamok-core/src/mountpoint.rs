@@ -145,6 +145,16 @@ fn in_recycle_bin(path: &str) -> bool {
 /// то есть для человека удалена.
 pub fn find_by_id(on_volume: &Path, id: i64, target: &str) -> Option<std::path::PathBuf> {
     let hint = open_reparse(on_volume, false).ok()?;
+    let path = final_path_by_id(&hint, id)?;
+    if in_recycle_bin(&path) {
+        return None;
+    }
+    let path = std::path::PathBuf::from(path);
+    (mount_target(&path).as_deref() == Some(target)).then_some(path)
+}
+
+/// Путь объекта с номером `id` на томе `hint`.
+fn final_path_by_id(hint: &Handle, id: i64) -> Option<String> {
     let desc = FILE_ID_DESCRIPTOR {
         dwSize: std::mem::size_of::<FILE_ID_DESCRIPTOR>() as u32,
         Type: FileIdType,
@@ -169,12 +179,15 @@ pub fn find_by_id(on_volume: &Path, id: i64, target: &str) -> Option<std::path::
         return None;
     }
     let full = String::from_utf16_lossy(&buf[..n]);
-    let path = strip_verbatim(&full)?;
-    if in_recycle_bin(path) {
-        return None;
-    }
-    let path = std::path::PathBuf::from(path);
-    (mount_target(&path).as_deref() == Some(target)).then_some(path)
+    strip_verbatim(&full).map(str::to_string)
+}
+
+/// Текущий путь папки с номером `id` на том же диске, что и `on_volume`.
+/// `None`: её нет или она в Корзине, то есть для человека удалена.
+pub fn find_dir_by_id(on_volume: &Path, id: i64) -> Option<std::path::PathBuf> {
+    let hint = open_reparse(on_volume, false).ok()?;
+    let path = final_path_by_id(&hint, id)?;
+    (!in_recycle_bin(&path)).then(|| std::path::PathBuf::from(path))
 }
 
 /// Есть ли что-то на пути. Смотрит только атрибуты самой точки подключения и не заходит

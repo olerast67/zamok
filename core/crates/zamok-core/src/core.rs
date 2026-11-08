@@ -209,6 +209,7 @@ const RETRY_EVERY_TICKS: u64 = 15;
 /// Что случилось с хранилищем, которого нет на старом месте.
 enum VaultMissing {
     Deleted,
+    Moved,
     Keep,
 }
 
@@ -762,6 +763,10 @@ impl Core {
             e.missing_ticks.store(0, Ordering::SeqCst);
             return VaultMissing::Keep;
         }
+        if self.relocate(e, cfg) {
+            e.missing_ticks.store(0, Ordering::SeqCst);
+            return VaultMissing::Moved;
+        }
         let ticks = e.missing_ticks.fetch_add(1, Ordering::SeqCst) + 1;
         let parent = cfg.vault.parent().is_some_and(|p| p.is_dir());
         let serial = parent
@@ -776,6 +781,57 @@ impl Core {
             tracing::info!(folder = %cfg.id, "vault is not reachable, folder kept as unavailable");
         }
         VaultMissing::Keep
+    }
+
+    /// Хранилище ушло вместе с переименованной родительской папкой: при работающем core это
+    /// не даёт сделать точка подключения, но пока core не запущен такое возможно. Находим
+    /// его по номеру NTFS и запоминаем новое место.
+    fn relocate(&self, e: &Arc<Entry>, cfg: &FolderConfig) -> bool {
+        let Some(id) = cfg.vault_file_id else {
+            return false;
+        };
+        let Some(hint) = cfg.vault.ancestors().skip(1).find(|p| p.is_dir()) else {
+            return false;
+        };
+        // Номер имеет смысл только на том же томе
+        if cfg.volume_serial.is_none() || crate::preflight::volume_serial(hint) != cfg.volume_serial
+        {
+            return false;
+        }
+        let Some(found) = mountpoint::find_dir_by_id(hint, id) else {
+            return false;
+        };
+        if found.file_name() != cfg.vault.file_name() || !vault_looks_valid(&found) {
+            return false;
+        }
+        e.unmount();
+        {
+            let mut c = e.cfg.lock().unwrap();
+            // Папка лежала рядом с хранилищем: тогда и она переехала вместе с родителем
+            if cfg.path.parent() == cfg.vault.parent() {
+                if let (Some(parent), Some(leaf)) = (found.parent(), cfg.path.file_name()) {
+                    c.path = parent.join(leaf);
+                }
+            }
+            c.vault = found;
+        }
+        e.offline.store(false, Ordering::SeqCst);
+        let mounted = e.ensure_mounted().is_ok();
+        tracing::info!(folder = %cfg.id, mounted, "vault found at a new place, list updated");
+        true
+    }
+
+    /// Раз в 30 секунд повторить уборку, которая не удалась сразу. Своим потоком: удаление
+    /// большой папки не должно задерживать запирание по бездействию.
+    pub fn retry_leftovers(self: &Arc<Self>) {
+        if self.ticks.fetch_add(1, Ordering::SeqCst) % RETRY_EVERY_TICKS != RETRY_EVERY_TICKS - 1 {
+            return;
+        }
+        let core = self.clone();
+        std::thread::spawn(move || {
+            crate::encrypt::retry_cleanup(&core, &core.data_dir);
+            crate::decrypt::retry_rollback(&core, &core.data_dir);
+        });
     }
 
     /// Папки, которые человек удалил в Проводнике (DESIGN.md, раздел 5.1):
@@ -793,14 +849,24 @@ impl Core {
             if let Err(err) = std::fs::symlink_metadata(&cfg.vault) {
                 match self.vault_missing(&e, &cfg, err.kind()) {
                     VaultMissing::Deleted => gone.push(e),
+                    VaultMissing::Moved => moved_any = true,
                     VaultMissing::Keep => {}
                 }
                 continue;
             }
             e.missing_ticks.store(0, Ordering::SeqCst);
-            if e.offline.swap(false, Ordering::SeqCst) {
+            // Хранилище с тем же именем на другом томе (другая флешка) не подключаем
+            let same_volume = cfg.volume_serial.is_none()
+                || crate::preflight::volume_serial(&cfg.vault) == cfg.volume_serial;
+            if same_volume && e.offline.swap(false, Ordering::SeqCst) {
                 let mounted = e.ensure_mounted().is_ok();
                 tracing::info!(folder = %cfg.id, mounted, "vault is back, folder mounted again");
+            }
+            if cfg.vault_file_id.is_none() && same_volume {
+                if let Some(id) = mountpoint::file_id(&cfg.vault) {
+                    e.cfg.lock().unwrap().vault_file_id = Some(id);
+                    moved_any = true;
+                }
             }
             // Записи старых версий узнают свой том, как только хранилище доступно
             if cfg.volume_serial.is_none() {
@@ -838,10 +904,6 @@ impl Core {
                 }
             }
             self.vault_follow(&e);
-        }
-        if self.ticks.fetch_add(1, Ordering::SeqCst) % RETRY_EVERY_TICKS == RETRY_EVERY_TICKS - 1 {
-            crate::encrypt::retry_cleanup(self, &self.data_dir);
-            crate::decrypt::retry_rollback(self, &self.data_dir);
         }
         if gone.is_empty() {
             if moved_any {
@@ -948,6 +1010,7 @@ impl Core {
         let cfg = FolderConfig {
             id: config::new_id().map_err(|_| ErrorCode::Internal)?,
             volume_serial: crate::preflight::volume_serial(&vault),
+            vault_file_id: mountpoint::file_id(&vault),
             path,
             vault,
             vault_prev: None,

@@ -124,6 +124,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 let core = core.clone();
                 std::thread::spawn(move || {
                     core.check_folders();
+                    core.retry_leftovers();
                     for ev in core.lock_idle() {
                         crate::tray::notify_idle(&ev);
                     }

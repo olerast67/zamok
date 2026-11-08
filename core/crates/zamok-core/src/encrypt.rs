@@ -77,6 +77,10 @@ pub struct Journal {
     /// после переименования в `.zamok-original`. В журналах старых версий поля нет.
     #[serde(default)]
     pub plan_sha256: Option<String>,
+    /// Начат откат с возвратом оригинала. Сбой посреди него оставляет на месте папку, которая
+    /// может отличаться от описи: по этой отметке видно, что это и есть оригинал.
+    #[serde(default)]
+    pub rolling_back: bool,
 }
 
 fn jobs_dir(data_dir: &Path) -> PathBuf {
@@ -353,7 +357,7 @@ fn check_aside(core: &Core, j: &Journal, data_dir: &Path) -> Result<(), ErrorCod
             rollback_aside(j, data_dir);
             return Err(ErrorCode::ChangedDuringCopy);
         }
-    } else if matches_plan(j, &j.path) == Some(true) {
+    } else if original_is_back(j) {
         // Прошлый откат вернул оригинал на место и прервался
         rollback_copy(j, data_dir);
         return Err(ErrorCode::ChangedDuringCopy);
@@ -525,11 +529,24 @@ fn rollback_copy(j: &Journal, data_dir: &Path) {
     tracing::info!(job = %j.id, "rolled back, original untouched");
 }
 
+/// Оригинал уже на своём месте: совпал с описью или прошлый откат успел его вернуть.
+fn original_is_back(j: &Journal) -> bool {
+    matches_plan(j, &j.path) == Some(true)
+        || (j.rolling_back
+            && crate::mountpoint::state(&j.path) == crate::mountpoint::PathState::Occupied)
+}
+
 /// Откат после переименования оригинала: вернуть оригинал на место, затем как
 /// [`rollback_copy`]. Если путь занят, ничего не трогаем и оставляем журнал. Если оригинала
 /// нет ни рядом, ни на месте, хранилище осталось единственной копией: его не трогаем.
 fn rollback_aside(j: &Journal, data_dir: &Path) {
     if std::fs::symlink_metadata(&j.aside).is_ok() {
+        let mut marked = j.clone();
+        marked.rolling_back = true;
+        if marked.save(data_dir).is_err() {
+            tracing::error!(job = %j.id, "rollback: cannot update the journal; nothing moved");
+            return;
+        }
         if crate::mountpoint::prepare(&j.path).is_err() {
             tracing::error!(job = %j.id, "rollback: folder path is occupied; journal kept");
             return;
@@ -538,7 +555,7 @@ fn rollback_aside(j: &Journal, data_dir: &Path) {
             tracing::error!(job = %j.id, error = %e, "rollback: cannot move the original back; journal kept");
             return;
         }
-    } else if matches_plan(j, &j.path) != Some(true) {
+    } else if !original_is_back(j) {
         tracing::error!(job = %j.id, "rollback: the original is gone; vault and journal kept");
         return;
     }
@@ -655,9 +672,9 @@ fn cleanup(j: &Journal, data_dir: &Path) {
 /// Ещё раз попробовать удалить оригиналы, которые не удалились сразу: антивирус или
 /// индексатор могли держать файл. Открытый текст не должен лежать до перезапуска core.
 pub fn retry_cleanup(core: &Core, data_dir: &Path) {
-    if core.job_running() {
+    let Some(_starting) = core.begin_job() else {
         return;
-    }
+    };
     for j in Journal::load_all(data_dir) {
         if j.phase == Phase::Registered {
             cleanup(&j, data_dir);
@@ -710,6 +727,7 @@ pub fn start(
         masterkey_sha256: None,
         vault_config_sha256: None,
         plan_sha256: Some(plan_digest(&plan)),
+        rolling_back: false,
     };
     // Журнал раньше копии: сбой во время создания хранилища откатится при старте
     journal
@@ -961,6 +979,7 @@ mod tests {
             masterkey_sha256: None,
             vault_config_sha256: None,
             plan_sha256: None,
+            rolling_back: false,
         };
         let data = d.path().join("data");
         j.save(&data).unwrap();
@@ -995,6 +1014,7 @@ mod tests {
             masterkey_sha256: None,
             vault_config_sha256: None,
             plan_sha256: None,
+            rolling_back: false,
         };
         assert!(delete_aside(&j).is_err());
         assert!(src.join("а.txt").exists());
@@ -1015,6 +1035,7 @@ mod tests {
             masterkey_sha256: None,
             vault_config_sha256: None,
             plan_sha256: Some(plan_digest(plan)),
+            rolling_back: false,
         }
     }
 
@@ -1081,6 +1102,27 @@ mod tests {
     }
 
     #[test]
+    fn interrupted_rollback_finishes_even_if_the_original_differs_from_the_plan() {
+        let d = tempdir();
+        let src = d.path().join("Клиенты");
+        sample(&src);
+        let mut bad = Vec::new();
+        let plan = preflight::walk(&src, &mut bad).unwrap();
+        let mut j = journal_for(&src, &plan, Phase::OriginalAside);
+        let v = Vault::create_empty(&j.vault, "pw", 1 << 10).unwrap();
+        j.masterkey_sha256 = masterkey_digest(v.root());
+        let data = d.path().join("data");
+        // Откат вернул папку с новым файлом и прервался до удаления копии
+        std::fs::write(src.join("новый.txt"), "x").unwrap();
+        j.rolling_back = true;
+        j.save(&data).unwrap();
+        rollback_aside(&j, &data);
+        assert!(!j.vault.exists() && !j.tmp.exists());
+        assert!(src.join("новый.txt").exists());
+        assert!(Journal::load_all(&data).is_empty());
+    }
+
+    #[test]
     fn vault_is_recognised_after_a_password_change() {
         let d = tempdir();
         let src = d.path().join("Клиенты");
@@ -1100,6 +1142,7 @@ mod tests {
             masterkey_sha256: masterkey_digest(v.root()),
             vault_config_sha256: vault_config_digest(v.root()),
             plan_sha256: None,
+            rolling_back: false,
         };
         // Смена пароля меняет masterkey.cryptomator, настройки хранилища остаются
         let json = zamok_crypto::masterkey::MasterkeyFile::lock_with(v.key(), "new", 1 << 10)
@@ -1146,6 +1189,7 @@ mod tests {
             masterkey_sha256: digest,
             vault_config_sha256: None,
             plan_sha256: None,
+            rolling_back: false,
         };
         j.save(&data).unwrap();
         rollback_copy(&j, &data);

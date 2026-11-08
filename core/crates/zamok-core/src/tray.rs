@@ -266,7 +266,7 @@ fn notify_job_end(job: &JobInfo, encrypted: bool) {
     match (job.state, job.error) {
         (JobState::Done, _) if encrypted => notify(
             &if russian() { format!("Папка «{name}» зашифрована") } else { format!("\u{201c}{name}\u{201d} is encrypted") },
-            t("Она открыта. Запереть её можно из меню папки или значка Zamok.", "It is open. Lock it from the folder menu or the Zamok icon."),
+            t("Открыть и запереть её можно из меню папки или значка Zamok.", "Open and lock it from the folder menu or the Zamok icon."),
         ),
         (JobState::Done, _) => notify(
             &if russian() { format!("Папка «{name}» расшифрована") } else { format!("\u{201c}{name}\u{201d} is decrypted") },
