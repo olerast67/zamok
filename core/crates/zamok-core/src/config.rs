@@ -18,6 +18,10 @@ pub struct FolderConfig {
     pub path: PathBuf,
     /// Скрытое хранилище с шифротекстом (`.Имя.zamok`).
     pub vault: PathBuf,
+    /// Старое место хранилища, пока оно переносится следом за папкой: если core упал
+    /// посреди переноса, при запуске видно, где хранилище на самом деле.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault_prev: Option<PathBuf>,
     /// Запереть после стольких секунд без работы с папкой; 0 = не запирать по времени.
     #[serde(default = "default_idle")]
     pub idle_lock_secs: u64,
@@ -58,6 +62,20 @@ impl FolderConfig {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "Zamok".into())
+    }
+
+    /// Разобраться с переносом хранилища, прерванным сбоем. `true`, если запись изменилась.
+    /// Новое место пусто, а старое занято: переименование не успело, хранилище на старом месте.
+    pub fn recover_vault_move(&mut self) -> bool {
+        let Some(prev) = self.vault_prev.take() else {
+            return false;
+        };
+        if std::fs::symlink_metadata(&self.vault).is_err()
+            && std::fs::symlink_metadata(&prev).is_ok()
+        {
+            self.vault = prev;
+        }
+        true
     }
 }
 
@@ -136,8 +154,34 @@ mod tests {
             id: "a1".into(),
             path: path.into(),
             vault: format!("{path}.zamok").into(),
+            vault_prev: None,
             idle_lock_secs: DEFAULT_IDLE_LOCK_SECS,
         }
+    }
+
+    #[test]
+    fn interrupted_vault_move_finds_the_real_place() {
+        let d = tempfile::tempdir().unwrap();
+        let old = d.path().join("old");
+        let new = d.path().join("new");
+        let moving = |vault: &Path| FolderConfig {
+            vault: vault.into(),
+            vault_prev: Some(old.clone()),
+            ..folder("x")
+        };
+        // Переименование не успело: хранилище на старом месте
+        std::fs::create_dir(&old).unwrap();
+        let mut f = moving(&new);
+        assert!(f.recover_vault_move());
+        assert_eq!((f.vault.as_path(), f.vault_prev), (old.as_path(), None));
+        // Успело: хранилище уже на новом
+        std::fs::rename(&old, &new).unwrap();
+        let mut f = moving(&new);
+        assert!(f.recover_vault_move());
+        assert_eq!((f.vault.as_path(), f.vault_prev), (new.as_path(), None));
+        // Переноса не было
+        let mut f = folder("x");
+        assert!(!f.recover_vault_move());
     }
 
     #[test]
