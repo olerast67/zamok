@@ -27,6 +27,27 @@ pub enum Node {
     Symlink { path: String },
 }
 
+/// Итог обхода с пропусками: что удалось прочитать и что нет. В `skipped` путь и причина.
+#[derive(Debug, Default)]
+pub struct WalkReport {
+    pub nodes: Vec<Node>,
+    pub skipped: Vec<String>,
+}
+
+/// Итог выгрузки с пропусками.
+#[derive(Debug, Default)]
+pub struct ExportReport {
+    pub files: usize,
+    pub skipped: Vec<String>,
+}
+
+/// Узел, прочитанный из одной записи каталога.
+enum Classified {
+    Dir(String),
+    Symlink,
+    File(PathBuf),
+}
+
 /// Имя годится для хранилища и для Windows: без разделителей, `.`, `..`, запрещённых знаков
 /// и имён устройств (CON, NUL, COM1…).
 pub fn safe_name(name: &str) -> Result<()> {
@@ -94,72 +115,125 @@ impl Vault {
         &self.root
     }
 
-    /// Все узлы дерева, начиная с корня (ID корня пустой).
+    /// Все узлы дерева, начиная с корня (ID корня пустой). Любая повреждённая запись: ошибка.
+    /// Каталог без физической папки считается пустым, как и в подключённой папке: такой
+    /// остаётся после сбоя между созданием `dir.c9r` и папки каталога.
     pub fn walk(&self) -> Result<Vec<Node>> {
-        let mut out = Vec::new();
+        self.walk_inner(false).map(|r| r.nodes)
+    }
+
+    /// Как [`Vault::walk`], но повреждённые записи пропускаются и перечисляются в отчёте.
+    pub fn walk_tolerant(&self) -> Result<WalkReport> {
+        self.walk_inner(true)
+    }
+
+    fn walk_inner(&self, tolerant: bool) -> Result<WalkReport> {
+        let mut report = WalkReport::default();
         let mut visited = std::collections::HashSet::new();
         visited.insert(String::new());
         let mut stack = vec![(String::new(), String::new(), 0usize)]; // (ID каталога, путь, глубина)
         while let Some((dir_id, path, depth)) = stack.pop() {
             let dir = self.root.join(names::dir_path(&self.key, &dir_id));
-            for entry in fs::read_dir(&dir)? {
-                let entry = entry?;
-                let fname = entry.file_name().to_string_lossy().into_owned();
-                let (enc_name, node_dir) = if let Some(stem) = fname.strip_suffix(C9R) {
-                    (stem.to_string(), entry.path())
-                } else if fname.ends_with(C9S) {
-                    let full = fs::read_to_string(entry.path().join(NAME_FILE))?;
-                    let stem = full
-                        .trim()
-                        .strip_suffix(C9R)
-                        .ok_or(Error::Authentication)?
-                        .to_string();
-                    (stem, entry.path())
-                } else {
-                    continue;
-                };
-                if fname == names::DIRID_BACKUP_FILE {
+            let shown = if path.is_empty() { "/" } else { path.as_str() };
+            let rd = match fs::read_dir(&dir) {
+                Ok(rd) => rd,
+                // Без папки корня хранилище не существует: это ошибка и при обходе с пропусками
+                Err(e) if dir_id.is_empty() => return Err(e.into()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) if tolerant => {
+                    report.skipped.push(format!("{shown}: {e}"));
                     continue;
                 }
-                if out.len() >= MAX_NODES {
+                Err(e) => return Err(e.into()),
+            };
+            for entry in rd {
+                let read = entry
+                    .map_err(Error::from)
+                    .and_then(|e| self.read_entry(&e, &dir_id));
+                let (name, classified) = match read {
+                    Ok(Some(found)) => found,
+                    Ok(None) => continue,
+                    Err(e) if tolerant => {
+                        report.skipped.push(format!("{shown}: {e}"));
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                };
+                if report.nodes.len() >= MAX_NODES {
                     return Err(Error::Authentication);
                 }
-                let name = names::decrypt_name(&self.key, &enc_name, &dir_id)?;
-                safe_name(&name)?;
                 let child = if path.is_empty() {
                     name
                 } else {
                     format!("{path}/{name}")
                 };
-                let is_dir_node = entry.file_type()?.is_dir();
-                if is_dir_node && node_dir.join(DIR_FILE).is_file() {
-                    let child_id = fs::read_to_string(node_dir.join(DIR_FILE))?
-                        .trim()
-                        .to_string();
-                    out.push(Node::Dir {
-                        path: child.clone(),
-                    });
-                    // Каталог, который уже встречался, или слишком глубокое дерево: хранилище испорчено
-                    if !visited.insert(child_id.clone()) || depth + 1 > MAX_DEPTH {
-                        return Err(Error::Authentication);
+                match classified {
+                    Classified::Dir(child_id) => {
+                        // Каталог, который уже встречался, или слишком глубокое дерево: хранилище испорчено
+                        if !visited.insert(child_id.clone()) || depth + 1 > MAX_DEPTH {
+                            if tolerant {
+                                report.skipped.push(format!("{child}: damaged folder link"));
+                                continue;
+                            }
+                            return Err(Error::Authentication);
+                        }
+                        report.nodes.push(Node::Dir {
+                            path: child.clone(),
+                        });
+                        stack.push((child_id, child, depth + 1));
                     }
-                    stack.push((child_id, child, depth + 1));
-                } else if is_dir_node && node_dir.join(SYMLINK_FILE).is_file() {
-                    out.push(Node::Symlink { path: child });
-                } else if is_dir_node && node_dir.join(CONTENTS_FILE).is_file() {
-                    out.push(Node::File {
+                    Classified::Symlink => report.nodes.push(Node::Symlink { path: child }),
+                    Classified::File(ciphertext) => report.nodes.push(Node::File {
                         path: child,
-                        ciphertext: node_dir.join(CONTENTS_FILE),
-                    });
-                } else if !is_dir_node {
-                    out.push(Node::File {
-                        path: child,
-                        ciphertext: entry.path(),
-                    });
+                        ciphertext,
+                    }),
                 }
             }
         }
-        Ok(out)
+        Ok(report)
+    }
+
+    /// Разобрать одну запись каталога: имя в открытом виде и что это. `None`: служебный файл.
+    fn read_entry(
+        &self,
+        entry: &fs::DirEntry,
+        dir_id: &str,
+    ) -> Result<Option<(String, Classified)>> {
+        let fname = entry.file_name().to_string_lossy().into_owned();
+        if fname == names::DIRID_BACKUP_FILE {
+            return Ok(None);
+        }
+        let (enc_name, node_dir) = if let Some(stem) = fname.strip_suffix(C9R) {
+            (stem.to_string(), entry.path())
+        } else if fname.ends_with(C9S) {
+            let full = fs::read_to_string(entry.path().join(NAME_FILE))?;
+            let stem = full
+                .trim()
+                .strip_suffix(C9R)
+                .ok_or(Error::Authentication)?
+                .to_string();
+            (stem, entry.path())
+        } else {
+            return Ok(None);
+        };
+        let name = names::decrypt_name(&self.key, &enc_name, dir_id)?;
+        safe_name(&name)?;
+        let is_dir_node = entry.file_type()?.is_dir();
+        let classified = if is_dir_node && node_dir.join(DIR_FILE).is_file() {
+            let child_id = fs::read_to_string(node_dir.join(DIR_FILE))?
+                .trim()
+                .to_string();
+            Classified::Dir(child_id)
+        } else if is_dir_node && node_dir.join(SYMLINK_FILE).is_file() {
+            Classified::Symlink
+        } else if is_dir_node && node_dir.join(CONTENTS_FILE).is_file() {
+            Classified::File(node_dir.join(CONTENTS_FILE))
+        } else if !is_dir_node {
+            Classified::File(entry.path())
+        } else {
+            return Ok(None);
+        };
+        Ok(Some((name, classified)))
     }
 
     /// Выгрузить расшифрованную копию в папку `out` (должна быть пустой или новой).
@@ -168,27 +242,58 @@ impl Vault {
         fs::create_dir_all(out)?;
         let mut files = 0;
         for node in self.walk()? {
-            match node {
-                Node::Dir { path } => fs::create_dir_all(out.join(&path))?,
-                Node::File { path, ciphertext } => {
-                    let target = out.join(&path);
-                    if let Some(parent) = target.parent() {
-                        fs::create_dir_all(parent)?;
-                    }
-                    let data = content::decrypt_file(&self.key, &fs::read(ciphertext)?)?;
-                    // create_new: два одинаковых имени (или разный регистр) не перезапишут друг друга
-                    use std::io::Write;
-                    let mut f = fs::OpenOptions::new()
-                        .write(true)
-                        .create_new(true)
-                        .open(&target)?;
-                    f.write_all(&data)?;
-                    files += 1;
-                }
-                Node::Symlink { .. } => {}
+            if self.export_node(out, &node)? {
+                files += 1;
             }
         }
         Ok(files)
+    }
+
+    /// Выгрузить всё, что читается: последнее средство, которое не должно терять целую папку
+    /// из-за одной плохой записи. Что не вышло, перечислено в отчёте.
+    pub fn export_tolerant(&self, out: &Path) -> Result<ExportReport> {
+        fs::create_dir_all(out)?;
+        let walked = self.walk_tolerant()?;
+        let mut report = ExportReport {
+            files: 0,
+            skipped: walked.skipped,
+        };
+        for node in walked.nodes {
+            match self.export_node(out, &node) {
+                Ok(true) => report.files += 1,
+                Ok(false) => {}
+                Err(e) => {
+                    let (Node::Dir { path } | Node::File { path, .. } | Node::Symlink { path }) =
+                        &node;
+                    report.skipped.push(format!("{path}: {e}"));
+                }
+            }
+        }
+        Ok(report)
+    }
+
+    /// Выгрузить один узел. `true`, если записан файл.
+    fn export_node(&self, out: &Path, node: &Node) -> Result<bool> {
+        match node {
+            Node::Dir { path } => fs::create_dir_all(out.join(path))?,
+            Node::File { path, ciphertext } => {
+                let target = out.join(path);
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                let data = content::decrypt_file(&self.key, &fs::read(ciphertext)?)?;
+                // create_new: два одинаковых имени (или разный регистр) не перезапишут друг друга
+                use std::io::Write;
+                let mut f = fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&target)?;
+                f.write_all(&data)?;
+                return Ok(true);
+            }
+            Node::Symlink { .. } => {}
+        }
+        Ok(false)
     }
 }
 
@@ -313,7 +418,97 @@ impl Vault {
 
 #[cfg(test)]
 mod tests {
-    use super::safe_name;
+    use super::*;
+
+    /// Хранилище: файл в корне, папка с файлом, пустая папка.
+    fn sample(root: &Path) -> Vault {
+        let v = Vault::create_empty(root, "pw", 1 << 4).unwrap();
+        v.add_file("", "a.txt", &mut &b"aaa"[..]).unwrap();
+        let (sub, _) = v.add_dir("", "sub").unwrap();
+        v.add_file(&sub, "b.txt", &mut &b"bbb"[..]).unwrap();
+        v.add_dir("", "empty").unwrap();
+        v
+    }
+
+    fn file_count(nodes: &[Node]) -> usize {
+        nodes
+            .iter()
+            .filter(|n| matches!(n, Node::File { .. }))
+            .count()
+    }
+
+    fn tempdir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("zamok-tree-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn missing_folder_of_a_directory_counts_as_empty() {
+        let d = tempdir("missing");
+        let v = Vault::create_empty(&d.join("v"), "pw", 1 << 4).unwrap();
+        v.add_file("", "a.txt", &mut &b"aaa"[..]).unwrap();
+        let (sub, _) = v.add_dir("", "sub").unwrap();
+        fs::remove_dir_all(v.root.join(names::dir_path(&v.key, &sub))).unwrap();
+        let nodes = v.walk().unwrap();
+        assert_eq!((nodes.len(), file_count(&nodes)), (2, 1));
+        // Без папки корня хранилища нет
+        fs::remove_dir_all(v.root.join(names::dir_path(&v.key, ""))).unwrap();
+        assert!(v.walk().is_err());
+        assert!(v.walk_tolerant().is_err());
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn one_bad_entry_fails_strict_walk_and_is_reported_by_tolerant() {
+        let d = tempdir("bad");
+        let v = sample(&d.join("v"));
+        // Имя не расшифровывается
+        let dir = v.root.join(names::dir_path(&v.key, ""));
+        fs::write(dir.join("AAAAAAAAAAAAAAAA.c9r"), b"x").unwrap();
+        // Сокращённое имя потеряло name.c9s
+        fs::create_dir(dir.join("broken.c9s")).unwrap();
+        assert!(v.walk().is_err());
+        assert!(v.export(&d.join("strict")).is_err());
+        let w = v.walk_tolerant().unwrap();
+        assert_eq!(file_count(&w.nodes), 2);
+        assert_eq!(w.skipped.len(), 2);
+        let out = d.join("out");
+        let r = v.export_tolerant(&out).unwrap();
+        assert_eq!((r.files, r.skipped.len()), (2, 2));
+        assert_eq!(fs::read(out.join("a.txt")).unwrap(), b"aaa");
+        assert_eq!(fs::read(out.join("sub").join("b.txt")).unwrap(), b"bbb");
+        assert!(out.join("empty").is_dir());
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn damaged_file_is_reported_and_the_rest_is_exported() {
+        let d = tempdir("file");
+        let v = sample(&d.join("v"));
+        let (ct, _) = v.add_file("", "bad.bin", &mut &b"secret"[..]).unwrap();
+        fs::write(&ct, b"not a ciphertext").unwrap();
+        let out = d.join("out");
+        let r = v.export_tolerant(&out).unwrap();
+        assert_eq!(r.files, 2);
+        assert_eq!(r.skipped.len(), 1);
+        assert!(r.skipped[0].starts_with("bad.bin"));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn loop_of_directories_is_skipped_not_followed() {
+        let d = tempdir("loop");
+        let v = sample(&d.join("v"));
+        let (_, node) = v.add_dir("", "loop").unwrap();
+        fs::write(node.join(DIR_FILE), "").unwrap();
+        assert!(v.walk().is_err());
+        let r = v.walk_tolerant().unwrap();
+        assert_eq!(r.skipped.len(), 1);
+        assert_eq!(file_count(&r.nodes), 2);
+        let _ = fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn rejects_path_tricks() {

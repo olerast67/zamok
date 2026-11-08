@@ -51,10 +51,22 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    match v.export(out) {
-        Ok(n) => {
-            println!("done: {n} files");
+    // Последнее средство: одна плохая запись не должна лишать остальных файлов
+    match v.export_tolerant(out) {
+        Ok(r) if r.skipped.is_empty() => {
+            println!("done: {} files", r.files);
             ExitCode::SUCCESS
+        }
+        Ok(r) => {
+            println!(
+                "done: {} files, {} entries could not be read",
+                r.files,
+                r.skipped.len()
+            );
+            for s in &r.skipped {
+                eprintln!("skipped {s}");
+            }
+            ExitCode::from(1)
         }
         Err(e) => {
             eprintln!("export failed: {e}");
