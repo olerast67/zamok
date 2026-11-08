@@ -170,6 +170,8 @@ pub struct FolderInfo {
     pub path: String,
     pub state: FolderState,
     pub idle_lock_secs: u64,
+    /// Сколько файлов папки сейчас открыто: окна предупреждают перед запиранием.
+    pub open_files: usize,
     /// Включён вход по Windows Hello.
     pub hello: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

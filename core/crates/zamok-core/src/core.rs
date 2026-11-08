@@ -88,6 +88,7 @@ impl Entry {
             path: cfg.path.to_string_lossy().into_owned(),
             state,
             idle_lock_secs: cfg.idle_lock_secs,
+            open_files: self.control().map_or(0, |c| c.open_files()),
             hello: self
                 .hello_file
                 .lock()
