@@ -34,6 +34,8 @@
   <data name="Encrypt_Start" xml:space="preserve"><value>Зашифровать</value></data>
   <data name="Encrypt_Check" xml:space="preserve"><value>Проверить</value></data>
   <data name="Encrypt_LockNow.Content" xml:space="preserve"><value>Запереть сейчас</value></data>
+  <data name="Encrypt_SkipKey" xml:space="preserve"><value>Без ключа</value></data>
+  <data name="Encrypt_SkipKeySure" xml:space="preserve"><value>Да, без ключа</value></data>
   <data name="Encrypt_KeyIntro.Text" xml:space="preserve"><value>Если забудете пароль, папку откроет только этот ключ. Сохраните его в файл или запишите и храните отдельно от компьютера. Папка уже шифруется.</value></data>
   <data name="Encrypt_SaveKeyText.Text" xml:space="preserve"><value>Сохранить в файл</value></data>
   <data name="Encrypt_CopyKeyText.Text" xml:space="preserve"><value>Скопировать</value></data>

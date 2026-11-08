@@ -45,6 +45,8 @@ S = {
     "Encrypt_Start": ("Зашифровать", "Encrypt"),
     "Encrypt_Check": ("Проверить", "Check"),
     "Encrypt_LockNow.Content": ("Запереть сейчас", "Lock now"),
+    "Encrypt_SkipKey": ("Без ключа", "No key"),
+    "Encrypt_SkipKeySure": ("Да, без ключа", "Yes, no key"),
     "Encrypt_KeyIntro.Text": (
         "Если забудете пароль, папку откроет только этот ключ. Сохраните его в файл или запишите и храните отдельно от компьютера. Папка уже шифруется.",
         "If you forget the password, only this key opens the folder. Save it to a file or write it down and keep it away from this computer. The folder is already being encrypted."),

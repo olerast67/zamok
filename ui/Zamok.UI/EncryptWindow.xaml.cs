@@ -22,6 +22,7 @@ public sealed partial class EncryptWindow : Window
     private RecoveryCheck? _check;
     private DispatcherTimer? _poll;
     private bool _finished;
+    private bool _skipArmed;
 
     public EncryptWindow(string path)
     {
@@ -46,6 +47,10 @@ public sealed partial class EncryptWindow : Window
         PageVerify.Visibility = Vis(page is Page.Verify);
         PageProgress.Visibility = Vis(page is Page.Progress or Page.Done);
         BackButton.Visibility = Vis(page == Page.Verify);
+        // Передумал хранить ключ: «Без ключа» на шагах с ключом, со вторым подтверждением
+        _skipArmed = false;
+        SkipKeyButton.Content = Strings.Get("Encrypt_SkipKey");
+        SkipKeyButton.Visibility = Vis(page is Page.Key or Page.Verify);
         LockNowButton.Visibility = Vis(page == Page.Done && _lastJob?.IsDone == true);
         DoneIcon.Visibility = Vis(page == Page.Done && _lastJob?.IsDone == true);
         ShowError("");
@@ -57,15 +62,8 @@ public sealed partial class EncryptWindow : Window
             Page.Progress => "Encrypt_StepProgress",
             _ => "Encrypt_StepDone",
         });
-        // Окно ровно под шаг: на ключ нужно место, на прогресс нет
-        var (w, h) = page switch
-        {
-            Page.Password => (460, MakeKey.IsChecked == true ? 380 : 430),
-            Page.Key => (520, 500),
-            Page.Verify => (440, 330),
-            _ => (440, 290),
-        };
-        WindowHelper.Resize(this, w, h);
+        // Окно ровно под шаг: ширина своя, высота по содержимому
+        Fit();
         NextButton.Content = Strings.Get(page switch
         {
             Page.Password => "Encrypt_Start",
@@ -84,7 +82,10 @@ public sealed partial class EncryptWindow : Window
     {
         ErrorText.Text = text;
         ErrorText.Visibility = Vis(!string.IsNullOrEmpty(text));
+        Fit();
     }
+
+    private void Fit() => WindowHelper.FitHeight(this, Root, _page == Page.Key ? 520 : 460);
 
     // 1. Пароль
 
@@ -103,7 +104,7 @@ public sealed partial class EncryptWindow : Window
         // Checked срабатывает ещё при загрузке разметки, когда предупреждения пока нет
         if (NoKeyWarning is null || MakeKey is null || Root is null) return;
         NoKeyWarning.Visibility = Vis(MakeKey.IsChecked != true);
-        if (_page == Page.Password) WindowHelper.Resize(this, 460, MakeKey.IsChecked == true ? 380 : 430);
+        if (_page == Page.Password) Fit();
     }
 
     private void UpdateNext()
@@ -276,6 +277,21 @@ public sealed partial class EncryptWindow : Window
     }
 
     private void OnBackClick(object sender, RoutedEventArgs e) => ShowPage(Page.Key);
+
+    private void OnSkipKeyClick(object sender, RoutedEventArgs e)
+    {
+        if (!_skipArmed)
+        {
+            _skipArmed = true;
+            SkipKeyButton.Content = Strings.Get("Encrypt_SkipKeySure");
+            ShowError(Strings.Get("Encrypt_NoKeyWarning/Text"));
+            return;
+        }
+        // Ключ больше нигде не показывается и не хранится
+        _recoveryKey = null;
+        ShowPage(Page.Progress);
+        RefreshProgress(null);
+    }
 
     private async void OnLockNowClick(object sender, RoutedEventArgs e)
     {

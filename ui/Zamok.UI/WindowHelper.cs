@@ -55,6 +55,33 @@ internal static partial class WindowHelper
         Resize(window, width, height);
     }
 
+    /// <summary>
+    /// Подогнать высоту окна под содержимое при заданной ширине (логические точки). Меряется
+    /// сама разметка, поэтому при любом масштабе и шрифте ничего не обрезается.
+    /// </summary>
+    public static void FitHeight(Window window, FrameworkElement root, int width)
+    {
+        root.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            root.Measure(new Windows.Foundation.Size(width, double.PositiveInfinity));
+            var height = (int)Math.Ceiling(root.DesiredSize.Height);
+            ResizeClient(window, width, Math.Max(160, height));
+        });
+    }
+
+    /// <summary>Размер клиентской области (логические точки), окно по центру экрана.</summary>
+    public static void ResizeClient(Window window, int width, int height)
+    {
+        var hwnd = Handle(window);
+        var scale = GetDpiForWindow(hwnd) / 96.0;
+        var app = window.AppWindow;
+        app.ResizeClient(new SizeInt32((int)Math.Ceiling(width * scale), (int)Math.Ceiling(height * scale)));
+        var area = DisplayArea.GetFromWindowId(Win32Interop.GetWindowIdFromWindow(hwnd),
+            DisplayAreaFallback.Primary).WorkArea;
+        app.Move(new PointInt32(area.X + (area.Width - app.Size.Width) / 2,
+            area.Y + (area.Height - app.Size.Height) / 2));
+    }
+
     /// <summary>Поменять размер окна (в логических точках) и поставить его по центру экрана.</summary>
     public static void Resize(Window window, int width, int height)
     {

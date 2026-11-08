@@ -212,6 +212,21 @@ try {
     }
     $ui.Kill()
 
+    # Peredumal hranit klyuch: knopka "Bez klyucha" na shage s klyuchom, s podtverzhdeniem
+    $dir3 = "$root\skipkey"; MakeSample $dir3
+    $ui = StartUi '--encrypt', $dir3
+    $w = Window $ui.Id
+    Check 'wizard: No key on the key page asks again, then skips to the result' {
+        SetValue $w 'Password1' $pw; SetValue $w 'Password2' $pw; Start-Sleep -Milliseconds 300
+        Press $w 'NextButton'
+        if (-not (WaitFor { (Text $w 'KeyWords') -match '44\.' } 20000)) { throw 'no key page' }
+        Press $w 'SkipKeyButton'; Start-Sleep -Milliseconds 300
+        if (-not (IsText 'Encrypt_NoKeyWarning.Text' (Text $w 'ErrorText'))) { throw 'no warning' }
+        Press $w 'SkipKeyButton'
+        (WaitFor { (Text $w 'ProgressTitle') -like '*skipkey*' } 60000) -and (Folder $dir3).state -eq 'unlocked'
+    }
+    $ui.Kill()
+
     # Rasshifrovat navsegda cherez okno
     $ui = StartUi '--decrypt', $dir2
     $w = Window $ui.Id

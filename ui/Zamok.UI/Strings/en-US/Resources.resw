@@ -34,6 +34,8 @@
   <data name="Encrypt_Start" xml:space="preserve"><value>Encrypt</value></data>
   <data name="Encrypt_Check" xml:space="preserve"><value>Check</value></data>
   <data name="Encrypt_LockNow.Content" xml:space="preserve"><value>Lock now</value></data>
+  <data name="Encrypt_SkipKey" xml:space="preserve"><value>No key</value></data>
+  <data name="Encrypt_SkipKeySure" xml:space="preserve"><value>Yes, no key</value></data>
   <data name="Encrypt_KeyIntro.Text" xml:space="preserve"><value>If you forget the password, only this key opens the folder. Save it to a file or write it down and keep it away from this computer. The folder is already being encrypted.</value></data>
   <data name="Encrypt_SaveKeyText.Text" xml:space="preserve"><value>Save to file</value></data>
   <data name="Encrypt_CopyKeyText.Text" xml:space="preserve"><value>Copy</value></data>
