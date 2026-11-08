@@ -59,11 +59,10 @@ if (-not $NoBuild) {
     if ($LASTEXITCODE) { throw 'dotnet publish failed' }
     Copy-Item "$repo\core\target\release\zamok-core.exe" $stage
     Copy-Item "$repo\assets\zamok.ico", "$repo\assets\zamok-open.ico" $stage
-    # Znachki iz znachkov etoy Windows (papka i zamok iz imageres.dll); bez Python ostayutsya svoi
-    $py = Get-Command python -ErrorAction SilentlyContinue
-    if ($py) { & python "$repo\assets\make-system-icons.py" $stage | Out-Null }
+    # Znachki iz znachkov etoy Windows (papka i zamok iz imageres.dll) sobiraet sam Zamok.exe
+    $mk = Start-Process "$stage\Zamok.exe" -ArgumentList '--make-icons', "`"$stage`"" -PassThru -Wait
     if (-not (Test-Path "$stage\folder-locked.ico")) {
-        Write-Host 'Python with Pillow not found: using the built-in icons'
+        Write-Host "Could not build the icons (exit $($mk.ExitCode)): using the built-in ones"
         Copy-Item "$repo\assets\zamok.ico" "$stage\folder-locked.ico"
         Copy-Item "$repo\assets\zamok.ico" "$stage\open-item.ico"
     }

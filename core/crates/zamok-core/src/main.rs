@@ -70,9 +70,39 @@ fn watch() -> ! {
     }
 }
 
+/// `zamok-core --quit`: попросить запущенный core запереть папки и выйти (установщик вызывает
+/// перед удалением и обновлением). Core не запущен: ничего не делать.
+fn quit_running() -> ! {
+    use std::io::{BufRead, Write};
+    let name = std::env::var("ZAMOK_PIPE")
+        .ok()
+        .or_else(|| pipe::default_name().ok());
+    if let Some(name) = name {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&name)
+        {
+            let _ = f.write_all(b"{\"cmd\":\"quit\"}\n");
+            let mut line = String::new();
+            let _ = std::io::BufReader::new(f).read_line(&mut line);
+            // Дождаться, пока канал исчезнет: значит, папки отключены
+            for _ in 0..100 {
+                if std::fs::metadata(&name).is_err() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        }
+    }
+    std::process::exit(0);
+}
+
 fn main() {
-    if std::env::args().nth(1).as_deref() == Some("--watch") {
-        watch();
+    match std::env::args().nth(1).as_deref() {
+        Some("--watch") => watch(),
+        Some("--quit") => quit_running(),
+        _ => {}
     }
     if let Err(e) = run() {
         tracing::error!(error = %e, "zamok-core stopped");
@@ -106,6 +136,13 @@ fn run() -> anyhow::Result<()> {
         .filter(|p| p.is_file())
     {
         zamok_fs::fs::set_folder_icon(&icon.to_string_lossy());
+    }
+    if let Some(icon) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.join("folder-open.ico")))
+        .filter(|p| p.is_file())
+    {
+        zamok_fs::fs::set_open_folder_icon(&icon.to_string_lossy());
     }
     let core = Core::start(&dir)?;
     autolock::install(core.clone())?;

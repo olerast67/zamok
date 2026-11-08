@@ -19,6 +19,12 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         var (action, path) = ParseArgs(Environment.GetCommandLineArgs().Skip(1).ToArray());
+        if (action == "--make-icons")
+        {
+            // При установке: собрать значки из значков этой Windows, без окна
+            _ = MakeIconsAndExitAsync(path!);
+            return;
+        }
         if (action == "--lock")
         {
             // Пункт меню «Запереть»: без окна, запереть и выйти
@@ -43,6 +49,12 @@ public partial class App : Application
         _window.Activate();
     }
 
+    private async Task MakeIconsAndExitAsync(string dir)
+    {
+        try { await IconMaker.MakeAllAsync(dir); } catch { Environment.ExitCode = 1; }
+        Exit();
+    }
+
     private async Task LockAndExitAsync(string path)
     {
         try { await new Zamok.Client.CoreClient().LockAsync(path); } catch { }
@@ -52,7 +64,7 @@ public partial class App : Application
     internal static (string? Action, string? Path) ParseArgs(string[] args)
     {
         if (args.Length == 1 && args[0] == "--settings") return (args[0], null);
-        if (args.Length == 2 && args[0] is "--unlock" or "--encrypt" or "--lock" or "--change-password" or "--show-key" or "--decrypt" && args[1].Length > 0)
+        if (args.Length == 2 && args[0] is "--unlock" or "--encrypt" or "--lock" or "--change-password" or "--show-key" or "--decrypt" or "--make-icons" && args[1].Length > 0)
             return (args[0], args[1]);
         return (null, null);
     }
