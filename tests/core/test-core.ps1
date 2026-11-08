@@ -344,6 +344,11 @@ try {
         $u.ok -and (WaitFor { -not (Test-Path "$root\recent\inside.lnk") -and -not (Test-Path "$root\recent\folder.lnk") } 8000) -and
             (Test-Path "$root\recent\other.lnk") -and (Test-Path "$root\recent\similar.lnk")
     }
+    Check 'hotkey locks everything' {
+        $u = Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}"
+        PostToCore 0x0312 1
+        $u.ok -and (WaitFor { (State) -eq 'locked' } 8000)
+    }
     Check 'vault deleted: folder leaves the list, the name is free again' {
         Remove-Item $vault -Recurse -Force
         (WaitFor { -not (State) } 10000) -and (WaitFor { -not (Test-Path $mnt) } 5000) -and
