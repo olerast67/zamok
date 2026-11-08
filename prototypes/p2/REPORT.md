@@ -44,3 +44,12 @@ powershell -ExecutionPolicy Bypass -File C:\dev\zamok\prototypes\p2\manual-p2.ps
 ```
 powershell -ExecutionPolicy Bypass -File C:\dev\zamok\prototypes\p2\manual-p2.ps1 -Uninstall
 ```
+
+## Ручная проверка автора (2026-11-08)
+
+- Двойной клик по `Locked`: появилось окно «Zamok P2», Проводник остался на месте.
+- Двойной клик по `Normal`: открылся медиапроигрыватель VLC, папка не открылась. То же с запасным действием `none`.
+
+Причина: у папок на уровне `Directory` в HKCR стоит `none`, обычное «Открыть» живёт в `Folder`, а в `Directory\shell` у автора есть действия других программ (VLC, Cursor, MobaXterm). Наше действие становится действием по умолчанию для всех папок, а где его условие не выполнено, Windows берёт первое попавшееся действие из `Directory\shell`.
+
+**Итог: A2 не подходит. Берём способ C:** значок `Открыть <Имя>.zamok` внутри запертой папки (решение в DESIGN.md, раздел 11). Тестовая подмена удалена, значение по умолчанию у `Directory\shell` в HKCU удалено целиком.

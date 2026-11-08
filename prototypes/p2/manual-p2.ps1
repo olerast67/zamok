@@ -18,7 +18,7 @@ if ($Install) {
     Set-ItemProperty $verb 'AppliesTo' ("System.ItemPathDisplay:=""$locked""")
     $cmd = 'powershell.exe -NoProfile -WindowStyle Hidden -Command "Add-Type -AssemblyName PresentationFramework; [Windows.MessageBox]::Show(''Here Zamok will ask for the password: %1'', ''Zamok P2'')"'
     Set-ItemProperty "$verb\command" '(default)' $cmd
-    Set-ItemProperty $shellKey '(default)' 'ZamokP2Static open'
+    Set-ItemProperty $shellKey '(default)' 'ZamokP2Static none'
     Start-Process explorer.exe $root
     'Installed. Double-click Locked and Normal, then run with -Uninstall.'
 }
