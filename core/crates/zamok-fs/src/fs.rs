@@ -108,6 +108,14 @@ impl From<std::io::Error> for UnlockError {
     }
 }
 
+/// Значок запертой папки для `desktop.ini` (путь к .ico). Не задан: замок из imageres.dll.
+static FOLDER_ICON: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Задать значок запертой папки один раз при старте программы.
+pub fn set_folder_icon(path: &str) {
+    let _ = FOLDER_ICON.set(path.to_string());
+}
+
 pub struct ZFile {
     path: Mutex<String>,
     kind: Mutex<Option<Kind>>,
@@ -545,7 +553,11 @@ impl ZamokFs {
             }
             Virtual::DesktopIni => {
                 // UTF-16LE с BOM: так desktop.ini понимает Проводник
-                let text = "[.ShellClassInfo]\r\nIconResource=%SystemRoot%\\System32\\imageres.dll,54\r\nInfoTip=Zamok\r\n";
+                let icon = FOLDER_ICON
+                    .get()
+                    .map(|p| format!("{p},0"))
+                    .unwrap_or_else(|| r"%SystemRoot%\System32\imageres.dll,54".to_string());
+                let text = format!("[.ShellClassInfo]\r\nIconResource={icon}\r\nInfoTip=Zamok\r\n");
                 let mut v = vec![0xFF, 0xFE];
                 for u in text.encode_utf16() {
                     v.extend_from_slice(&u.to_le_bytes());

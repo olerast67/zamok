@@ -45,6 +45,7 @@ public sealed partial class EncryptWindow : Window
         PageVerify.Visibility = Vis(page is Page.Verify);
         PageProgress.Visibility = Vis(page is Page.Progress or Page.Done);
         BackButton.Visibility = Vis(page == Page.Verify);
+        LockNowButton.Visibility = Vis(page == Page.Done && _lastJob?.IsDone == true);
         ErrorText.Text = "";
         NextButton.Content = Strings.Get(page switch
         {
@@ -281,6 +282,13 @@ public sealed partial class EncryptWindow : Window
     }
 
     private void OnBackClick(object sender, RoutedEventArgs e) => ShowPage(Page.Key);
+
+    private async void OnLockNowClick(object sender, RoutedEventArgs e)
+    {
+        LockNowButton.IsEnabled = false;
+        try { await _client.LockAsync(_path); } catch { }
+        Close();
+    }
 
     private async void OnCancelClick(object sender, RoutedEventArgs e)
     {

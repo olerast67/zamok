@@ -89,6 +89,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         }
         WM_TIMER if wparam.0 == IDLE_TIMER => {
             crate::tray::refresh(hwnd, core);
+            crate::shellverbs::update(&core.status());
             if !IDLE_CHECK_RUNNING.swap(true, Ordering::SeqCst) {
                 let core = core.clone();
                 std::thread::spawn(move || {

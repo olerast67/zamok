@@ -94,6 +94,8 @@
                 <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20" />
                 <Button x:Name="BackButton" AutomationProperties.AutomationId="BackButton"
                         x:Uid="Common_Back" MinWidth="110" Visibility="Collapsed" Click="OnBackClick" />
+                <Button x:Name="LockNowButton" AutomationProperties.AutomationId="LockNowButton"
+                        x:Uid="Encrypt_LockNow" MinWidth="110" Visibility="Collapsed" Click="OnLockNowClick" />
                 <Button x:Name="NextButton" AutomationProperties.AutomationId="NextButton"
                         Style="{StaticResource AccentButtonStyle}" MinWidth="110" Click="OnNextClick" />
                 <Button x:Name="CancelButton" AutomationProperties.AutomationId="CancelButton"

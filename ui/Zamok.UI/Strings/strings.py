@@ -43,6 +43,7 @@ S = {
     "Encrypt_Mismatch": ("Пароли не совпадают.", "The passwords do not match."),
     "Encrypt_Start": ("Зашифровать", "Encrypt"),
     "Encrypt_Check": ("Проверить", "Check"),
+    "Encrypt_LockNow.Content": ("Запереть сейчас", "Lock now"),
     "Encrypt_KeyIntro.Text": (
         "Это ключ восстановления. Если вы забудете пароль, папку можно открыть только им. Запишите его на бумаге или сохраните в файл и храните отдельно от компьютера. Пока вы его записываете, папка уже шифруется.",
         "This is the recovery key. If you forget the password, it is the only way to open the folder. Write it down or save it to a file and keep it away from this computer. The folder is being encrypted while you do this."),

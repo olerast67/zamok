@@ -29,6 +29,7 @@
   <data name="Encrypt_Mismatch" xml:space="preserve"><value>The passwords do not match.</value></data>
   <data name="Encrypt_Start" xml:space="preserve"><value>Encrypt</value></data>
   <data name="Encrypt_Check" xml:space="preserve"><value>Check</value></data>
+  <data name="Encrypt_LockNow.Content" xml:space="preserve"><value>Lock now</value></data>
   <data name="Encrypt_KeyIntro.Text" xml:space="preserve"><value>This is the recovery key. If you forget the password, it is the only way to open the folder. Write it down or save it to a file and keep it away from this computer. The folder is being encrypted while you do this.</value></data>
   <data name="Encrypt_SaveKey.Content" xml:space="preserve"><value>Save to file</value></data>
   <data name="Encrypt_CopyKey.Content" xml:space="preserve"><value>Copy</value></data>

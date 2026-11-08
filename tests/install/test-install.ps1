@@ -63,7 +63,7 @@ function Press($w, [string]$id) { (El $w $id).GetCurrentPattern([Windows.Automat
 function Snapshot([string]$ignore = '') {
     $o = foreach ($k in 'Directory\shell', 'Folder\shell', 'Directory\Background\shell', 'Drive\shell') {
         $def = (Get-ItemProperty "$cls\$k" -ErrorAction SilentlyContinue).'(default)'
-        $subs = @(Get-ChildItem "$cls\$k" -ErrorAction SilentlyContinue | ForEach-Object PSChildName | Where-Object { $_ -ne $ignore } | Sort-Object) -join ','
+        $subs = @(Get-ChildItem "$cls\$k" -ErrorAction SilentlyContinue | ForEach-Object PSChildName | Where-Object { -not $ignore -or $_ -notmatch "^($ignore)$" } | Sort-Object) -join ','
         "$k default=[$def] subkeys=[$subs]"
     }
     $o -join "`n"
@@ -94,10 +94,10 @@ try {
         (Get-ItemProperty "$cls\.zamok").'(default)' -eq 'Zamok.OpenItem' -and
             (Get-ItemProperty "$cls\Zamok.OpenItem\shell\open\command").'(default)' -eq "`"$installDir\Zamok.exe`" --unlock `"%1`""
     }
-    Check 'install: only the ZamokEncrypt item added, default actions of folders unchanged' {
-        $now = Snapshot 'ZamokEncrypt'
+    Check 'install: only the Zamok items added, default actions of folders unchanged' {
+        $now = Snapshot 'ZamokEncrypt|ZamokLock|ZamokUnlock'
         if ($now -ne $before -or -not (Test-Path "$cls\Directory\shell\ZamokEncrypt")) { throw "before:`n$before`nnow:`n$(Snapshot)" }
-        'same plus ZamokEncrypt'
+        'same plus the Zamok items'
     }
 
     # Punkt menyu Provodnika "Zashifrovat parolem"
@@ -129,6 +129,28 @@ try {
         Press $w 'NextButton'; [void]$ui.Proc.WaitForExit(10000)
     }
 
+    # Punkty menyu po sostoyaniyu papki (uslovie AppliesTo perepisyvaet core)
+    $verbName = @{}
+    foreach ($v in 'ZamokEncrypt', 'ZamokLock', 'ZamokUnlock') { $verbName[$v] = (Get-ItemProperty "$cls\Directory\shell\$v").MUIVerb }
+    function Verbs([string]$name) { @($shell.Namespace($root).ParseName($name).Verbs() | ForEach-Object { $_.Name }) }
+    function HasOnly([string]$name, [string]$want) {
+        $v = Verbs $name
+        $has = @('ZamokEncrypt', 'ZamokLock', 'ZamokUnlock' | Where-Object { $v -contains $verbName[$_] })
+        ($has -join ',') -eq $want
+    }
+    New-Item -ItemType Directory -Force "$root\plain" | Out-Null
+    Check 'menu: open Zamok folder has only Lock' { WaitFor { HasOnly $ruName 'ZamokLock' } 8000 }
+    Check 'menu: ordinary folder has only Encrypt' { HasOnly 'plain' 'ZamokEncrypt' }
+    Check 'menu: Lock locks the folder without a window' {
+        $shell.Namespace($root).ParseName($ruName).InvokeVerb('ZamokLock')
+        WaitFor { (Folder $dir).state -eq 'locked' } 15000
+    }
+    Check 'menu: locked Zamok folder has only Open with password' { WaitFor { HasOnly $ruName 'ZamokUnlock' } 8000 }
+    Check 'locked folder icon comes from folder-locked.ico' {
+        $ini = [IO.File]::ReadAllText("$dir\desktop.ini", [Text.Encoding]::Unicode)
+        $ini -like "*$installDir\folder-locked.ico*"
+    }
+
     # Dvoynoy klik po znachku v zapertoy papke (ShellExecute po sopostavleniyu .zamok)
     [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $dir)`"}")
     Check 'locked folder shows the open item' { Test-Path "$dir\$openWord $ruName.zamok" }
@@ -155,6 +177,7 @@ finally {
 Check 'uninstall: core stopped, files and registry entries gone' {
     -not (Test-Path "\\.\pipe\$pipe") -and -not (Test-Path $installDir) -and -not (Test-Path "$cls\.zamok") -and
         -not (Test-Path "$cls\Zamok.OpenItem") -and -not (Test-Path "$cls\Directory\shell\ZamokEncrypt") -and
+        -not (Test-Path "$cls\Directory\shell\ZamokLock") -and -not (Test-Path "$cls\Directory\shell\ZamokUnlock") -and
         -not (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run').Zamok
 }
 Check 'uninstall: registry folder actions exactly as before the test' { $now = Snapshot; if ($now -ne $before) { throw "before:`n$before`nnow:`n$now" }; 'same' }

@@ -3,6 +3,8 @@
 #
 # Chto pishetsya v reestr (tolko HKCU, vse udalyaet uninstall-dev.ps1):
 #   Software\Classes\Directory\shell\ZamokEncrypt   punkt "Zashifrovat parolem" (deystvie po umolchaniyu papok ne menyaetsya)
+#   Software\Classes\Directory\shell\ZamokLock, ZamokUnlock   "Zaperet" i "Otkryt parolem" tolko na papkah Zamok
+#     (uslovie AppliesTo perepisyvaet zamok-core, kogda papki otkryvayutsya i zapirayutsya)
 #   Software\Classes\.zamok, Software\Classes\Zamok.OpenItem   dvoynoy klik po znachku "Otkryt <Imya>.zamok"
 #   Software\Microsoft\Windows\CurrentVersion\Run\Zamok   zapusk zamok-core pri vhode
 #
@@ -20,6 +22,9 @@ $isRu = (Get-UICulture).TwoLetterISOLanguageName -eq 'ru'
 # "Zashifrovat parolem", "Papka Zamok"
 $verbText = if ($isRu) { Ru 0x0417,0x0430,0x0448,0x0438,0x0444,0x0440,0x043E,0x0432,0x0430,0x0442,0x044C,0x20,0x043F,0x0430,0x0440,0x043E,0x043B,0x0435,0x043C } else { 'Encrypt with password' }
 $typeText = if ($isRu) { (Ru 0x041F,0x0430,0x043F,0x043A,0x0430) + ' Zamok' } else { 'Zamok folder' }
+# "Zaperet", "Otkryt parolem"
+$lockText = if ($isRu) { Ru 0x0417,0x0430,0x043F,0x0435,0x0440,0x0435,0x0442,0x044C } else { 'Lock' }
+$unlockText = if ($isRu) { Ru 0x041E,0x0442,0x043A,0x0440,0x044B,0x0442,0x044C,0x20,0x043F,0x0430,0x0440,0x043E,0x043B,0x0435,0x043C } else { 'Open with password' }
 
 if ((Split-Path $InstallDir -Leaf) -ne 'Zamok') { throw "InstallDir must end with \Zamok: $InstallDir" }
 
@@ -46,6 +51,14 @@ if (-not $NoBuild) {
     if ($LASTEXITCODE) { throw 'dotnet publish failed' }
     Copy-Item "$repo\core\target\release\zamok-core.exe" $stage
     Copy-Item "$repo\assets\zamok.ico", "$repo\assets\zamok-open.ico" $stage
+    # Znachki iz znachkov etoy Windows (papka i zamok iz imageres.dll); bez Python ostayutsya svoi
+    $py = Get-Command python -ErrorAction SilentlyContinue
+    if ($py) { & python "$repo\assets\make-system-icons.py" $stage | Out-Null }
+    if (-not (Test-Path "$stage\folder-locked.ico")) {
+        Write-Host 'Python with Pillow not found: using the built-in icons'
+        Copy-Item "$repo\assets\zamok.ico" "$stage\folder-locked.ico"
+        Copy-Item "$repo\assets\zamok.ico" "$stage\open-item.ico"
+    }
 }
 if (-not (Test-Path "$stage\Zamok.exe") -or -not (Test-Path "$stage\zamok-core.exe")) { throw "nothing to install in $stage" }
 
@@ -78,11 +91,16 @@ function SetKey([string]$path, [hashtable]$values) {
     New-Item -Path $path -Force | Out-Null
     foreach ($k in $values.Keys) { Set-ItemProperty -Path $path -Name $k -Value $values[$k] }
 }
-SetKey "$cls\Directory\shell\ZamokEncrypt" @{ 'MUIVerb' = $verbText; 'Icon' = "$exe,0" }
+$nothing = 'System.ItemPathDisplay:="::zamok-none::"'
+SetKey "$cls\Directory\shell\ZamokEncrypt" @{ 'MUIVerb' = $verbText; 'Icon' = "$InstallDir\folder-locked.ico" }
 SetKey "$cls\Directory\shell\ZamokEncrypt\command" @{ '(default)' = "`"$exe`" --encrypt `"%1`"" }
+SetKey "$cls\Directory\shell\ZamokLock" @{ 'MUIVerb' = $lockText; 'Icon' = "$InstallDir\open-item.ico"; 'AppliesTo' = $nothing }
+SetKey "$cls\Directory\shell\ZamokLock\command" @{ '(default)' = "`"$exe`" --lock `"%1`"" }
+SetKey "$cls\Directory\shell\ZamokUnlock" @{ 'MUIVerb' = $unlockText; 'Icon' = "$InstallDir\open-item.ico"; 'AppliesTo' = $nothing }
+SetKey "$cls\Directory\shell\ZamokUnlock\command" @{ '(default)' = "`"$exe`" --unlock `"%1`"" }
 SetKey "$cls\.zamok" @{ '(default)' = 'Zamok.OpenItem' }
 SetKey "$cls\Zamok.OpenItem" @{ '(default)' = $typeText; 'FriendlyTypeName' = $typeText }
-SetKey "$cls\Zamok.OpenItem\DefaultIcon" @{ '(default)' = "$exe,0" }
+SetKey "$cls\Zamok.OpenItem\DefaultIcon" @{ '(default)' = "$InstallDir\open-item.ico" }
 SetKey "$cls\Zamok.OpenItem\shell\open\command" @{ '(default)' = "`"$exe`" --unlock `"%1`"" }
 Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Zamok' -Value "`"$core`""
 
@@ -92,7 +110,7 @@ Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Za
     installed = (Get-Date).ToString('s')
     commit = (& git -C $repo rev-parse --short HEAD 2>$null)
     dir = $InstallDir
-    keys = @("$cls\Directory\shell\ZamokEncrypt", "$cls\.zamok", "$cls\Zamok.OpenItem")
+    keys = @("$cls\Directory\shell\ZamokEncrypt", "$cls\Directory\shell\ZamokLock", "$cls\Directory\shell\ZamokUnlock", "$cls\.zamok", "$cls\Zamok.OpenItem")
     run = 'Zamok'
 } | ConvertTo-Json | Set-Content "$InstallDir\install.json" -Encoding UTF8
 

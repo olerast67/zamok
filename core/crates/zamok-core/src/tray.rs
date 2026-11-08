@@ -66,10 +66,19 @@ fn load_icon(open: bool) -> HICON {
 }
 
 fn load_icon_file(open: bool) -> HICON {
-    let name = if open { "zamok-open.ico" } else { "zamok.ico" };
-    if let Some(path) = std::env::current_exe()
+    // Значки из системы (собраны при установке), запасные свои
+    let names = if open {
+        ["tray-open.ico", "zamok-open.ico"]
+    } else {
+        ["tray-locked.ico", "zamok.ico"]
+    };
+    let dir = std::env::current_exe()
         .ok()
-        .and_then(|e| e.parent().map(|d| d.join(name)))
+        .and_then(|e| e.parent().map(|d| d.to_path_buf()));
+    for path in dir
+        .iter()
+        .flat_map(|d| names.iter().map(move |n| d.join(n)))
+        .filter(|p| p.is_file())
     {
         let w = wide(&path.to_string_lossy());
         let (cx, cy) = unsafe { (GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON)) };

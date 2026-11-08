@@ -147,7 +147,10 @@ try {
     Check 'wizard: folder is encrypted and open, content intact' {
         (Folder $dir).state -eq 'unlocked' -and (Get-Content "$dir\note.txt") -eq 'hello from ui test'
     }
-    Check 'wizard: Close closes the window' { Press $w 'NextButton'; $ui.WaitForExit(10000) }
+    Check 'wizard: Lock now locks the folder and closes the window' {
+        Press $w 'LockNowButton'
+        $ui.WaitForExit(10000) -and (Folder $dir).state -eq 'locked'
+    }
 
     # 2. Okno parolya
     [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $dir)`"}")

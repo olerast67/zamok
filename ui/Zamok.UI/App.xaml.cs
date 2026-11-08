@@ -19,6 +19,12 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         var (action, path) = ParseArgs(Environment.GetCommandLineArgs().Skip(1).ToArray());
+        if (action == "--lock")
+        {
+            // Пункт меню «Запереть»: без окна, запереть и выйти
+            _ = LockAndExitAsync(path!);
+            return;
+        }
         _window = action switch
         {
             "--unlock" => new UnlockWindow(path!),
@@ -33,9 +39,15 @@ public partial class App : Application
         _window.Activate();
     }
 
+    private async Task LockAndExitAsync(string path)
+    {
+        try { await new Zamok.Client.CoreClient().LockAsync(path); } catch { }
+        Exit();
+    }
+
     internal static (string? Action, string? Path) ParseArgs(string[] args)
     {
-        if (args.Length == 2 && args[0] is "--unlock" or "--encrypt" && args[1].Length > 0)
+        if (args.Length == 2 && args[0] is "--unlock" or "--encrypt" or "--lock" && args[1].Length > 0)
             return (args[0], args[1]);
         return (null, null);
     }
