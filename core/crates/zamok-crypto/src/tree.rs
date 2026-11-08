@@ -46,6 +46,8 @@ enum Classified {
     Dir(String),
     Symlink,
     File(PathBuf),
+    /// Папка узла без `dir.c9r`, ссылки и содержимого.
+    Empty,
 }
 
 /// Имя годится для хранилища и для Windows: без разделителей, `.`, `..`, запрещённых знаков
@@ -116,8 +118,9 @@ impl Vault {
     }
 
     /// Все узлы дерева, начиная с корня (ID корня пустой). Любая повреждённая запись: ошибка.
-    /// Каталог без физической папки считается пустым, как и в подключённой папке: такой
-    /// остаётся после сбоя между созданием `dir.c9r` и папки каталога.
+    /// Каталог без физической папки считается пустым (остаётся после сбоя между созданием
+    /// `dir.c9r` и папки каталога), но только пока в `d/` нет непустых папок, до которых обход
+    /// не дошёл: такая папка значит, что ссылка на каталог испорчена и файлы отрезаны от дерева.
     pub fn walk(&self) -> Result<Vec<Node>> {
         self.walk_inner(false).map(|r| r.nodes)
     }
@@ -131,15 +134,24 @@ impl Vault {
         let mut report = WalkReport::default();
         let mut visited = std::collections::HashSet::new();
         visited.insert(String::new());
+        let mut reached = std::collections::HashSet::new();
         let mut stack = vec![(String::new(), String::new(), 0usize)]; // (ID каталога, путь, глубина)
         while let Some((dir_id, path, depth)) = stack.pop() {
             let dir = self.root.join(names::dir_path(&self.key, &dir_id));
+            reached.insert(dir.clone());
             let shown = if path.is_empty() { "/" } else { path.as_str() };
             let rd = match fs::read_dir(&dir) {
                 Ok(rd) => rd,
                 // Без папки корня хранилище не существует: это ошибка и при обходе с пропусками
                 Err(e) if dir_id.is_empty() => return Err(e.into()),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    if tolerant {
+                        report
+                            .skipped
+                            .push(format!("{shown}: folder data is missing"));
+                    }
+                    continue;
+                }
                 Err(e) if tolerant => {
                     report.skipped.push(format!("{shown}: {e}"));
                     continue;
@@ -182,6 +194,13 @@ impl Vault {
                         });
                         stack.push((child_id, child, depth + 1));
                     }
+                    Classified::Empty => {
+                        if tolerant {
+                            report
+                                .skipped
+                                .push(format!("{child}: entry has no content"));
+                        }
+                    }
                     Classified::Symlink => report.nodes.push(Node::Symlink { path: child }),
                     Classified::File(ciphertext) => report.nodes.push(Node::File {
                         path: child,
@@ -190,7 +209,41 @@ impl Vault {
                 }
             }
         }
+        let orphans = self.orphan_dirs(&reached)?;
+        if !orphans.is_empty() {
+            if !tolerant {
+                return Err(Error::OrphanedData);
+            }
+            for dir in orphans {
+                report.skipped.push(format!(
+                    "{}: files are cut off from the tree",
+                    dir.display()
+                ));
+            }
+        }
         Ok(report)
+    }
+
+    /// Непустые папки каталогов в `d/`, до которых обход не дошёл (запасная копия ID не считается).
+    fn orphan_dirs(&self, reached: &std::collections::HashSet<PathBuf>) -> Result<Vec<PathBuf>> {
+        let mut orphans = Vec::new();
+        for level1 in fs::read_dir(self.root.join("d"))? {
+            let level1 = level1?;
+            if !level1.file_type()?.is_dir() {
+                continue;
+            }
+            for level2 in fs::read_dir(level1.path())? {
+                let level2 = level2?;
+                if !level2.file_type()?.is_dir() || reached.contains(&level2.path()) {
+                    continue;
+                }
+                let mut entries = fs::read_dir(level2.path())?;
+                if entries.any(|e| e.map_or(true, |e| e.file_name() != names::DIRID_BACKUP_FILE)) {
+                    orphans.push(level2.path());
+                }
+            }
+        }
+        Ok(orphans)
     }
 
     /// Разобрать одну запись каталога: имя в открытом виде и что это. `None`: служебный файл.
@@ -231,7 +284,7 @@ impl Vault {
         } else if !is_dir_node {
             Classified::File(entry.path())
         } else {
-            return Ok(None);
+            Classified::Empty
         };
         Ok(Some((name, classified)))
     }
@@ -457,6 +510,41 @@ mod tests {
         fs::remove_dir_all(v.root.join(names::dir_path(&v.key, ""))).unwrap();
         assert!(v.walk().is_err());
         assert!(v.walk_tolerant().is_err());
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn damaged_directory_link_is_not_an_empty_directory() {
+        let d = tempdir("link");
+        let v = sample(&d.join("v"));
+        // Ссылка папки sub указывает в никуда, файлы остались в d/ без дерева
+        let dir = v.root.join(names::dir_path(&v.key, ""));
+        let mut changed = 0;
+        for e in fs::read_dir(&dir).unwrap() {
+            let link = e.unwrap().path().join(DIR_FILE);
+            if link.is_file()
+                && fs::read_dir(v.root.join(names::dir_path(
+                    &v.key,
+                    fs::read_to_string(&link).unwrap().trim(),
+                )))
+                .unwrap()
+                .count()
+                    > 1
+            {
+                fs::write(&link, "00000000-0000-0000-0000-000000000000").unwrap();
+                changed += 1;
+            }
+        }
+        assert_eq!(changed, 1);
+        assert!(matches!(v.walk(), Err(Error::OrphanedData)));
+        let out = d.join("out");
+        let r = v.export_tolerant(&out).unwrap();
+        assert!(
+            r.skipped.iter().any(|s| s.contains("cut off")),
+            "{:?}",
+            r.skipped
+        );
+        assert_eq!(r.files, 1);
         let _ = fs::remove_dir_all(&d);
     }
 

@@ -138,7 +138,7 @@ fn rollback(core: &Core, j: &Journal, data_dir: &Path) {
 /// и создания, атрибуты берутся с файлов шифротекста (так их показывала папка Zamok).
 fn copy_out(vault: &Vault, tmp: &Path, progress: &Progress) -> Result<(), ErrorCode> {
     std::fs::create_dir(tmp).map_err(|_| ErrorCode::CopyFailed)?;
-    let nodes = vault.walk().map_err(|_| ErrorCode::BadVault)?;
+    let nodes = vault.walk().map_err(|_| ErrorCode::VaultDamaged)?;
     let mut attrs_later = Vec::new();
     for node in nodes {
         if progress.cancel.load(Ordering::SeqCst) {
@@ -282,7 +282,7 @@ pub fn start(
     let busy = core.busy_guard(&path);
     let _ = core.lock(&p);
     let v = Vault::open_with_key(&vault, key).map_err(|_| ErrorCode::BadVault)?;
-    let nodes = v.walk().map_err(|_| ErrorCode::BadVault)?;
+    let nodes = v.walk().map_err(|_| ErrorCode::VaultDamaged)?;
     let (mut files, mut bytes) = (0u64, 0u64);
     for n in &nodes {
         if let Node::File { ciphertext, .. } = n {
@@ -355,9 +355,10 @@ pub fn start(
 
 /// Ещё раз попробовать убрать расшифрованную копию, которая не удалилась при откате.
 pub fn retry_rollback(core: &Core, data_dir: &Path) {
-    if core.job_running() {
+    // Занято на всю уборку: журнал новой работы не примется за брошенный
+    let Some(_starting) = core.begin_job() else {
         return;
-    }
+    };
     for j in Journal::load_all(data_dir) {
         if j.step == Step::Copying {
             rollback(core, &j, data_dir);

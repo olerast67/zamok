@@ -111,6 +111,7 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Error_wrong_recovery_key" xml:space="preserve"><value>The recovery key does not match. Check the words and their order.</value></data>
   <data name="Error_already_added" xml:space="preserve"><value>The folder is already encrypted or is inside an encrypted folder.</value></data>
   <data name="Error_path_occupied" xml:space="preserve"><value>Another folder or file is in the place of this folder.</value></data>
+  <data name="Error_vault_damaged" xml:space="preserve"><value>Some encrypted files are cut off from the folder tree. The folder stays encrypted and nothing was deleted.</value></data>
   <data name="Error_bad_vault" xml:space="preserve"><value>The encrypted data of the folder is missing or damaged.</value></data>
   <data name="Error_mount_failed" xml:space="preserve"><value>Could not mount the folder. Check that WinFsp is installed.</value></data>
   <data name="Error_internal" xml:space="preserve"><value>Internal Zamok error.</value></data>

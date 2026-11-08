@@ -135,6 +135,7 @@ S = {
                                "Could not start the Zamok background program. Restart the computer."),
     "Error_core_not_trusted": ("На связи не программа Zamok этого пользователя. Пароль не отправлен.",
                                "The other side is not this user's Zamok program. The password was not sent."),
+    "Error_vault_damaged": ("Часть зашифрованных файлов отрезана от дерева папок. Папка осталась зашифрованной, ничего не удалено.", "Some encrypted files are cut off from the folder tree. The folder stays encrypted and nothing was deleted."),
     "Error_bad_request": ("Внутренняя ошибка запроса.", "Internal request error."),
     "Error_not_found": ("Эта папка не зашифрована Zamok.", "This folder is not encrypted with Zamok."),
     "Error_wrong_password": ("Пароль не подошёл.", "Wrong password."),
