@@ -7,7 +7,7 @@
 //! | `copying` | каждый файл шифруется в `.Имя.zamok.tmp` и сразу сверяется расшифровкой | на месте | неполная |
 //! | `verified` | вся копия сверена, папка не менялась, всё сброшено на диск | на месте | полная, `.tmp` |
 //! | `vault_placed` | `.tmp` переименована в `.Имя.zamok` | на месте | полная |
-//! | `original_aside` | оригинал переименован в `.Имя.zamok-original` | рядом | полная |
+//! | `original_aside` | оригинал переименован в `.Имя.zamok-original` и сверен с описью; не совпал: откат | рядом | полная |
 //! | `registered` | папка в списке и подключена на старый путь | рядом | подключена |
 //! | (готово) | `.zamok-original` удалена, журнал удалён | нет | подключена |
 //!
@@ -69,6 +69,14 @@ pub struct Journal {
     /// чужое хранилище с тем же именем.
     #[serde(default)]
     pub masterkey_sha256: Option<String>,
+    /// SHA-256 файла `vault.cryptomator`: подписан мастер-ключом и, в отличие от
+    /// `masterkey.cryptomator`, не меняется при смене пароля.
+    #[serde(default)]
+    pub vault_config_sha256: Option<String>,
+    /// SHA-256 описи папки (имена, виды, размеры, время файлов). С ней сверяется оригинал
+    /// после переименования в `.zamok-original`. В журналах старых версий поля нет.
+    #[serde(default)]
+    pub plan_sha256: Option<String>,
 }
 
 fn jobs_dir(data_dir: &Path) -> PathBuf {
@@ -221,6 +229,28 @@ pub(crate) fn crash_point(name: &str) {
     }
 }
 
+/// Точка ожидания для теста «файл появился, пока идёт сброс на диск»: переменная
+/// `ZAMOK_TEST_PAUSE` вида `точка|файл`. Core создаёт `файл.reached` и ждёт, пока тест
+/// создаст `файл`.
+fn pause_point(name: &str) {
+    let Ok(value) = std::env::var("ZAMOK_TEST_PAUSE") else {
+        return;
+    };
+    let Some((point, gate)) = value.split_once('|') else {
+        return;
+    };
+    if point != name {
+        return;
+    }
+    let _ = std::fs::write(format!("{gate}.reached"), b"");
+    for _ in 0..2400 {
+        if Path::new(gate).exists() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// Переименование с повторами: антивирус и индексатор ненадолго держат свежие папки.
 pub(crate) fn rename_retry(from: &Path, to: &Path, attempts: u32) -> std::io::Result<()> {
     let mut last = None;
@@ -254,21 +284,81 @@ pub fn set_hidden(path: &Path) {
     }
 }
 
-/// SHA-256 файла `masterkey.cryptomator` в папке хранилища.
-pub(crate) fn masterkey_digest(dir: &Path) -> Option<String> {
-    use sha2::{Digest, Sha256};
-    let bytes = std::fs::read(dir.join("masterkey.cryptomator")).ok()?;
-    Some(
-        Sha256::digest(&bytes)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect(),
-    )
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Хранилище в `dir` создано этой работой.
+fn file_digest(path: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    Some(hex(&Sha256::digest(std::fs::read(path).ok()?)))
+}
+
+/// SHA-256 файла `masterkey.cryptomator` в папке хранилища.
+pub(crate) fn masterkey_digest(dir: &Path) -> Option<String> {
+    file_digest(&dir.join("masterkey.cryptomator"))
+}
+
+/// SHA-256 файла `vault.cryptomator` в папке хранилища.
+pub(crate) fn vault_config_digest(dir: &Path) -> Option<String> {
+    file_digest(&dir.join("vault.cryptomator"))
+}
+
+/// Хранилище в `dir` создано этой работой: совпал отпечаток мастер-ключа или настроек
+/// хранилища. Настройки подписаны тем же мастер-ключом и не меняются при смене пароля:
+/// иначе после смены пароля оригинал остался бы на диске навсегда.
 fn is_ours(j: &Journal, dir: &Path) -> bool {
-    j.masterkey_sha256.is_some() && masterkey_digest(dir) == j.masterkey_sha256
+    (j.masterkey_sha256.is_some() && masterkey_digest(dir) == j.masterkey_sha256)
+        || (j.vault_config_sha256.is_some() && vault_config_digest(dir) == j.vault_config_sha256)
+}
+
+/// Отпечаток описи: длины имён входят в него, поэтому разные описи не склеятся.
+fn plan_digest(plan: &Plan) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update((plan.items.len() as u64).to_le_bytes());
+    for item in &plan.items {
+        h.update((item.rel.len() as u64).to_le_bytes());
+        h.update(item.rel.as_bytes());
+        match item.kind {
+            Kind::Dir => h.update([0u8]),
+            Kind::File { size, mtime } => {
+                h.update([1u8]);
+                h.update(size.to_le_bytes());
+                h.update(mtime.to_le_bytes());
+            }
+        }
+    }
+    hex(&h.finalize())
+}
+
+/// Совпадает ли папка `dir` с описью из журнала. `None`: журнал старой версии, описи в нём
+/// нет. Прочитать папку не вышло: считается, что не совпадает.
+fn matches_plan(j: &Journal, dir: &Path) -> Option<bool> {
+    let want = j.plan_sha256.as_ref()?;
+    let mut bad = Vec::new();
+    Some(match preflight::walk(dir, &mut bad) {
+        Ok(now) => bad.is_empty() && plan_digest(&now) == *want,
+        Err(_) => false,
+    })
+}
+
+/// Сверить оригинал с описью перед подключением копии. Скрытое имя уже закрыло папку для
+/// записи, поэтому эта сверка последняя и видит всё, что появилось за время сброса на диск.
+fn check_aside(core: &Core, j: &Journal, data_dir: &Path) -> Result<(), ErrorCode> {
+    if std::fs::symlink_metadata(&j.aside).is_ok() {
+        if matches_plan(j, &j.aside) == Some(false) {
+            tracing::warn!(job = %j.id, "the folder changed after the last check, rolling back");
+            // Сбой мог случиться уже после подключения: снять папку из списка, хранилище цело
+            let _ = core.remove(&j.path.to_string_lossy());
+            rollback_aside(j, data_dir);
+            return Err(ErrorCode::ChangedDuringCopy);
+        }
+    } else if matches_plan(j, &j.path) == Some(true) {
+        // Прошлый откат вернул оригинал на место и прервался
+        rollback_copy(j, data_dir);
+        return Err(ErrorCode::ChangedDuringCopy);
+    }
+    Ok(())
 }
 
 /// Удалить нашу временную копию. Только папку с именем `.….zamok.tmp` из журнала и
@@ -377,13 +467,7 @@ fn copy_and_verify(
     let now = preflight::walk(src, &mut bad).map_err(|_| ErrorCode::ChangedDuringCopy)?;
     // Сравниваем имена, виды, размеры и время файлов. Время папок NTFS обновляет с
     // задержкой после изменений внутри, а изменения файлов видны и так.
-    let shape = |p: &Plan| -> Vec<(String, Kind)> {
-        p.items
-            .iter()
-            .map(|i| (i.rel.clone(), i.kind.clone()))
-            .collect()
-    };
-    if !bad.is_empty() || shape(&now) != shape(plan) {
+    if !bad.is_empty() || plan_digest(&now) != plan_digest(plan) {
         return Err(ErrorCode::ChangedDuringCopy);
     }
     Ok(attrs_later)
@@ -442,7 +526,8 @@ fn rollback_copy(j: &Journal, data_dir: &Path) {
 }
 
 /// Откат после переименования оригинала: вернуть оригинал на место, затем как
-/// [`rollback_copy`]. Если путь занят, ничего не трогаем и оставляем журнал.
+/// [`rollback_copy`]. Если путь занят, ничего не трогаем и оставляем журнал. Если оригинала
+/// нет ни рядом, ни на месте, хранилище осталось единственной копией: его не трогаем.
 fn rollback_aside(j: &Journal, data_dir: &Path) {
     if std::fs::symlink_metadata(&j.aside).is_ok() {
         if crate::mountpoint::prepare(&j.path).is_err() {
@@ -453,6 +538,9 @@ fn rollback_aside(j: &Journal, data_dir: &Path) {
             tracing::error!(job = %j.id, error = %e, "rollback: cannot move the original back; journal kept");
             return;
         }
+    } else if matches_plan(j, &j.path) != Some(true) {
+        tracing::error!(job = %j.id, "rollback: the original is gone; vault and journal kept");
+        return;
     }
     rollback_copy(j, data_dir);
 }
@@ -535,6 +623,8 @@ fn finish_from(
         crash_point("original_aside");
     }
     if j.phase == Phase::OriginalAside {
+        check_aside(core, j, data_dir)?;
+        crash_point("aside_checked");
         if let Err(code) = core.register_encrypted(&j.path, &j.vault, j.idle_lock_secs) {
             tracing::error!(job = %j.id, ?code, "cannot mount the encrypted folder, rolling back");
             rollback_aside(j, data_dir);
@@ -556,10 +646,31 @@ fn cleanup(j: &Journal, data_dir: &Path) {
             tracing::info!(job = %j.id, "encryption finished");
         }
         Err(e) => {
-            // Журнал остаётся: при следующем старте core попробует удалить ещё раз
+            // Журнал остаётся: core попробует удалить ещё раз (retry_cleanup и при старте)
             tracing::error!(job = %j.id, error = %e, "cannot delete the original yet");
         }
     }
+}
+
+/// Ещё раз попробовать удалить оригиналы, которые не удалились сразу: антивирус или
+/// индексатор могли держать файл. Открытый текст не должен лежать до перезапуска core.
+pub fn retry_cleanup(core: &Core, data_dir: &Path) {
+    if core.job_running() {
+        return;
+    }
+    for j in Journal::load_all(data_dir) {
+        if j.phase == Phase::Registered {
+            cleanup(&j, data_dir);
+        }
+    }
+}
+
+/// Сколько зашифрованных папок ждут удаления своего открытого оригинала.
+pub fn originals_left(data_dir: &Path) -> usize {
+    Journal::load_all(data_dir)
+        .iter()
+        .filter(|j| j.phase == Phase::Registered)
+        .count()
 }
 
 /// Начать шифрование: проверки, журнал, пустое хранилище. Возвращает ход работы и ключ
@@ -595,11 +706,19 @@ pub fn start(
         aside: sib.aside,
         idle_lock_secs,
         masterkey_sha256: None,
+        vault_config_sha256: None,
+        plan_sha256: Some(plan_digest(&plan)),
     };
     // Журнал раньше копии: сбой во время создания хранилища откатится при старте
     journal
         .save(data_dir)
         .map_err(|_| refuse(ErrorCode::Internal))?;
+    // Папка создаётся только здесь и только новая: вторая работа не перепишет ключ первой.
+    // Чужую папку на этом месте не трогаем, поэтому без отката, только журнал долой.
+    if std::fs::create_dir(&journal.tmp).is_err() {
+        journal.remove(data_dir);
+        return Err(refuse(ErrorCode::VaultExists));
+    }
     let vault = match Vault::create_empty(
         &journal.tmp,
         &password,
@@ -613,7 +732,11 @@ pub fn start(
     };
     set_hidden(&journal.tmp);
     journal.masterkey_sha256 = masterkey_digest(&journal.tmp);
-    if journal.masterkey_sha256.is_none() || journal.save(data_dir).is_err() {
+    journal.vault_config_sha256 = vault_config_digest(&journal.tmp);
+    if journal.masterkey_sha256.is_none()
+        || journal.vault_config_sha256.is_none()
+        || journal.save(data_dir).is_err()
+    {
         rollback_copy(&journal, data_dir);
         return Err(refuse(ErrorCode::CopyFailed));
     }
@@ -662,10 +785,18 @@ fn run(
     }
     if progress.cancel.load(Ordering::SeqCst) {
         rollback_copy(j, data_dir);
+    pause_point("flush_window");
+    crash_point("flush_done");
         return Err(ErrorCode::Cancelled);
     }
     crash_point("verified_before_journal");
     // Дальше отмены нет: с этого шага работа только доводится до конца
+    // Файлы проверены ключом из памяти; ключ и настройки хранилища на диске проверяем здесь
+    if !opens_from_disk(&j.tmp, password, vault.key()) {
+        tracing::error!(job = %j.id, "the vault on disk does not open with the password");
+        rollback_copy(j, data_dir);
+        return Err(ErrorCode::VerifyFailed);
+    }
     *progress.phase.lock().unwrap() = Phase::Verified;
     if j.set(Phase::Verified, data_dir).is_err() {
         rollback_copy(j, data_dir);
@@ -685,6 +816,12 @@ fn run(
 pub fn recover(core: &Core, data_dir: &Path) {
     for mut j in Journal::load_all(data_dir) {
         tracing::info!(job = %j.id, phase = j.phase.name(), "recovering interrupted encryption");
+/// Открывается ли копия с диска паролем и подходит ли ключ из файла к тому, которым
+/// зашифрованы файлы.
+fn opens_from_disk(tmp: &Path, password: &str, key: &zamok_crypto::MasterKey) -> bool {
+    Vault::open_with_password(tmp, password).is_ok_and(|v| v.key().to_raw() == key.to_raw())
+}
+
         match j.phase {
             Phase::Copying => rollback_copy(&j, data_dir),
             _ => {
@@ -811,6 +948,8 @@ mod tests {
         let data = d.path().join("data");
         j.save(&data).unwrap();
         rollback_copy(&j, &data);
+            vault_config_sha256: None,
+            plan_sha256: None,
         assert!(!sib.tmp.exists());
         assert!(src.join("а.txt").exists());
         assert!(Journal::load_all(&data).is_empty());
@@ -843,11 +982,134 @@ mod tests {
         assert!(delete_aside(&j).is_err());
         assert!(src.join("а.txt").exists());
     }
+            vault_config_sha256: None,
+            plan_sha256: None,
 
     #[test]
     fn stale_journal_never_touches_a_foreign_vault() {
         let d = tempdir();
         let src = d.path().join("Клиенты");
+    /// Журнал настоящей работы над `src` с описью её содержимого.
+    fn journal_for(src: &Path, plan: &Plan, phase: Phase) -> Journal {
+        let sib = preflight::siblings(src).unwrap();
+        Journal {
+            version: 1,
+            id: "j1".into(),
+            phase,
+            path: src.to_path_buf(),
+            tmp: sib.tmp,
+            vault: sib.vault,
+            aside: sib.aside,
+            idle_lock_secs: 0,
+            masterkey_sha256: None,
+            vault_config_sha256: None,
+            plan_sha256: Some(plan_digest(plan)),
+        }
+    }
+
+    #[test]
+    fn plan_check_sees_new_and_changed_files() {
+        let d = tempdir();
+        let src = d.path().join("src");
+        sample(&src);
+        let mut bad = Vec::new();
+        let plan = preflight::walk(&src, &mut bad).unwrap();
+        let j = journal_for(&src, &plan, Phase::OriginalAside);
+        assert_eq!(matches_plan(&j, &src), Some(true));
+        // Новый файл: именно он пропал бы при удалении оригинала
+        std::fs::write(src.join("я-новый.txt"), "x").unwrap();
+        assert_eq!(matches_plan(&j, &src), Some(false));
+        std::fs::remove_file(src.join("я-новый.txt")).unwrap();
+        assert_eq!(matches_plan(&j, &src), Some(true));
+        std::fs::write(src.join("а.txt"), "другое содержимое").unwrap();
+        assert_eq!(matches_plan(&j, &src), Some(false));
+        // Папки нет: не совпало
+        assert_eq!(matches_plan(&j, &d.path().join("нет")), Some(false));
+        // В журнале старой версии описи нет
+        let old = Journal {
+            plan_sha256: None,
+            ..j
+        };
+        assert_eq!(matches_plan(&old, &src), None);
+    }
+
+    #[test]
+    fn journal_of_an_older_version_still_loads() {
+        let d = tempdir();
+        let dir = jobs_dir(d.path());
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("old.json"),
+            br#"{"version":1,"id":"old","phase":"verified","path":"C:\\a",
+                "tmp":"C:\\.a.zamok.tmp","vault":"C:\\.a.zamok",
+                "aside":"C:\\.a.zamok-original","idle_lock_secs":0,"masterkey_sha256":"ab"}"#,
+        )
+        .unwrap();
+        let all = Journal::load_all(d.path());
+        assert_eq!(all.len(), 1);
+        assert!(all[0].plan_sha256.is_none() && all[0].vault_config_sha256.is_none());
+    }
+
+    #[test]
+    fn rollback_keeps_the_vault_when_the_original_is_gone() {
+        let d = tempdir();
+        let src = d.path().join("Клиенты");
+        sample(&src);
+        let mut bad = Vec::new();
+        let plan = preflight::walk(&src, &mut bad).unwrap();
+        let mut j = journal_for(&src, &plan, Phase::OriginalAside);
+        let v = Vault::create_empty(&j.vault, "pw", 1 << 10).unwrap();
+        j.masterkey_sha256 = masterkey_digest(v.root());
+        let data = d.path().join("data");
+        j.save(&data).unwrap();
+        // Оригинала нет ни на месте, ни рядом: хранилище единственная копия
+        std::fs::remove_dir_all(&src).unwrap();
+        rollback_aside(&j, &data);
+        assert!(j.vault.join("masterkey.cryptomator").exists());
+        assert_eq!(Journal::load_all(&data).len(), 1);
+    }
+
+    #[test]
+    fn vault_is_recognised_after_a_password_change() {
+        let d = tempdir();
+        let src = d.path().join("Клиенты");
+        sample(&src);
+        let sib = preflight::siblings(&src).unwrap();
+        let v = Vault::create_empty(&sib.vault, "pw", 1 << 10).unwrap();
+        std::fs::create_dir(&sib.aside).unwrap();
+        let j = Journal {
+            version: 1,
+            id: "p1".into(),
+            phase: Phase::Registered,
+            path: src,
+            tmp: sib.tmp,
+            vault: sib.vault.clone(),
+            aside: sib.aside.clone(),
+            idle_lock_secs: 0,
+            masterkey_sha256: masterkey_digest(v.root()),
+            vault_config_sha256: vault_config_digest(v.root()),
+            plan_sha256: None,
+        };
+        // Смена пароля меняет masterkey.cryptomator, настройки хранилища остаются
+        let json = zamok_crypto::masterkey::MasterkeyFile::lock_with(v.key(), "new", 1 << 10)
+            .unwrap()
+            .to_json();
+        std::fs::write(sib.vault.join("masterkey.cryptomator"), json).unwrap();
+        assert!(is_ours(&j, &sib.vault));
+        assert!(delete_aside(&j).is_ok());
+        assert!(!sib.aside.exists());
+    }
+
+    #[test]
+    fn damaged_key_file_is_caught_before_the_original_moves() {
+        let d = tempdir();
+        let v = Vault::create_empty(&d.path().join("v"), "pw", 1 << 10).unwrap();
+        assert!(opens_from_disk(v.root(), "pw", v.key()));
+        assert!(!opens_from_disk(v.root(), "другой", v.key()));
+        std::fs::write(v.root().join("masterkey.cryptomator"), b"{}").unwrap();
+        assert!(!opens_from_disk(v.root(), "pw", v.key()));
+    }
+
         sample(&src);
         let sib = preflight::siblings(&src).unwrap();
         // Наша копия когда-то была, журнал помнит её отпечаток
@@ -871,6 +1133,8 @@ mod tests {
         j.save(&data).unwrap();
         rollback_copy(&j, &data);
         assert!(sib.vault.join("masterkey.cryptomator").exists());
+            vault_config_sha256: None,
+            plan_sha256: None,
         // Чужая папка .tmp с тем же именем тоже не удаляется
         Vault::create_empty(&sib.tmp, "pw3", 1 << 10).unwrap();
         assert!(remove_tmp(&j).is_err());
