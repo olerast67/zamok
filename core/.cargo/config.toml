@@ -1,0 +1,3 @@
+# Встроить библиотеку C++ в программу: на чистой Windows нет vcruntime140.dll, и core не запускался
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

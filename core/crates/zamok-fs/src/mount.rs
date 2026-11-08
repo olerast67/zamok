@@ -21,7 +21,65 @@ pub struct Mounted {
 /// Проверить, что WinFsp установлен (загружается его DLL). Вызывать один раз до подключений.
 pub fn init_winfsp() -> anyhow::Result<()> {
     winfsp::winfsp_init().map_err(|e| anyhow::anyhow!("WinFsp is not installed: {e:?}"))?;
+    start_driver();
     Ok(())
+}
+
+/// Запустить драйвер WinFsp, если он ещё не работает. После установки WinFsp и до первой
+/// перезагрузки его никто не запускает, и подключение падает с «устройство не найдено»
+/// (проверено на чистой Windows). Запускать службу драйвера WinFsp разрешено всем
+/// пользователям. Служба называется `WinFsp+<номер сборки>`. Не вышло: подключение само
+/// сообщит об ошибке.
+fn start_driver() {
+    use windows::core::PCWSTR;
+    use windows::Win32::System::Services::{
+        CloseServiceHandle, EnumServicesStatusExW, OpenSCManagerW, OpenServiceW, StartServiceW,
+        ENUM_SERVICE_STATUS_PROCESSW, SC_ENUM_PROCESS_INFO, SC_MANAGER_CONNECT,
+        SC_MANAGER_ENUMERATE_SERVICE, SERVICE_FILE_SYSTEM_DRIVER, SERVICE_INACTIVE, SERVICE_START,
+    };
+    unsafe {
+        let Ok(scm) = OpenSCManagerW(
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SC_MANAGER_CONNECT | SC_MANAGER_ENUMERATE_SERVICE,
+        ) else {
+            return;
+        };
+        let mut buf = vec![0u64; 64 * 1024 / 8];
+        let bytes = std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, 64 * 1024);
+        let (mut needed, mut count) = (0u32, 0u32);
+        let listed = EnumServicesStatusExW(
+            scm,
+            SC_ENUM_PROCESS_INFO,
+            SERVICE_FILE_SYSTEM_DRIVER,
+            SERVICE_INACTIVE,
+            Some(bytes),
+            &mut needed,
+            &mut count,
+            None,
+            PCWSTR::null(),
+        );
+        if listed.is_ok() {
+            let items = std::slice::from_raw_parts(
+                buf.as_ptr() as *const ENUM_SERVICE_STATUS_PROCESSW,
+                count as usize,
+            );
+            for item in items {
+                let is_winfsp = item
+                    .lpServiceName
+                    .to_string()
+                    .is_ok_and(|n| n.starts_with("WinFsp+"));
+                if is_winfsp {
+                    if let Ok(svc) = OpenServiceW(scm, PCWSTR(item.lpServiceName.0), SERVICE_START)
+                    {
+                        let _ = StartServiceW(svc, None);
+                        let _ = CloseServiceHandle(svc);
+                    }
+                }
+            }
+        }
+        let _ = CloseServiceHandle(scm);
+    }
 }
 
 impl Mounted {
