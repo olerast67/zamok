@@ -25,6 +25,10 @@ pub struct FolderConfig {
     /// Запереть после стольких секунд без работы с папкой; 0 = не запирать по времени.
     #[serde(default = "default_idle")]
     pub idle_lock_secs: u64,
+    /// Серийный номер тома, на котором лежит хранилище: отличает «хранилище удалили» от
+    /// «букву диска заняла другая флешка». В записях старых версий его нет.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume_serial: Option<u32>,
 }
 
 fn default_idle() -> u64 {
@@ -156,6 +160,7 @@ mod tests {
             vault: format!("{path}.zamok").into(),
             vault_prev: None,
             idle_lock_secs: DEFAULT_IDLE_LOCK_SECS,
+            volume_serial: None,
         }
     }
 
