@@ -76,6 +76,7 @@ function StartCore([string]$crash = '') {
     $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
     $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipeName"
     $psi.EnvironmentVariables['ZAMOK_NO_TRAY'] = '1'
+    $psi.EnvironmentVariables['ZAMOK_RECENT_DIR'] = "$root\recent"
     $p = [Diagnostics.Process]::Start($psi)
     [void](WaitFor { (Test-Path "\\.\pipe\$pipeName") -or $p.HasExited } 15000)
     [void](WaitFor { $p.HasExited -or [ZT]::CoreWindow($p.Id) -ne [IntPtr]::Zero } 5000)
@@ -274,6 +275,8 @@ try {
     }
     Check 'folder renamed in Explorer: core keeps it at the new path' {
         $new = "$root\renamed"
+        # Tom viden chut ranshe, chem core zapomnil nomer tochki podklyucheniya
+        Start-Sleep -Seconds 1
         Move-Item -LiteralPath $mnt -Destination $new
         $ok = (WaitFor { @((Send '{"cmd":"status"}').folders | Where-Object { $_.path -eq $new }).Count -eq 1 } 10000) -and
             (Test-Path "$new\$openWord $ruName.zamok") -and -not (Test-Path $mnt) -and
@@ -330,6 +333,17 @@ try {
     Check 'cut of a zamok folder is cancelled, the clipboard is emptied' { PutOnClipboard $mnt 2; WaitFor { -not (ClipHasFiles) } 8000 }
     Check 'cut of another folder stays on the clipboard' { PutOnClipboard $data 2; Start-Sleep -Seconds 2; ClipHasFiles }
     if ($savedClip) { Set-Clipboard -Value $savedClip } else { & powershell -NoProfile -Sta -Command 'Add-Type -AssemblyName System.Windows.Forms; [Windows.Forms.Clipboard]::Clear()' }
+    # Nedavnie fayly: posle zapiraniya uhodyat tolko yarlyki v etu papku
+    function Lnk([string]$name, [string]$target) { $s = (New-Object -ComObject WScript.Shell).CreateShortcut("$root\recent\$name.lnk"); $s.TargetPath = $target; $s.Save() }
+    Check 'after the lock recent shortcuts into the folder are gone, others stay' {
+        New-Item -ItemType Directory -Force "$root\recent" | Out-Null
+        $u = Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}"
+        Lnk 'inside' "$mnt\new.txt"; Lnk 'folder' $mnt; Lnk 'other' "$data\x.txt"; Lnk 'similar' "$mnt-2\a.txt"
+        Start-Sleep -Seconds 3
+        [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $mnt)`"}")
+        $u.ok -and (WaitFor { -not (Test-Path "$root\recent\inside.lnk") -and -not (Test-Path "$root\recent\folder.lnk") } 8000) -and
+            (Test-Path "$root\recent\other.lnk") -and (Test-Path "$root\recent\similar.lnk")
+    }
     Check 'vault deleted: folder leaves the list, the name is free again' {
         Remove-Item $vault -Recurse -Force
         (WaitFor { -not (State) } 10000) -and (WaitFor { -not (Test-Path $mnt) } 5000) -and
@@ -349,6 +363,7 @@ try {
     $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
     $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipeName"
     $psi.EnvironmentVariables['ZAMOK_NO_TRAY'] = '1'
+    $psi.EnvironmentVariables['ZAMOK_RECENT_DIR'] = "$root\recent"
     $watch = [Diagnostics.Process]::Start($psi)
     function Child { Get-CimInstance Win32_Process -Filter "ParentProcessId=$($watch.Id)" | Where-Object Name -eq 'zamok-core.exe' | Select-Object -First 1 }
     [void](WaitFor { Test-Path "\\.\pipe\$pipeName" } 15000)

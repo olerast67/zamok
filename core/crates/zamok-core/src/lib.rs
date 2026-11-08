@@ -22,6 +22,7 @@ pub mod mountpoint;
 pub mod pipe;
 pub mod preflight;
 pub mod protocol;
+pub mod recent;
 pub mod shellhook;
 pub mod shellverbs;
 pub mod tray;
