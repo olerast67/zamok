@@ -21,6 +21,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_QUERYENDSESSION, WM_TIMER, WM_WTSSESSION_CHANGE, WNDCLASSW, WS_OVERLAPPED,
 };
 
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    RegisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT,
+};
+
 use crate::core::Core;
 
 /// Класс окна: по нему тесты находят окно core и шлют ему те же сообщения, что и Windows.
@@ -34,6 +38,7 @@ const WTS_SESSION_LOGOFF: usize = 0x6;
 const WTS_SESSION_LOCK: usize = 0x7;
 const IDLE_TIMER: usize = 1;
 const IDLE_TICK_MS: u32 = 2000;
+const WM_HOTKEY: u32 = 0x0312;
 const CLIP_TIMER: usize = 2;
 const CLIP_DELAY_MS: u32 = 150;
 
@@ -55,6 +60,10 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
     };
     match msg {
+        WM_HOTKEY => {
+            lock_all_fast(core, "hotkey");
+            LRESULT(0)
+        }
         WM_CLIPBOARDUPDATE => {
             // Не сразу: программа, которая кладёт данные, ещё работает с буфером обмена,
             // а открыть его может только кто-то один. Человек за это время вставить не успеет.
@@ -173,6 +182,16 @@ pub fn install(core: Arc<Core>) -> anyhow::Result<()> {
         // Блокировка экрана и выход из учётной записи
         WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION)?;
         crate::clipguard::register(hwnd);
+        // Ctrl+Alt+Shift+L: запереть всё. Сочетание занято другой программой: живём без него.
+        // В тестах не занимаем, сообщение им шлёт сам тест.
+        if std::env::var_os("ZAMOK_DATA_DIR").is_none() {
+            let _ = RegisterHotKey(
+                Some(hwnd),
+                1,
+                MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
+                u32::from(b'L'),
+            );
+        }
         // Сон, в том числе на ноутбуках с современным режимом ожидания
         let _ = RegisterSuspendResumeNotification(HANDLE(hwnd.0), DEVICE_NOTIFY_WINDOW_HANDLE);
         if SetTimer(Some(hwnd), IDLE_TIMER, IDLE_TICK_MS, None) == 0 {
