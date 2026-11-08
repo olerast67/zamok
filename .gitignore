@@ -2,8 +2,9 @@
 target/
 **/*.rs.bk
 
-# .NET
+# .NET (папки src/bin в Rust это исходники программ, их не прятать)
 bin/
+!core/**/src/bin/
 obj/
 *.user
 *.suo

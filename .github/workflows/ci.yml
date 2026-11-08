@@ -30,3 +30,6 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Tests
         run: cargo test
+      - name: Programs used by tests/fs
+        # Явно по имени: если исходник программы пропадёт из репозитория, шаг упадёт.
+        run: cargo build -p zamok-fs --bin zamok-mount
