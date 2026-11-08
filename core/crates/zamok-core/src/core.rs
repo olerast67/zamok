@@ -29,6 +29,8 @@ pub struct Entry {
     lock_epoch: AtomicU64,
     /// Уже сказали, что запирание ждёт закрытия файла (чтобы не повторять каждые 2 секунды).
     waiting_told: AtomicBool,
+    /// Была открыта при прошлой проверке: так видно, что её только что заперли.
+    was_open: AtomicBool,
     /// Куда указывает точка подключения папки: по этому адресу находим её после переименования.
     target: Mutex<Option<String>>,
     /// Номер точки подключения в NTFS: по нему Windows называет её новый путь после переноса.
@@ -52,6 +54,7 @@ impl Entry {
             error: Mutex::new(None),
             lock_epoch: AtomicU64::new(0),
             waiting_told: AtomicBool::new(false),
+            was_open: AtomicBool::new(false),
             target: Mutex::new(None),
             file_id: Mutex::new(None),
             hello_file: Mutex::new(None),
@@ -656,6 +659,14 @@ impl Core {
                 e.unmount();
                 let restored = e.ensure_mounted().is_ok();
                 tracing::info!(folder = %cfg.id, restored, "mount point was deleted, folder restored locked");
+            }
+            if let Some(c) = e.control() {
+                if !c.is_locked() {
+                    e.was_open.store(true, Ordering::SeqCst);
+                } else if e.was_open.swap(false, Ordering::SeqCst) {
+                    let removed = crate::recent::clean(&e.cfg().path);
+                    tracing::info!(folder = %cfg.id, removed, "recent files cleaned after lock");
+                }
             }
             self.vault_follow(&e);
         }
