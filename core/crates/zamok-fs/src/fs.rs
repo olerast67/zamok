@@ -129,6 +129,9 @@ pub struct Control {
     seen: Mutex<std::collections::HashSet<String>>,
     /// Пути, по которым при запирании нужно сбросить кэш ядра (уведомлением).
     pending_invalidate: Mutex<Vec<String>>,
+    /// Какой-то путь не удалось сбросить уведомлением (переполнение или слишком длинный путь):
+    /// перед ответом «заперто» нужно дождаться, пока кэш ядра истечёт сам.
+    fallback_wait: AtomicBool,
 }
 
 pub struct ZamokFs {
@@ -204,6 +207,11 @@ impl Control {
         self.state.read().unwrap().is_none()
     }
 
+    /// Нужно ли перед ответом «заперто» подождать, пока кэш ядра истечёт сам. Сбрасывает флаг.
+    pub fn take_fallback_wait(&self) -> bool {
+        self.fallback_wait.swap(false, Ordering::SeqCst)
+    }
+
     /// Ещё не все уведомления о запирании отправлены ядру.
     pub fn invalidation_pending(&self) -> bool {
         !self.pending_invalidate.lock().unwrap().is_empty()
@@ -213,6 +221,8 @@ impl Control {
         let mut seen = self.seen.lock().unwrap();
         if seen.len() < 500_000 {
             seen.insert(path.to_string());
+        } else {
+            self.fallback_wait.store(true, Ordering::SeqCst);
         }
     }
 }
@@ -230,6 +240,7 @@ impl ZamokFs {
             listing_epoch: AtomicU64::new(0),
             seen: Mutex::new(std::collections::HashSet::new()),
             pending_invalidate: Mutex::new(Vec::new()),
+            fallback_wait: AtomicBool::new(false),
         });
         Ok(ZamokFs {
             root: root.to_path_buf(),
@@ -1223,6 +1234,9 @@ impl winfsp::notify::NotifyingFileSystemContext<Vec<String>> for ZamokFs {
             info.action = ACTION_REMOVED;
             if info.set_name(&path).is_ok() {
                 notifier.notify(&info);
+            } else {
+                // Путь не помещается в уведомление: не пропускаем молча, а ждём истечения кэша
+                self.ctl.fallback_wait.store(true, Ordering::SeqCst);
             }
         }
     }
