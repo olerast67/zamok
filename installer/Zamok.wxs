@@ -3,7 +3,8 @@
   Установщик Zamok (MSI, WiX 5). Ставится для текущего пользователя без прав администратора
   в %LOCALAPPDATA%\Programs\Zamok и пишет только в HKCU, как scripts\install-dev.ps1:
   пункты меню Проводника, тип .zamok, автозапуск core через сторожа.
-  WinFsp не вложен: если его нет, установка останавливается и говорит, где его взять.
+  В этот MSI WinFsp не вложен: его ставит общий установщик Zamok.bundle.wxs. Если этот MSI
+  запустить отдельно на компьютере без WinFsp, он остановится и скажет, где его взять.
   Сборка: installer\build-msi.ps1
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">

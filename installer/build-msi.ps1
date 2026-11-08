@@ -27,3 +27,45 @@ $code = $LASTEXITCODE
 Pop-Location
 if ($code) { throw "wix build failed ($code)" }
 Write-Host "Built $out\Zamok-$Version.msi"
+
+# Obshchiy ustanovshchik: neizmenennyy MSI WinFsp + Zamok.msi. Fayl WinFsp ne v git: skachivaetsya
+# po tochnomu adresu i prinimaetsya tolko s etim otpechatkom i deystvitelnoy podpisyu izdatelya.
+$winfspName = 'winfsp-2.1.25156.msi'
+$winfspUrl = "https://github.com/winfsp/winfsp/releases/download/v2.1/$winfspName"
+$winfspSha = '073A70E00F77423E34BED98B86E600DEF93393BA5822204FAC57A29324DB9F7A'
+$deps = "$out\deps"
+$winfsp = "$deps\$winfspName"
+New-Item -ItemType Directory -Force $deps | Out-Null
+if (-not (Test-Path $winfsp)) {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -UseBasicParsing -Uri $winfspUrl -OutFile $winfsp
+}
+if ((Get-FileHash $winfsp -Algorithm SHA256).Hash -ne $winfspSha) { throw "$winfspName has a wrong SHA-256" }
+$sig = Get-AuthenticodeSignature $winfsp
+if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notlike 'CN=NAVIMATICS LLC,*') { throw "$winfspName has a wrong signature" }
+
+# Logotip okna ustanovshchika: 64 tochki, iz znachka programmy
+Add-Type -AssemblyName System.Drawing
+$logo = "$deps\logo-64.png"
+$src = [Drawing.Image]::FromFile("$repo\assets\zamok-256.png")
+$bmp = New-Object Drawing.Bitmap 64, 64
+$g = [Drawing.Graphics]::FromImage($bmp)
+$g.InterpolationMode = 'HighQualityBicubic'
+$g.DrawImage($src, 0, 0, 64, 64)
+$bmp.Save($logo, [Drawing.Imaging.ImageFormat]::Png)
+$g.Dispose(); $bmp.Dispose(); $src.Dispose()
+
+Push-Location $repo
+& dotnet wix extension add -g WixToolset.Util.wixext/5.0.2 | Out-Null
+if ($LASTEXITCODE) { throw 'wix extension failed' }
+& dotnet wix extension add -g WixToolset.BootstrapperApplications.wixext/5.0.2 | Out-Null
+if ($LASTEXITCODE) { throw 'wix extension failed' }
+& dotnet wix build "$repo\installer\Zamok.bundle.wxs" -arch x64 `
+    -ext WixToolset.Util.wixext -ext WixToolset.BootstrapperApplications.wixext `
+    -d "AppDir=$app" -d "Version=$Version" -d "WinFspMsi=$winfsp" -d "ZamokMsi=$out\Zamok-$Version.msi" `
+    -d "Logo=$logo" -d "InstallerDir=$repo\installer" `
+    -o "$out\Zamok-Setup-$Version.exe"
+$code = $LASTEXITCODE
+Pop-Location
+if ($code) { throw "wix bundle build failed ($code)" }
+Write-Host "Built $out\Zamok-Setup-$Version.exe"
