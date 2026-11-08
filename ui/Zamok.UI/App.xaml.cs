@@ -14,6 +14,12 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        // Последняя страховка: неожиданная ошибка показывается, а окно остаётся
+        UnhandledException += (_, e) =>
+        {
+            e.Handled = true;
+            WindowHelper.Error(Strings.Get("App_Unexpected"));
+        };
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -57,7 +63,21 @@ public partial class App : Application
 
     private async Task LockAndExitAsync(string path)
     {
-        try { await new Zamok.Client.CoreClient().LockAsync(path); } catch { }
+        try
+        {
+            var client = new Zamok.Client.CoreClient();
+            var folder = UnlockWindow.FindFolder((await client.StatusAsync()).Folders, path);
+            if (folder is { OpenFiles: > 0 } &&
+                !WindowHelper.Confirm(Strings.Format("Lock_OpenFiles", folder.Name, folder.OpenFiles)))
+            {
+                Exit();
+                return;
+            }
+            var r = await client.LockAsync(path);
+            if (!r.Ok) WindowHelper.Error(Strings.Error(r.Error));
+        }
+        catch (Zamok.Client.CoreNotRunningException) { WindowHelper.Error(Strings.Error("core_not_running")); }
+        catch (Zamok.Client.CoreNotTrustedException) { WindowHelper.Error(Strings.Error("core_not_trusted")); }
         Exit();
     }
 

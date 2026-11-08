@@ -46,16 +46,18 @@ Saved {1}
 
 {2}
 
-How to open the folder with the key: in the locked folder double-click “Open {0}.zamok”, press “Forgot the password?” and paste this whole file or type the 44 words in order.</value></data>
+How to open the folder with the key: in the locked folder double-click the padlock file ending in .zamok, press “Forgot the password?” and paste this whole file or type the 44 words in order.</value></data>
   <data name="Encrypt_KeySaved" xml:space="preserve"><value>Saved.</value></data>
-  <data name="Encrypt_KeyCopied" xml:space="preserve"><value>Copied. Clear the clipboard after pasting the key.</value></data>
+  <data name="Encrypt_KeyCopied" xml:space="preserve"><value>Copied. The clipboard is cleared in a minute.</value></data>
   <data name="Encrypt_VerifyIntro.Text" xml:space="preserve"><value>Enter the words with these numbers to make sure the key is written down.</value></data>
   <data name="Encrypt_WordN" xml:space="preserve"><value>Word {0}</value></data>
   <data name="Encrypt_WordsWrong" xml:space="preserve"><value>The words do not match. Press Back and check what you wrote down.</value></data>
   <data name="Encrypt_ProgressFiles" xml:space="preserve"><value>Files: {0} of {1}, {2:0.0} of {3:0.0} MB</value></data>
   <data name="Encrypt_Copying" xml:space="preserve"><value>Encrypting and checking every file. The original is deleted only at the end, after the copy is checked.</value></data>
-  <data name="Encrypt_Finishing" xml:space="preserve"><value>Replacing the folder with the encrypted one.</value></data>
-  <data name="Encrypt_Done" xml:space="preserve"><value>The folder “{0}” is encrypted and open. It locks by itself when the screen locks, before sleep and after 30 minutes without use.</value></data>
+  <data name="Encrypt_Finishing" xml:space="preserve"><value>Replacing the folder with the encrypted one. It can no longer be cancelled, only a few seconds are left.</value></data>
+  <data name="Encrypt_Cancelling" xml:space="preserve"><value>Cancelling…</value></data>
+  <data name="Encrypt_TooLate" xml:space="preserve"><value>It can no longer be cancelled: the folder is being replaced. Save the key.</value></data>
+  <data name="Encrypt_Done" xml:space="preserve"><value>The folder “{0}” is encrypted and open. It locks by itself as set in the Zamok settings.</value></data>
   <data name="Encrypt_Failed" xml:space="preserve"><value>The folder was not encrypted. All files are in place.</value></data>
   <data name="Manage_Password.Header" xml:space="preserve"><value>Current password</value></data>
   <data name="Manage_NewPassword1.Header" xml:space="preserve"><value>New password</value></data>
@@ -66,6 +68,7 @@ How to open the folder with the key: in the locked folder double-click “Open {
   <data name="Manage_Show" xml:space="preserve"><value>Show</value></data>
   <data name="Manage_Changed" xml:space="preserve"><value>The password has been changed. The old one no longer opens the folder.</value></data>
   <data name="Menu_More" xml:space="preserve"><value>Zamok</value></data>
+  <data name="Manage_Decrypting.Text" xml:space="preserve"><value>The folder is being decrypted. Do not turn off the computer until it finishes.</value></data>
   <data name="Manage_DecryptStep" xml:space="preserve"><value>Decrypt permanently</value></data>
   <data name="Manage_DecryptWarning.Text" xml:space="preserve"><value>The files become ordinary, unencrypted, and stay in the same place. A checked decrypted copy is made first, the encrypted data is deleted last.</value></data>
   <data name="Manage_Decrypt" xml:space="preserve"><value>Decrypt</value></data>
@@ -79,7 +82,7 @@ How to open the folder with the key: in the locked folder double-click “Open {
   <data name="Settings_Properties.Text" xml:space="preserve"><value>Encryption properties</value></data>
   <data name="Settings_PropPath" xml:space="preserve"><value>Folder: {0}</value></data>
   <data name="Settings_PropVault" xml:space="preserve"><value>Encrypted data: {0}</value></data>
-  <data name="Settings_Crypto.Text" xml:space="preserve"><value>Cryptomator format 8: contents AES-256-GCM, names AES-SIV, key from the password via scrypt. Without Zamok, Cryptomator opens the folder on any system.</value></data>
+  <data name="Settings_Crypto.Text" xml:space="preserve"><value>Cryptomator format 8. Without Zamok, Cryptomator opens the folder on any system.</value></data>
   <data name="Settings_Empty.Text" xml:space="preserve"><value>No encrypted folders yet.</value></data>
   <data name="Settings_EmptyHow.Text" xml:space="preserve"><value>To encrypt a folder, right-click it and choose “Encrypt with password”.</value></data>
   <data name="Settings_ScreenLock.Header" xml:space="preserve"><value>Lock all folders when the screen locks (Win+L)</value></data>
@@ -94,8 +97,13 @@ How to open the folder with the key: in the locked folder double-click “Open {
   <data name="Settings_StateLocked" xml:space="preserve"><value>locked</value></data>
   <data name="Settings_StateUnavailable" xml:space="preserve"><value>unavailable</value></data>
   <data name="Settings_Lock" xml:space="preserve"><value>Lock</value></data>
+  <data name="Lock_OpenFiles" xml:space="preserve"><value>Files are open in the folder “{0}”, count: {1}. Unsaved changes will be lost: the program will not be able to save them. Lock anyway?</value></data>
+  <data name="App_Unexpected" xml:space="preserve"><value>Internal Zamok error. Try again. The files in the folder are not affected by this error.</value></data>
+  <data name="A11y_Strength" xml:space="preserve"><value>Password strength</value></data>
+  <data name="A11y_Progress" xml:space="preserve"><value>Progress</value></data>
+  <data name="A11y_Busy" xml:space="preserve"><value>Checking</value></data>
   <data name="Settings_Open" xml:space="preserve"><value>Open</value></data>
-  <data name="Error_core_not_running" xml:space="preserve"><value>The Zamok background program is not running.</value></data>
+  <data name="Error_core_not_running" xml:space="preserve"><value>Could not start the Zamok background program. Restart the computer.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>The other side is not this user's Zamok program. The password was not sent.</value></data>
   <data name="Error_bad_request" xml:space="preserve"><value>Internal request error.</value></data>
   <data name="Error_not_found" xml:space="preserve"><value>This folder is not encrypted with Zamok.</value></data>
@@ -116,7 +124,7 @@ How to open the folder with the key: in the locked folder double-click “Open {
   <data name="Error_files_in_use" xml:space="preserve"><value>These files are open in other programs. Close them and try again:</value></data>
   <data name="Error_unreadable" xml:space="preserve"><value>These files cannot be read:</value></data>
   <data name="Error_not_enough_space" xml:space="preserve"><value>There is not enough space on the drive for a second copy of the folder.</value></data>
-  <data name="Error_job_running" xml:space="preserve"><value>Another folder is being encrypted. Wait until it finishes.</value></data>
+  <data name="Error_job_running" xml:space="preserve"><value>A folder is being encrypted or decrypted. Wait until it finishes.</value></data>
   <data name="Error_recovery_pending" xml:space="preserve"><value>The previous encryption has not finished. Restart the computer or the Zamok background program.</value></data>
   <data name="Error_changed_during_copy" xml:space="preserve"><value>Something changed in the folder during the work. Everything was cancelled, the files are in place. Close the programs writing to the folder and try again.</value></data>
   <data name="Error_verify_failed" xml:space="preserve"><value>The encrypted copy failed the check. Everything was cancelled, the files are in place.</value></data>

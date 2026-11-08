@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Zamok.Client;
 
@@ -23,6 +24,8 @@ public sealed partial class EncryptWindow : Window
     private DispatcherTimer? _poll;
     private bool _finished;
     private bool _skipArmed;
+    private bool _cancelling;
+    private bool _coreLost;
 
     public EncryptWindow(string path)
     {
@@ -34,9 +37,14 @@ public sealed partial class EncryptWindow : Window
         if (icon is not null) FolderIcon.Source = icon;
         else FallbackIcon.Visibility = Visibility.Visible;
         Heading.Text = Strings.Format("Encrypt_Heading", _name);
+        Title = Heading.Text;
+        AutomationProperties.SetName(StrengthBar, Strings.Get("A11y_Strength"));
+        AutomationProperties.SetName(Progress, Strings.Get("A11y_Progress"));
+        AutomationProperties.SetName(Busy, Strings.Get("A11y_Busy"));
+        WindowHelper.HookKeys(Root, OnEnter, OnEscape);
         ShowPage(Page.Password);
         Activated += (_, _) => { if (_page == Page.Password) Password1.Focus(FocusState.Programmatic); };
-        Closed += (_, _) => _poll?.Stop();
+        Closed += (_, _) => { _poll?.Stop(); KeyView.ClearIfStillOurs(); };
     }
 
     private void ShowPage(Page page)
@@ -72,8 +80,10 @@ public sealed partial class EncryptWindow : Window
             _ => "Common_Next",
         });
         NextButton.Visibility = Vis(page != Page.Progress);
-        CancelButton.Visibility = Vis(page is Page.Password or Page.Progress);
+        CancelButton.Visibility = Vis(page != Page.Done);
+        UpdateCancel();
         UpdateNext();
+        if (_coreLost && page == Page.Progress) ShowError(Strings.Error("core_not_running"));
     }
 
     private static Visibility Vis(bool v) => v ? Visibility.Visible : Visibility.Collapsed;
@@ -83,6 +93,25 @@ public sealed partial class EncryptWindow : Window
         ErrorText.Text = text;
         ErrorText.Visibility = Vis(!string.IsNullOrEmpty(text));
         Fit();
+    }
+
+    /// <summary>Отмена возможна до подмены папки; после неё ключ уже нужен, отменять нечего.</summary>
+    private void UpdateCancel()
+    {
+        if (_page == Page.Password || _jobId is null) { CancelButton.IsEnabled = true; return; }
+        CancelButton.IsEnabled = !_cancelling && !_finished && !_coreLost &&
+            _lastJob is null or { IsRunning: true, Phase: "copying" };
+    }
+
+    private void OnEnter()
+    {
+        if (WindowHelper.CanPress(NextButton)) OnNextClick(NextButton, new RoutedEventArgs());
+    }
+
+    private void OnEscape()
+    {
+        // На шагах с ключом и в ходе работы Esc ничего не делает: ключ больше не покажут
+        if (_page is Page.Password or Page.Done) Close();
     }
 
     private void Fit() => WindowHelper.FitHeight(this, Root, _page == Page.Key ? 520 : 460);
@@ -131,13 +160,15 @@ public sealed partial class EncryptWindow : Window
                     (r.Examples is { Length: > 0 } ex ? "\n" + string.Join("\n", ex.Take(8)) : ""));
                 return;
             }
-            _jobId = r.Job!.Id;
+            if (r.Job is null) { ShowError(Strings.Error("internal")); return; }
+            _jobId = r.Job.Id;
             Password1.Password = Password2.Password = "";
             StartPolling();
             if (MakeKey.IsChecked == true)
             {
                 _recoveryKey = r.RecoveryKey;
-                KeyView.Fill(KeyGrid, KeyWords, _recoveryKey!);
+                if (_recoveryKey is null) { ShowError(Strings.Error("internal")); return; }
+                KeyView.Fill(KeyGrid, KeyWords, _recoveryKey);
                 ShowPage(Page.Key);
             }
             else
@@ -215,15 +246,24 @@ public sealed partial class EncryptWindow : Window
             try
             {
                 var r = await _client.JobStatusAsync(_jobId!);
-                if (r.Job is { } job) RefreshProgress(job);
+                if (r.Job is { } job) { RefreshProgress(job); return; }
+                LosePolling();
             }
             catch (Exception ex) when (ex is CoreNotRunningException or CoreNotTrustedException)
             {
-                _poll?.Stop();
-                if (_page == Page.Progress) ShowError(Strings.Error("core_not_running"));
+                LosePolling();
             }
         };
         _poll.Start();
+    }
+
+    /// <summary>Связь с работой потеряна. На шаге с ключом покажем, когда человек дойдёт до хода работы.</summary>
+    private void LosePolling()
+    {
+        _poll?.Stop();
+        _coreLost = true;
+        UpdateCancel();
+        if (_page == Page.Progress) ShowError(Strings.Error("core_not_running"));
     }
 
     private JobInfo? _lastJob;
@@ -234,15 +274,15 @@ public sealed partial class EncryptWindow : Window
         _lastJob = job;
         if (job is null) return;
         if (!job.IsRunning) _poll?.Stop();
+        UpdateCancel();
         if (_page != Page.Progress) return; // человек ещё записывает ключ
         Progress.Value = job.Fraction;
         ProgressText.Text = Strings.Format("Encrypt_ProgressFiles", job.FilesDone, job.FilesTotal,
             job.BytesDone / 1048576.0, job.BytesTotal / 1048576.0);
-        // Отменить можно только пока идёт копирование
-        CancelButton.IsEnabled = job.IsRunning && job.Phase == "copying";
         if (job.IsRunning)
         {
-            ProgressTitle.Text = Strings.Get(job.Phase == "copying" ? "Encrypt_Copying" : "Encrypt_Finishing");
+            ProgressTitle.Text = Strings.Get(_cancelling ? "Encrypt_Cancelling"
+                : job.Phase == "copying" ? "Encrypt_Copying" : "Encrypt_Finishing");
         }
         else if (job.IsDone)
         {
@@ -296,16 +336,50 @@ public sealed partial class EncryptWindow : Window
     private async void OnLockNowClick(object sender, RoutedEventArgs e)
     {
         LockNowButton.IsEnabled = false;
-        try { await _client.LockAsync(_path); } catch { }
+        try
+        {
+            var r = await _client.LockAsync(_path);
+            if (!r.Ok) { ShowError(Strings.Error(r.Error)); return; }
+        }
+        catch (Exception ex) when (ex is CoreNotRunningException or CoreNotTrustedException)
+        {
+            ShowError(Strings.Error(ex is CoreNotRunningException ? "core_not_running" : "core_not_trusted"));
+            return;
+        }
+        finally { LockNowButton.IsEnabled = true; }
         Close();
     }
 
     private async void OnCancelClick(object sender, RoutedEventArgs e)
     {
-        if (_page == Page.Progress && _jobId is not null && !_finished)
+        if (_page != Page.Password && _jobId is not null && !_finished)
         {
-            try { await _client.CancelJobAsync(_jobId); } catch { }
-            return; // итог «отменено» придёт со следующим опросом
+            CancelButton.IsEnabled = false;
+            _cancelling = true;
+            try
+            {
+                var r = await _client.CancelJobAsync(_jobId);
+                if (!r.Ok)
+                {
+                    // Поздно: шифрование дойдёт до конца, поэтому шаг с ключом не покидаем
+                    _cancelling = false;
+                    ShowError(Strings.Get("Encrypt_TooLate"));
+                    UpdateCancel();
+                    return;
+                }
+            }
+            catch (Exception ex) when (ex is CoreNotRunningException or CoreNotTrustedException)
+            {
+                _cancelling = false;
+                ShowError(Strings.Error(ex is CoreNotRunningException ? "core_not_running" : "core_not_trusted"));
+                UpdateCancel();
+                return;
+            }
+            // Итог «отменено» придёт со следующим опросом
+            if (_page != Page.Progress) ShowPage(Page.Progress);
+            ProgressTitle.Text = Strings.Get("Encrypt_Cancelling");
+            RefreshProgress(null);
+            return;
         }
         Close();
     }

@@ -1,6 +1,5 @@
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Input;
-using Windows.System;
+using Microsoft.UI.Xaml.Automation;
 using Zamok.Client;
 
 namespace Zamok.UI;
@@ -35,6 +34,12 @@ public sealed partial class ManageWindow : Window
         if (icon is not null) FolderIcon.Source = icon;
         else FallbackIcon.Visibility = Visibility.Visible;
         Heading.Text = _name;
+        Title = _name;
+        AutomationProperties.SetName(StrengthBar, Strings.Get("A11y_Strength"));
+        AutomationProperties.SetName(Progress, Strings.Get("A11y_Progress"));
+        AutomationProperties.SetName(Busy, Strings.Get("A11y_Busy"));
+        WindowHelper.HookKeys(Root, OnEnter, OnEscape);
+        Closed += (_, _) => KeyView.ClearIfStillOurs();
         StepText.Text = Strings.Get(mode switch
         {
             Mode.ChangePassword => "Manage_ChangeStep",
@@ -82,13 +87,18 @@ public sealed partial class ManageWindow : Window
               NewPassword1.Password == NewPassword2.Password));
     }
 
-    private void OnKeyDown(object sender, KeyRoutedEventArgs e)
+    private void OnEnter()
     {
-        if (e.Key == VirtualKey.Enter && _mode != Mode.ChangePassword && OkButton.IsEnabled)
-        {
-            e.Handled = true;
-            OnOkClick(sender, e);
-        }
+        if (!WindowHelper.CanPress(OkButton)) return;
+        // Расшифровка необратима: Enter в поле пароля только переводит на кнопку, нажать её надо отдельно
+        if (_mode == Mode.Decrypt && !_done) { OkButton.Focus(FocusState.Keyboard); return; }
+        OnOkClick(OkButton, new RoutedEventArgs());
+    }
+
+    private void OnEscape()
+    {
+        // Пока идёт расшифровка, окно не закрываем случайным нажатием
+        if (PageProgress.Visibility != Visibility.Visible) Close();
     }
 
     private async void OnOkClick(object sender, RoutedEventArgs e)
@@ -101,12 +111,13 @@ public sealed partial class ManageWindow : Window
         Busy.IsActive = true;
         UpdateOk();
         ShowError("");
+        var keepFields = false;
         try
         {
             if (_mode == Mode.ChangePassword)
             {
                 var r = await _client.ChangePasswordAsync(_path, Password.Password, NewPassword1.Password);
-                if (!r.Ok) { ShowError(Strings.Error(r.Error)); return; }
+                if (!r.Ok) { keepFields = true; ShowError(Strings.Error(r.Error)); return; }
                 Finish(Strings.Get("Manage_Changed"), 440, 240);
                 PageInput.Visibility = Visibility.Collapsed;
                 PageDone.Visibility = Visibility.Visible;
@@ -115,18 +126,21 @@ public sealed partial class ManageWindow : Window
             {
                 var r = await _client.DecryptAsync(_path, Password.Password);
                 if (!r.Ok) { ShowError(Strings.Error(r.Error)); return; }
+                if (r.Job is null) { ShowError(Strings.Error("internal")); return; }
                 PageInput.Visibility = Visibility.Collapsed;
                 PageProgress.Visibility = Visibility.Visible;
                 OkButton.Visibility = CancelButton.Visibility = Visibility.Collapsed;
                 WindowHelper.FitHeight(this, Root, _width);
-                await WatchJob(r.Job!.Id);
+                await WatchJob(r.Job.Id);
             }
             else
             {
                 var r = await _client.ShowRecoveryKeyAsync(_path, Password.Password);
                 if (!r.Ok) { ShowError(Strings.Error(r.Error)); return; }
                 _key = r.RecoveryKey;
-                KeyView.Fill(KeyGrid, KeyWords, _key!);
+                if (_key is null) { ShowError(Strings.Error("internal")); return; }
+                KeyView.Fill(KeyGrid, KeyWords, _key);
+                StepText.Text = Strings.Get("Encrypt_StepKey");
                 Finish(null, 520, 470);
                 PageInput.Visibility = Visibility.Collapsed;
                 PageKey.Visibility = Visibility.Visible;
@@ -134,6 +148,7 @@ public sealed partial class ManageWindow : Window
         }
         catch (CoreNotRunningException)
         {
+            keepFields = true;
             ShowError(Strings.Error("core_not_running"));
         }
         catch (CoreNotTrustedException)
@@ -142,9 +157,12 @@ public sealed partial class ManageWindow : Window
         }
         finally
         {
-            Password.Password = NewPassword1.Password = NewPassword2.Password = "";
+            // Опечатка в одном поле не стирает остальные: старый пароль вводится заново
+            Password.Password = "";
+            if (!keepFields) NewPassword1.Password = NewPassword2.Password = "";
             Busy.IsActive = false;
             UpdateOk();
+            if (!_done && PageInput.Visibility == Visibility.Visible) Password.Focus(FocusState.Programmatic);
         }
     }
 
@@ -153,9 +171,14 @@ public sealed partial class ManageWindow : Window
     {
         while (true)
         {
-            JobInfo job;
-            try { job = (await _client.JobStatusAsync(id)).Job!; }
-            catch (CoreNotRunningException) { ShowError(Strings.Error("core_not_running")); return; }
+            JobInfo? job;
+            try { job = (await _client.JobStatusAsync(id)).Job; }
+            catch (Exception e) when (e is CoreNotRunningException or CoreNotTrustedException)
+            {
+                LoseJob("core_not_running");
+                return;
+            }
+            if (job is null) { LoseJob("internal"); return; }
             Progress.Value = job.Fraction;
             ProgressText.Text = Strings.Format("Encrypt_ProgressFiles", job.FilesDone, job.FilesTotal,
                 job.BytesDone / 1048576.0, job.BytesTotal / 1048576.0);
@@ -177,6 +200,15 @@ public sealed partial class ManageWindow : Window
             }
             await Task.Delay(300);
         }
+    }
+
+    /// <summary>Связь с работой потеряна: окно можно закрыть, core доведёт работу после перезапуска.</summary>
+    private void LoseJob(string error)
+    {
+        PageProgress.Visibility = Visibility.Collapsed;
+        OkButton.Visibility = Visibility.Visible;
+        Finish(null, 440, 260);
+        ShowError(Strings.Error(error));
     }
 
     private void Finish(string? text, int width, int height)

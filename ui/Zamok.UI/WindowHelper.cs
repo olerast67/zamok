@@ -110,8 +110,53 @@ internal static partial class WindowHelper
 
     public static IntPtr Handle(Window window) => WinRT.Interop.WindowNative.GetWindowHandle(window);
 
+    /// <summary>
+    /// Enter и Esc как в системном диалоге. Обработчик на всём окне и до самого элемента, поэтому
+    /// работает и в поле с несколькими строками. Enter на кнопке нажимает её саму, Shift+Enter
+    /// в многострочном поле переносит строку.
+    /// </summary>
+    public static void HookKeys(FrameworkElement root, Action? enter, Action? escape)
+    {
+        root.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Windows.System.VirtualKey.Escape && escape is not null)
+            {
+                e.Handled = true;
+                escape();
+            }
+            else if (e.Key == Windows.System.VirtualKey.Enter && enter is not null &&
+                     e.OriginalSource is not (Microsoft.UI.Xaml.Controls.Primitives.ButtonBase or ComboBox or ToggleSwitch or ListViewItem) &&
+                     !(e.OriginalSource is TextBox { AcceptsReturn: true } && IsShiftDown()))
+            {
+                e.Handled = true;
+                enter();
+            }
+        };
+    }
+
+    private static bool IsShiftDown() =>
+        Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+    /// <summary>Нажать кнопку, если её сейчас можно нажать.</summary>
+    public static bool CanPress(Control button) => button.IsEnabled && button.Visibility == Visibility.Visible;
+
+    private const uint MbOk = 0, MbOkCancel = 1, MbIconWarning = 0x30, MbIconError = 0x10,
+        MbDefButton2 = 0x100, MbSetForeground = 0x10000, MbTopmost = 0x40000;
+
+    /// <summary>Системное окно с вопросом «ОК / Отмена»; Отмена выбрана заранее.</summary>
+    public static bool Confirm(string text, IntPtr owner = 0) =>
+        MessageBoxW(owner, text, "Zamok", MbOkCancel | MbIconWarning | MbDefButton2 | MbSetForeground | MbTopmost) == 1;
+
+    /// <summary>Системное окно с ошибкой: годится и когда своего окна нет (<c>--lock</c>).</summary>
+    public static void Error(string text, IntPtr owner = 0) =>
+        MessageBoxW(owner, text, "Zamok", MbOk | MbIconError | MbSetForeground | MbTopmost);
+
     [LibraryImport("user32.dll")]
     private static partial uint GetDpiForWindow(IntPtr hwnd);
+
+    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int MessageBoxW(IntPtr hwnd, string text, string caption, uint type);
 }
 
 /// <summary>Строки интерфейса из Strings\&lt;язык&gt;\Resources.resw.</summary>

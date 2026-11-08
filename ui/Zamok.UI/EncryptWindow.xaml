@@ -40,10 +40,9 @@
                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                     <TextBlock x:Name="Heading" AutomationProperties.AutomationId="Heading"
-                               FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                    <TextBlock x:Name="StepText" Style="{StaticResource CaptionTextBlockStyle}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                               FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock x:Name="StepText" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
             </Grid>
 
@@ -74,7 +73,6 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <TextBlock x:Uid="Encrypt_KeyIntro" TextWrapping="Wrap"
-                           Style="{StaticResource CaptionTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 <!-- Сетка 11 x 4 из отдельных ячеек на карточке: слово не отрывается от номера.
                      Экранный диктор читает весь ключ из имени области. -->
@@ -116,7 +114,6 @@
             <!-- 3. Проверка 4 слов -->
             <StackPanel x:Name="PageVerify" Grid.Row="1" Spacing="8" Visibility="Collapsed">
                 <TextBlock x:Uid="Encrypt_VerifyIntro" TextWrapping="Wrap"
-                           Style="{StaticResource CaptionTextBlockStyle}"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 <Grid ColumnSpacing="8" RowSpacing="8">
                     <Grid.ColumnDefinitions>

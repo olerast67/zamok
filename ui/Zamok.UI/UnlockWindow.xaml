@@ -49,10 +49,10 @@
                     <TranslateTransform x:Name="Shake" />
                 </Grid.RenderTransform>
                 <PasswordBox x:Name="Password" AutomationProperties.AutomationId="Password"
-                             x:Uid="Unlock_Password" PasswordRevealMode="Peek" KeyDown="OnInputKeyDown" />
+                             x:Uid="Unlock_Password" PasswordRevealMode="Peek" />
                 <TextBox x:Name="RecoveryWords" AutomationProperties.AutomationId="RecoveryWords"
                          x:Uid="Unlock_RecoveryWords" Visibility="Collapsed" AcceptsReturn="True"
-                         TextWrapping="Wrap" Height="88" IsSpellCheckEnabled="False" FontSize="12" />
+                         TextWrapping="Wrap" Height="88" IsSpellCheckEnabled="False" />
             </Grid>
 
             <TextBlock x:Name="ErrorText" AutomationProperties.AutomationId="ErrorText"
@@ -68,24 +68,24 @@
             </Button>
 
             <HyperlinkButton x:Name="ModeLink" AutomationProperties.AutomationId="ModeLink"
-                             x:Uid="Unlock_UseRecovery" Padding="0" FontSize="12" Click="OnModeClick" />
+                             x:Uid="Unlock_UseRecovery" Padding="0" Click="OnModeClick" />
         </StackPanel>
 
         <Grid Grid.Row="2" Padding="24,16" ColumnSpacing="8"
               Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"
               BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
-            <Button x:Name="OpenButton" AutomationProperties.AutomationId="OpenButton"
+            <ProgressRing x:Name="Busy" IsActive="False" Width="16" Height="16" Visibility="Collapsed" />
+            <Button x:Name="OpenButton" Grid.Column="1" AutomationProperties.AutomationId="OpenButton"
                     x:Uid="Unlock_Open" Style="{StaticResource AccentButtonStyle}"
                     HorizontalAlignment="Stretch" Click="OnOpenClick">
             </Button>
-            <Button x:Name="CancelButton" Grid.Column="1" AutomationProperties.AutomationId="CancelButton"
+            <Button x:Name="CancelButton" Grid.Column="2" AutomationProperties.AutomationId="CancelButton"
                     x:Uid="Common_Cancel" HorizontalAlignment="Stretch" Click="OnCancelClick" />
-            <ProgressRing x:Name="Busy" IsActive="False" Width="16" Height="16"
-                          HorizontalAlignment="Left" Margin="12,0,0,0" />
         </Grid>
     </Grid>
 </Window>
