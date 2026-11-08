@@ -41,10 +41,13 @@ fn safe_name(name: &str) -> Result<()> {
         .unwrap_or("")
         .trim_end()
         .to_ascii_uppercase();
-    let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
-            && stem.len() == 4
-            && stem.as_bytes()[3].is_ascii_digit());
+    let chars: Vec<char> = stem.chars().collect();
+    let reserved = matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) || (chars.len() == 4
+        && (stem.starts_with("COM") || stem.starts_with("LPT"))
+        && matches!(chars[3], '0'..='9' | '\u{00B9}' | '\u{00B2}' | '\u{00B3}'));
     let bad = name.is_empty()
         || name == "."
         || name == ".."
@@ -247,7 +250,21 @@ mod tests {
     #[test]
     fn rejects_path_tricks() {
         for bad in [
-            "..", ".", "a/b", "a\\b", "c:", "x\0y", "", "CON", "nul.txt", "com1.log", "end.",
+            "..",
+            ".",
+            "a/b",
+            "a\\b",
+            "c:",
+            "x\0y",
+            "",
+            "CON",
+            "nul.txt",
+            "com1.log",
+            "COM¹",
+            "lpt².txt",
+            "conin$",
+            "CONOUT$.x",
+            "end.",
             "end ",
         ] {
             assert!(safe_name(bad).is_err(), "{bad:?}");
