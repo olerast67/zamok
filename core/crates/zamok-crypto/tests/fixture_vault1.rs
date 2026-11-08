@@ -176,3 +176,36 @@ fn cryptomator_recovery_key_matches() {
     let vault = Vault::open_with_key(&r.join("tests/fixtures/vault1"), key).unwrap();
     assert!(!vault.walk().unwrap().is_empty());
 }
+
+#[test]
+fn dirid_backup_file_holds_encrypted_dir_id() {
+    // Cryptomator 1.19 кладёт в каждый каталог d/XX/... файл dirid.c9r:
+    // зашифрованное как обычный файл содержимое = ID этого каталога.
+    let r = repo();
+    let root = r.join("tests/fixtures/vault1");
+    let vault = Vault::open_with_password(&root, "zamok-test-1").unwrap();
+    let key = vault.key();
+    let mut checked = 0;
+    let mut ids = vec![String::new()];
+    // ID всех каталогов: корень и содержимое каждого dir.c9r
+    let mut stack = vec![root.join("d")];
+    while let Some(d) = stack.pop() {
+        for e in fs::read_dir(&d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.file_name().unwrap() == "dir.c9r" {
+                ids.push(fs::read_to_string(&p).unwrap());
+            }
+        }
+    }
+    for id in ids {
+        let backup = root
+            .join(zamok_crypto::names::dir_path(key, &id))
+            .join("dirid.c9r");
+        let data = zamok_crypto::content::decrypt_file(key, &fs::read(&backup).unwrap()).unwrap();
+        assert_eq!(String::from_utf8(data.to_vec()).unwrap(), id);
+        checked += 1;
+    }
+    assert!(checked >= 4);
+}

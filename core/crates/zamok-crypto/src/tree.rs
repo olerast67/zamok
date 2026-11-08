@@ -210,10 +210,24 @@ pub fn create_from_dir(src: &Path, dst: &Path, password: &str, scrypt_cost: u32)
     Ok(vault)
 }
 
+/// Записать запасную копию ID каталога `d/XX/.../dirid.c9r`, как Cryptomator 1.19:
+/// зашифрованный файл, содержимое = ID каталога. Помогает восстановить дерево,
+/// если `dir.c9r` в родителе потерян.
+pub fn write_dirid_backup(root: &Path, key: &MasterKey, dir_id: &str) -> Result<()> {
+    let dir = root.join(names::dir_path(key, dir_id));
+    fs::create_dir_all(&dir)?;
+    fs::write(
+        dir.join(names::DIRID_BACKUP_FILE),
+        content::encrypt_file(key, dir_id.as_bytes())?,
+    )?;
+    Ok(())
+}
+
 impl Vault {
     fn write_dir(&self, src: &Path, dir_id: &str) -> Result<()> {
         let dir = self.root.join(names::dir_path(&self.key, dir_id));
         fs::create_dir_all(&dir)?;
+        write_dirid_backup(&self.root, &self.key, dir_id)?;
         for entry in fs::read_dir(src)? {
             let entry = entry?;
             let name = entry

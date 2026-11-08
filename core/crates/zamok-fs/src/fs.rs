@@ -125,6 +125,10 @@ pub struct Control {
     listings: Mutex<HashMap<String, Listing>>,
     /// Растёт при каждом изменении каталогов: кэш, собранный во время изменения, не сохраняется.
     listing_epoch: AtomicU64,
+    /// Пути, о которых ядро WinFsp могло закэшировать сведения, пока папка открыта.
+    seen: Mutex<std::collections::HashSet<String>>,
+    /// Пути, по которым при запирании нужно сбросить кэш ядра (уведомлением).
+    pending_invalidate: Mutex<Vec<String>>,
 }
 
 pub struct ZamokFs {
@@ -190,11 +194,26 @@ impl Control {
         }
         self.dir_cache.lock().unwrap().clear();
         self.listings.lock().unwrap().clear();
+        let mut seen: Vec<String> = self.seen.lock().unwrap().drain().collect();
+        seen.push("\\".to_string());
+        self.pending_invalidate.lock().unwrap().extend(seen);
         *st = None; // MasterKey стирается при удалении (ZeroizeOnDrop)
     }
 
     pub fn is_locked(&self) -> bool {
         self.state.read().unwrap().is_none()
+    }
+
+    /// Ещё не все уведомления о запирании отправлены ядру.
+    pub fn invalidation_pending(&self) -> bool {
+        !self.pending_invalidate.lock().unwrap().is_empty()
+    }
+
+    fn remember(&self, path: &str) {
+        let mut seen = self.seen.lock().unwrap();
+        if seen.len() < 500_000 {
+            seen.insert(path.to_string());
+        }
     }
 }
 
@@ -209,6 +228,8 @@ impl ZamokFs {
             dir_cache: Mutex::new(HashMap::new()),
             listings: Mutex::new(HashMap::new()),
             listing_epoch: AtomicU64::new(0),
+            seen: Mutex::new(std::collections::HashSet::new()),
+            pending_invalidate: Mutex::new(Vec::new()),
         });
         Ok(ZamokFs {
             root: root.to_path_buf(),
@@ -615,7 +636,12 @@ impl ZamokFs {
         if is_dir {
             let id = zamok_crypto::uuid_v4().map_err(|_| FspError::from(STATUS_ACCESS_DENIED))?;
             fs::write(node_path.join(DIR_FILE), &id).map_err(ioerr)?;
-            fs::create_dir_all(self.dir_physical(u, &id)).map_err(ioerr)?;
+            zamok_crypto::tree::write_dirid_backup(&self.root, &u.key, &id).map_err(
+                |e| match e {
+                    zamok_crypto::Error::Io(e) => ioerr(e),
+                    _ => FspError::from(STATUS_ACCESS_DENIED),
+                },
+            )?;
             Ok(Kind::Dir { id })
         } else {
             let content = if full.is_some() {
@@ -688,6 +714,7 @@ impl FileSystemContext for ZamokFs {
         } else {
             self.with_key(|u| {
                 let r = self.resolve(u, &path)?;
+                self.ctl.remember(&r.clear);
                 self.fill_info(&r, &mut info)
             })?;
         }
@@ -719,6 +746,7 @@ impl FileSystemContext for ZamokFs {
             if create_options & FILE_DIRECTORY_FILE != 0 && matches!(r.kind, Kind::File { .. }) {
                 return Err(STATUS_NOT_A_DIRECTORY.into());
             }
+            self.ctl.remember(&r.clear);
             self.fill_info(&r, file_info.as_mut())?;
             let cipher = match &r.kind {
                 Kind::File { .. } => None,
@@ -918,6 +946,7 @@ impl FileSystemContext for ZamokFs {
                         kind,
                     };
                     let mut fi = FileInfo::default();
+                    self.ctl.remember(&child.clear);
                     if self.fill_info(&child, &mut fi).is_ok() {
                         entries.push((clear, fi));
                     }
@@ -1170,5 +1199,31 @@ impl FileSystemContext for ZamokFs {
         out.free_size = free;
         out.set_volume_label("Zamok");
         Ok(())
+    }
+}
+
+impl winfsp::notify::NotifyingFileSystemContext<Vec<String>> for ZamokFs {
+    fn should_notify(&self) -> Option<Vec<String>> {
+        let mut p = self.ctl.pending_invalidate.lock().unwrap();
+        if p.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut *p))
+        }
+    }
+
+    /// Уведомление «удалён» по каждому пути: Проводник обновит окно, а ядро WinFsp
+    /// сбросит закэшированные сведения о файле (иначе имя было бы видно до FileInfoTimeout).
+    fn notify(&self, paths: Vec<String>, notifier: &winfsp::notify::Notifier) {
+        const FILTER: u32 = 0x1 | 0x2 | 0x4 | 0x8 | 0x10; // имя файла, имя каталога, атрибуты, размер, запись
+        const ACTION_REMOVED: u32 = 2;
+        for path in paths {
+            let mut info: winfsp::notify::NotifyInfo<1024> = winfsp::notify::NotifyInfo::new();
+            info.filter = FILTER;
+            info.action = ACTION_REMOVED;
+            if info.set_name(&path).is_ok() {
+                notifier.notify(&info);
+            }
+        }
     }
 }
