@@ -79,6 +79,12 @@ S = {
     "Manage_Show": ("Показать", "Show"),
     "Manage_Changed": ("Пароль изменён. Старый больше не открывает папку.", "The password has been changed. The old one no longer opens the folder."),
     "Menu_More": ("Zamok", "Zamok"),
+    "Manage_DecryptStep": ("Расшифровать навсегда", "Decrypt permanently"),
+    "Manage_DecryptWarning.Text": (
+        "Файлы станут обычными, без шифрования, и останутся на том же месте. Сначала создаётся проверенная расшифрованная копия, зашифрованные данные удаляются последними.",
+        "The files become ordinary, unencrypted, and stay in the same place. A checked decrypted copy is made first, the encrypted data is deleted last."),
+    "Manage_Decrypt": ("Расшифровать", "Decrypt"),
+    "Manage_Decrypted": ("Папка «{0}» расшифрована и снова обычная.", "The folder \u201c{0}\u201d is decrypted and ordinary again."),
     # Ошибки: Error_<код ответа core>
     "Error_core_not_running": ("Фоновая программа Zamok не запущена.", "The Zamok background program is not running."),
     "Error_core_not_trusted": ("На связи не программа Zamok этого пользователя. Пароль не отправлен.",

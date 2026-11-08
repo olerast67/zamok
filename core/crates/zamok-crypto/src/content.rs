@@ -202,6 +202,38 @@ pub fn encrypt_stream(
     Ok((total, hash.finalize().into()))
 }
 
+/// Расшифровать поток в `output` кусками, не держа файл в памяти. Возвращает длину и SHA-256
+/// записанного открытого текста.
+pub fn decrypt_stream(
+    key: &MasterKey,
+    input: &mut impl std::io::Read,
+    output: &mut impl std::io::Write,
+) -> Result<Digest> {
+    use sha2::{Digest as _, Sha256};
+    let mut hbuf = [0u8; HEADER_LEN];
+    if read_full(input, &mut hbuf)? != HEADER_LEN {
+        return Err(Error::BadLength);
+    }
+    let header = FileHeader::decrypt(key, &hbuf)?;
+    let mut buf = vec![0u8; CHUNK_LEN];
+    let mut hash = Sha256::new();
+    let mut total = 0u64;
+    for i in 0u64.. {
+        let n = read_full(input, &mut buf)?;
+        if n == 0 {
+            break;
+        }
+        let pt = header.decrypt_chunk(i, &buf[..n])?;
+        hash.update(&pt[..]);
+        output.write_all(&pt)?;
+        total += pt.len() as u64;
+        if n < CHUNK_LEN {
+            break;
+        }
+    }
+    Ok((total, hash.finalize().into()))
+}
+
 /// Расшифровать поток и посчитать длину и SHA-256 открытого текста, ничего не сохраняя.
 /// Для проверки зашифрованной копии против оригинала.
 pub fn decrypt_stream_digest(key: &MasterKey, input: &mut impl std::io::Read) -> Result<Digest> {

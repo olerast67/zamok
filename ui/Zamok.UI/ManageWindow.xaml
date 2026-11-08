@@ -48,6 +48,9 @@
 
             <!-- Пароль (старый) и новый пароль -->
             <StackPanel x:Name="PageInput" Grid.Row="1" Spacing="10">
+                <TextBlock x:Name="DecryptWarning" x:Uid="Manage_DecryptWarning" TextWrapping="Wrap"
+                           Visibility="Collapsed" Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 <PasswordBox x:Name="Password" AutomationProperties.AutomationId="Password"
                              x:Uid="Manage_Password" PasswordRevealMode="Peek" KeyDown="OnKeyDown" />
                 <PasswordBox x:Name="NewPassword1" AutomationProperties.AutomationId="NewPassword1"
@@ -98,6 +101,14 @@
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
             </Grid>
+
+            <!-- Ход расшифровки -->
+            <StackPanel x:Name="PageProgress" Grid.Row="1" Spacing="10" Visibility="Collapsed">
+                <ProgressBar x:Name="Progress" AutomationProperties.AutomationId="Progress" Maximum="1" />
+                <TextBlock x:Name="ProgressText" AutomationProperties.AutomationId="ProgressText"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
 
             <!-- Итог -->
             <StackPanel x:Name="PageDone" Grid.Row="1" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">

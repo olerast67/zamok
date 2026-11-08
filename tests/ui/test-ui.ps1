@@ -212,6 +212,21 @@ try {
     }
     $ui.Kill()
 
+    # Rasshifrovat navsegda cherez okno
+    $ui = StartUi '--decrypt', $dir2
+    $w = Window $ui.Id
+    Check 'decrypt window: wrong password is reported' {
+        SetValue $w 'Password' 'not it'; Start-Sleep -Milliseconds 300; Press $w 'OkButton'
+        WaitFor { IsText 'Error_wrong_password' (Text $w 'ErrorText') } 10000
+    }
+    Check 'decrypt window: folder becomes ordinary again' {
+        SetValue $w 'Password' $pw; Start-Sleep -Milliseconds 300; Press $w 'OkButton'
+        (WaitFor { (Text $w 'DoneText') -like '*nokey*' } 60000) -and -not (Folder $dir2) -and
+            -not ((Get-Item -LiteralPath $dir2 -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+            (Get-Content "$dir2\note.txt") -eq 'hello from ui test'
+    }
+    $ui.Kill()
+
     # Smenit parol i pokazat klyuch (podmenyu Zamok)
     $ui = StartUi '--change-password', $dir
     $w = Window $ui.Id

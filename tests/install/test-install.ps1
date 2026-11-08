@@ -131,21 +131,32 @@ try {
 
     # Punkty menyu po sostoyaniyu papki (uslovie AppliesTo perepisyvaet core)
     $verbName = @{}
-    foreach ($v in 'ZamokEncrypt', 'ZamokLock', 'ZamokUnlock', 'ZamokMore') { $verbName[$v] = (Get-ItemProperty "$cls\Directory\shell\$v").MUIVerb }
+    foreach ($v in 'ZamokEncrypt', 'ZamokLock', 'ZamokUnlock') { $verbName[$v] = (Get-ItemProperty "$cls\Directory\shell\$v").MUIVerb }
     function Verbs([string]$name) { @($shell.Namespace($root).ParseName($name).Verbs() | ForEach-Object { $_.Name }) }
     function HasOnly([string]$name, [string]$want) {
         $v = Verbs $name
-        $has = @('ZamokEncrypt', 'ZamokLock', 'ZamokUnlock', 'ZamokMore' | Where-Object { $v -contains $verbName[$_] })
+        $has = @('ZamokEncrypt', 'ZamokLock', 'ZamokUnlock' | Where-Object { $v -contains $verbName[$_] })
         ($has -join ',') -eq $want
     }
     New-Item -ItemType Directory -Force "$root\plain" | Out-Null
-    Check 'menu: open Zamok folder has Lock and the Zamok submenu' { WaitFor { HasOnly $ruName 'ZamokLock,ZamokMore' } 8000 }
+    Check 'menu items are in the Windows display language' {
+        Add-Type -Namespace ZamokTest -Name Lang -MemberDefinition '[DllImport("kernel32.dll")] public static extern ushort GetUserDefaultUILanguage();'
+        $ru = ([ZamokTest.Lang]::GetUserDefaultUILanguage() -band 0x3FF) -eq 0x19
+        $t = $verbName['ZamokUnlock']
+        if ($ru) { $t -ne 'Open with password' } else { $t -eq 'Open with password' }
+    }
+    Check 'menu: open Zamok folder has only Lock' { WaitFor { HasOnly $ruName 'ZamokLock' } 8000 }
+    # Podmenyu Zamok Shell.Application pokazyvaet bez imeni: proveryaem ego uslovie v reestre
+    Check 'menu: Zamok submenu applies to Zamok folders only' {
+        $at = (Get-ItemProperty "$cls\Directory\shell\ZamokMore").AppliesTo
+        $at.Contains('System.ItemPathDisplay:="' + $dir + '"') -and -not $at.Contains("$root\plain")
+    }
     Check 'menu: ordinary folder has only Encrypt' { HasOnly 'plain' 'ZamokEncrypt' }
     Check 'menu: Lock locks the folder without a window' {
         $shell.Namespace($root).ParseName($ruName).InvokeVerb('ZamokLock')
         WaitFor { (Folder $dir).state -eq 'locked' } 15000
     }
-    Check 'menu: locked Zamok folder has Open with password and the Zamok submenu' { WaitFor { HasOnly $ruName 'ZamokUnlock,ZamokMore' } 8000 }
+    Check 'menu: locked Zamok folder has only Open with password' { WaitFor { HasOnly $ruName 'ZamokUnlock' } 8000 }
     Check 'locked folder icon comes from folder-locked.ico' {
         $ini = [IO.File]::ReadAllText("$dir\desktop.ini", [Text.Encoding]::Unicode)
         $ini -like "*$installDir\folder-locked.ico*"

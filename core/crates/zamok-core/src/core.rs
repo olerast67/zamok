@@ -132,6 +132,9 @@ pub struct Core {
     entries: Mutex<Vec<Arc<Entry>>>,
     /// Работы шифрования этого запуска (для `job_status`).
     jobs: Mutex<Vec<Arc<Progress>>>,
+    /// Папки, которые сейчас расшифровываются навсегда: открывать их нельзя, иначе
+    /// изменения во время копирования потерялись бы.
+    busy: Mutex<std::collections::HashSet<String>>,
     quit: AtomicBool,
 }
 
@@ -147,6 +150,7 @@ impl Core {
             settings: Mutex::new(cfg),
             entries: Mutex::new(folders.into_iter().map(Entry::new).collect()),
             jobs: Mutex::new(Vec::new()),
+            busy: Mutex::new(std::collections::HashSet::new()),
             quit: AtomicBool::new(false),
         });
         let entries = core.entries.lock().unwrap().clone();
@@ -155,6 +159,7 @@ impl Core {
         }
         // Шифрования, прерванные сбоем: довести до конца или откатить
         crate::encrypt::recover(&core, data_dir);
+        crate::decrypt::recover(&core, data_dir);
         Ok(core)
     }
 
@@ -250,6 +255,9 @@ impl Core {
 
     pub fn unlock(&self, path: &str, password: &str) -> Result<FolderInfo, ErrorCode> {
         let e = self.find(path)?;
+        if self.is_busy(&e) {
+            return Err(ErrorCode::JobRunning);
+        }
         let epoch = e.lock_epoch.load(Ordering::SeqCst);
         let control = e.ensure_mounted()?;
         let id = e.cfg().id;
@@ -277,6 +285,9 @@ impl Core {
 
     pub fn unlock_recovery(&self, path: &str, words: &str) -> Result<FolderInfo, ErrorCode> {
         let e = self.find(path)?;
+        if self.is_busy(&e) {
+            return Err(ErrorCode::JobRunning);
+        }
         let epoch = e.lock_epoch.load(Ordering::SeqCst);
         let key = zamok_crypto::recovery::decode(words).map_err(|_| ErrorCode::WrongRecoveryKey)?;
         let control = e.ensure_mounted()?;
@@ -298,6 +309,47 @@ impl Core {
                 Err(ErrorCode::BadVault)
             }
         }
+    }
+
+    /// Путь, хранилище и время автозапирания зарегистрированной папки.
+    pub fn folder_paths(&self, path: &str) -> Result<(PathBuf, PathBuf, u64), ErrorCode> {
+        let c = self.find(path)?.cfg();
+        Ok((c.path, c.vault, c.idle_lock_secs))
+    }
+
+    /// Проверить пароль и получить мастер-ключ (без подключения папки).
+    pub fn verify_password(
+        &self,
+        path: &str,
+        password: &str,
+    ) -> Result<zamok_crypto::MasterKey, ErrorCode> {
+        self.master_key(path, password).map(|(_, k)| k)
+    }
+
+    /// Сколько файлов папки сейчас открыто программами.
+    pub fn open_files(&self, path: &str) -> usize {
+        self.find(path)
+            .ok()
+            .and_then(|e| e.control())
+            .map(|c| c.open_files())
+            .unwrap_or(0)
+    }
+
+    pub fn set_busy(&self, path: &Path, busy: bool) {
+        let key = config::normalize(path);
+        let mut b = self.busy.lock().unwrap();
+        if busy {
+            b.insert(key);
+        } else {
+            b.remove(&key);
+        }
+    }
+
+    fn is_busy(&self, e: &Entry) -> bool {
+        self.busy
+            .lock()
+            .unwrap()
+            .contains(&config::normalize(&e.cfg().path))
     }
 
     /// Мастер-ключ папки по паролю (из `masterkey.cryptomator`, без подключения).

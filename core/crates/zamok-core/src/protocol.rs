@@ -72,6 +72,11 @@ pub enum Request {
         path: String,
         password: Zeroizing<String>,
     },
+    /// Расшифровать навсегда: папка снова станет обычной. Ответ сразу, ход в `job_status`.
+    Decrypt {
+        path: String,
+        password: Zeroizing<String>,
+    },
     /// Запереть всё, отключить папки и завершиться.
     Quit,
 }

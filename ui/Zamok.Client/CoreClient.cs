@@ -89,6 +89,14 @@ public sealed partial class CoreClient
             w.WriteString("password", password);
         }, ct);
 
+    public Task<Response> DecryptAsync(string path, string password, CancellationToken ct = default) =>
+        SendAsync(w =>
+        {
+            w.WriteString("cmd", "decrypt");
+            w.WriteString("path", path);
+            w.WriteString("password", password);
+        }, ct);
+
     public Task<Response> JobStatusAsync(string id, CancellationToken ct = default) =>
         SendAsync(w =>
         {

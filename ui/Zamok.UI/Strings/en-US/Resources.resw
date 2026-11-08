@@ -64,6 +64,10 @@ How to open the folder with the key: in the locked folder double-click “Open {
   <data name="Manage_Show" xml:space="preserve"><value>Show</value></data>
   <data name="Manage_Changed" xml:space="preserve"><value>The password has been changed. The old one no longer opens the folder.</value></data>
   <data name="Menu_More" xml:space="preserve"><value>Zamok</value></data>
+  <data name="Manage_DecryptStep" xml:space="preserve"><value>Decrypt permanently</value></data>
+  <data name="Manage_DecryptWarning.Text" xml:space="preserve"><value>The files become ordinary, unencrypted, and stay in the same place. A checked decrypted copy is made first, the encrypted data is deleted last.</value></data>
+  <data name="Manage_Decrypt" xml:space="preserve"><value>Decrypt</value></data>
+  <data name="Manage_Decrypted" xml:space="preserve"><value>The folder “{0}” is decrypted and ordinary again.</value></data>
   <data name="Error_core_not_running" xml:space="preserve"><value>The Zamok background program is not running.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>The other side is not this user's Zamok program. The password was not sent.</value></data>
   <data name="Error_bad_request" xml:space="preserve"><value>Internal request error.</value></data>

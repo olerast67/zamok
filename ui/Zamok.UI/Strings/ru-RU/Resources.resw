@@ -64,6 +64,10 @@
   <data name="Manage_Show" xml:space="preserve"><value>Показать</value></data>
   <data name="Manage_Changed" xml:space="preserve"><value>Пароль изменён. Старый больше не открывает папку.</value></data>
   <data name="Menu_More" xml:space="preserve"><value>Zamok</value></data>
+  <data name="Manage_DecryptStep" xml:space="preserve"><value>Расшифровать навсегда</value></data>
+  <data name="Manage_DecryptWarning.Text" xml:space="preserve"><value>Файлы станут обычными, без шифрования, и останутся на том же месте. Сначала создаётся проверенная расшифрованная копия, зашифрованные данные удаляются последними.</value></data>
+  <data name="Manage_Decrypt" xml:space="preserve"><value>Расшифровать</value></data>
+  <data name="Manage_Decrypted" xml:space="preserve"><value>Папка «{0}» расшифрована и снова обычная.</value></data>
   <data name="Error_core_not_running" xml:space="preserve"><value>Фоновая программа Zamok не запущена.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>На связи не программа Zamok этого пользователя. Пароль не отправлен.</value></data>
   <data name="Error_bad_request" xml:space="preserve"><value>Внутренняя ошибка запроса.</value></data>

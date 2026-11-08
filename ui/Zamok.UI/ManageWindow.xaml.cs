@@ -7,11 +7,12 @@ namespace Zamok.UI;
 
 /// <summary>
 /// Пункты подменю Zamok: <c>--change-password</c> (старый пароль, новый дважды) и
-/// <c>--show-key</c> (пароль, затем ключ восстановления той же сеткой, что в мастере).
+/// <c>--show-key</c> (пароль, затем ключ восстановления той же сеткой, что в мастере),
+/// <c>--decrypt</c> («Расшифровать навсегда»: пароль, ход работы, итог).
 /// </summary>
 public sealed partial class ManageWindow : Window
 {
-    public enum Mode { ChangePassword, ShowKey }
+    public enum Mode { ChangePassword, ShowKey, Decrypt }
 
     private readonly Mode _mode;
     private readonly string _path;
@@ -27,15 +28,27 @@ public sealed partial class ManageWindow : Window
         _name = Path.GetFileName(_path);
         InitializeComponent();
         var change = mode == Mode.ChangePassword;
-        WindowHelper.SetupDialog(this, Root, TitleBar, TitleIcon, 440, change ? 400 : 290);
+        WindowHelper.SetupDialog(this, Root, TitleBar, TitleIcon, 440,
+            change ? 400 : mode == Mode.Decrypt ? 330 : 290);
         var icon = WindowHelper.FolderIcon(32);
         if (icon is not null) FolderIcon.Source = icon;
         else FallbackIcon.Visibility = Visibility.Visible;
         Heading.Text = _name;
-        StepText.Text = Strings.Get(change ? "Manage_ChangeStep" : "Manage_KeyStep");
+        StepText.Text = Strings.Get(mode switch
+        {
+            Mode.ChangePassword => "Manage_ChangeStep",
+            Mode.Decrypt => "Manage_DecryptStep",
+            _ => "Manage_KeyStep",
+        });
+        DecryptWarning.Visibility = mode == Mode.Decrypt ? Visibility.Visible : Visibility.Collapsed;
         NewPassword1.Visibility = NewPassword2.Visibility = StrengthBar.Visibility =
             StrengthText.Visibility = change ? Visibility.Visible : Visibility.Collapsed;
-        OkButton.Content = Strings.Get(change ? "Manage_Change" : "Manage_Show");
+        OkButton.Content = Strings.Get(mode switch
+        {
+            Mode.ChangePassword => "Manage_Change",
+            Mode.Decrypt => "Manage_Decrypt",
+            _ => "Manage_Show",
+        });
         UpdateOk();
         Activated += (_, _) => { if (!_done) Password.Focus(FocusState.Programmatic); };
         Password.PasswordChanged += (_, _) => UpdateOk();
@@ -61,14 +74,14 @@ public sealed partial class ManageWindow : Window
     {
         if (_done) { OkButton.IsEnabled = true; return; }
         OkButton.IsEnabled = !Busy.IsActive && Password.Password.Length > 0 &&
-            (_mode == Mode.ShowKey ||
+            (_mode != Mode.ChangePassword ||
              (NewPassword1.Password.Length >= PasswordStrength.MinLength &&
               NewPassword1.Password == NewPassword2.Password));
     }
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key == VirtualKey.Enter && _mode == Mode.ShowKey && OkButton.IsEnabled)
+        if (e.Key == VirtualKey.Enter && _mode != Mode.ChangePassword && OkButton.IsEnabled)
         {
             e.Handled = true;
             OnOkClick(sender, e);
@@ -95,6 +108,15 @@ public sealed partial class ManageWindow : Window
                 PageInput.Visibility = Visibility.Collapsed;
                 PageDone.Visibility = Visibility.Visible;
             }
+            else if (_mode == Mode.Decrypt)
+            {
+                var r = await _client.DecryptAsync(_path, Password.Password);
+                if (!r.Ok) { ShowError(Strings.Error(r.Error)); return; }
+                PageInput.Visibility = Visibility.Collapsed;
+                PageProgress.Visibility = Visibility.Visible;
+                OkButton.Visibility = CancelButton.Visibility = Visibility.Collapsed;
+                await WatchJob(r.Job!.Id);
+            }
             else
             {
                 var r = await _client.ShowRecoveryKeyAsync(_path, Password.Password);
@@ -119,6 +141,37 @@ public sealed partial class ManageWindow : Window
             Password.Password = NewPassword1.Password = NewPassword2.Password = "";
             Busy.IsActive = false;
             UpdateOk();
+        }
+    }
+
+    /// <summary>Следить за расшифровкой до конца. Закрытие окна работу не прерывает.</summary>
+    private async Task WatchJob(string id)
+    {
+        while (true)
+        {
+            JobInfo job;
+            try { job = (await _client.JobStatusAsync(id)).Job!; }
+            catch (CoreNotRunningException) { ShowError(Strings.Error("core_not_running")); return; }
+            Progress.Value = job.Fraction;
+            ProgressText.Text = Strings.Format("Encrypt_ProgressFiles", job.FilesDone, job.FilesTotal,
+                job.BytesDone / 1048576.0, job.BytesTotal / 1048576.0);
+            if (!job.IsRunning)
+            {
+                OkButton.Visibility = Visibility.Visible;
+                PageProgress.Visibility = Visibility.Collapsed;
+                if (job.IsDone)
+                {
+                    Finish(Strings.Format("Manage_Decrypted", _name), 440, 240);
+                    PageDone.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    Finish(null, 440, 260);
+                    ShowError(Strings.Error(job.Error));
+                }
+                return;
+            }
+            await Task.Delay(300);
         }
     }
 
