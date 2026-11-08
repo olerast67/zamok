@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use winfsp::host::{FileSystemHost, FileSystemParams, VolumeParams};
 
-use crate::fs::{Control, ZamokFs};
+use crate::fs::{Control, UnlockError, ZamokFs};
 
 /// Подключённая папка. Пока значение живо, том висит на пути; при удалении он отключается,
 /// а ключи стираются.
@@ -80,14 +80,14 @@ impl Mounted {
     }
 
     /// Открыть паролем и попросить Проводник обновить окно.
-    pub fn unlock_with_password(&self, password: &str) -> zamok_crypto::Result<()> {
+    pub fn unlock_with_password(&self, password: &str) -> Result<(), UnlockError> {
         self.control.unlock_with_password(password)?;
         notify_shell(&self.path);
         Ok(())
     }
 
     /// Открыть ключом (ключ восстановления) и попросить Проводник обновить окно.
-    pub fn unlock_with_key(&self, key: zamok_crypto::MasterKey) -> zamok_crypto::Result<()> {
+    pub fn unlock_with_key(&self, key: zamok_crypto::MasterKey) -> Result<(), UnlockError> {
         self.control.unlock_with_key(key)?;
         notify_shell(&self.path);
         Ok(())

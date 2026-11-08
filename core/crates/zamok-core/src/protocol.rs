@@ -64,6 +64,8 @@ pub enum ErrorCode {
     /// Нет хранилища по указанному пути или оно повреждено.
     BadVault,
     MountFailed,
+    /// Папку заперли (Win+L, сон, «запереть всё»), пока проверялся пароль.
+    UnlockCancelled,
     Internal,
 }
 

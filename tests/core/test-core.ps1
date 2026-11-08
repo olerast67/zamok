@@ -173,6 +173,30 @@ try {
     [void](Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}")
     Check 'sleep (WM_POWERBROADCAST, PBT_APMSUSPEND) locks' { PostToCore 0x0218 4; WaitFor { (State) -eq 'locked' } 5000 }
     [void](Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}")
+    Check 'user switch (WTS_CONSOLE_DISCONNECT) locks' { PostToCore 0x02B1 2; WaitFor { (State) -eq 'locked' } 5000 }
+    Check 'lock_all during the password check: folder ends locked, unlock cancelled' {
+        # Zapros otkrytiya ushel, scrypt schitaet; v eto vremya prihodit lock_all.
+        # Pri lyubom raskladke papka v konce zaperta; otmenu dostatochno poymat hotya by raz.
+        $cancelled = 0
+        foreach ($delay in 0, 10, 20, 30, 40) {
+            $c = New-Object IO.Pipes.NamedPipeClientStream '.', $pipeName, 'InOut'
+            $c.Connect(5000)
+            $enc = New-Object Text.UTF8Encoding $false
+            $w = New-Object IO.StreamWriter $c, $enc; $w.AutoFlush = $true
+            $r = New-Object IO.StreamReader $c, $enc
+            $w.WriteLine("{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}")
+            Start-Sleep -Milliseconds $delay
+            [void](Send '{"cmd":"lock_all"}')
+            $resp = $r.ReadLine() | ConvertFrom-Json
+            $c.Dispose()
+            $st = State
+            if ($st -ne 'locked') { throw "delay=$delay state=$st resp=$($resp | ConvertTo-Json -Compress)" }
+            if ($resp.error -eq 'unlock_cancelled') { $cancelled++ }
+        }
+        if ($cancelled -eq 0) { throw 'never caught the unlock in progress' }
+        "cancelled $cancelled of 5"
+    }
+    [void](Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}")
     Check 'session unlock message does not lock' { PostToCore 0x02B1 8; Start-Sleep 1; (State) -eq 'unlocked' }
 
     # Avtozapiranie po bezdeystviyu

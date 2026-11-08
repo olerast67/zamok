@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use zamok_fs::fs::Control;
+use zamok_fs::fs::{Control, UnlockError};
 use zamok_fs::mount::{notify_shell, settle_lock, Mounted};
 
 use crate::config::{self, Config, FolderConfig, DEFAULT_IDLE_LOCK_SECS};
@@ -186,7 +186,11 @@ impl Core {
                 tracing::info!(folder = %id, "unlocked with password");
                 Ok(e.info())
             }
-            Err(zamok_crypto::Error::WrongPassword) => {
+            Err(UnlockError::Cancelled) => {
+                tracing::info!(folder = %id, "unlock cancelled by a lock");
+                Err(ErrorCode::UnlockCancelled)
+            }
+            Err(UnlockError::Crypto(zamok_crypto::Error::WrongPassword)) => {
                 tracing::info!(folder = %id, "wrong password");
                 Err(ErrorCode::WrongPassword)
             }
@@ -209,7 +213,10 @@ impl Core {
                 Ok(e.info())
             }
             // Подпись настроек хранилища не сошлась: ключ от другой папки
-            Err(zamok_crypto::Error::BadVaultConfig) => Err(ErrorCode::WrongRecoveryKey),
+            Err(UnlockError::Crypto(zamok_crypto::Error::BadVaultConfig)) => {
+                Err(ErrorCode::WrongRecoveryKey)
+            }
+            Err(UnlockError::Cancelled) => Err(ErrorCode::UnlockCancelled),
             Err(err) => {
                 tracing::warn!(folder = %id, error = %err, "unlock with recovery key failed");
                 Err(ErrorCode::BadVault)
@@ -220,7 +227,9 @@ impl Core {
     pub fn lock(&self, path: &str) -> Result<FolderInfo, ErrorCode> {
         let e = self.find(path)?;
         if let Some(c) = e.control() {
-            if !c.is_locked() {
+            if c.is_locked() {
+                c.cancel_unlocks();
+            } else {
                 c.lock();
                 settle_lock(&c, &e.cfg().path);
                 tracing::info!(folder = %e.cfg().id, "locked by request");
@@ -236,7 +245,10 @@ impl Core {
         let mut locked = Vec::new();
         for e in entries {
             if let Some(c) = e.control() {
-                if !c.is_locked() {
+                if c.is_locked() {
+                    // Пароль к этой папке, возможно, как раз проверяется: отменить
+                    c.cancel_unlocks();
+                } else {
                     c.lock();
                     locked.push((c, e.cfg().path));
                 }

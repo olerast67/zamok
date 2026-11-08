@@ -1422,6 +1422,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "rpassword",
+ "tempfile",
  "thiserror",
  "windows 0.62.2",
  "winfsp",

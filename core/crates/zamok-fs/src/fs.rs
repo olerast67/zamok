@@ -92,6 +92,22 @@ enum Virtual {
     DesktopIni,
 }
 
+/// Почему папка не открылась.
+#[derive(Debug, thiserror::Error)]
+pub enum UnlockError {
+    #[error(transparent)]
+    Crypto(#[from] zamok_crypto::Error),
+    /// Папку заперли, пока проверялся пароль: открытие отменено.
+    #[error("unlock cancelled: the folder was locked meanwhile")]
+    Cancelled,
+}
+
+impl From<std::io::Error> for UnlockError {
+    fn from(e: std::io::Error) -> Self {
+        UnlockError::Crypto(e.into())
+    }
+}
+
 pub struct ZFile {
     path: Mutex<String>,
     kind: Mutex<Option<Kind>>,
@@ -177,19 +193,44 @@ fn valid_name(name: &str) -> bool {
 
 impl Control {
     /// Открыть паролем. Неверный пароль оставляет папку запертой.
-    pub fn unlock_with_password(&self, password: &str) -> zamok_crypto::Result<()> {
+    ///
+    /// Проверка пароля (scrypt) идёт около секунды. Если за это время папку заперли или
+    /// отменили открытие ([`Control::cancel_unlocks`], например по Win+L), ключ выбрасывается
+    /// и возвращается [`UnlockError::Cancelled`].
+    pub fn unlock_with_password(&self, password: &str) -> Result<(), UnlockError> {
+        let started = self.generation.load(Ordering::SeqCst);
         let mk = MasterkeyFile::from_json(&fs::read_to_string(
             self.root.join("masterkey.cryptomator"),
         )?)?;
-        self.unlock_with_key(mk.unlock(password)?)
+        let key = mk.unlock(password)?;
+        self.commit_unlock(key, started)
     }
 
-    pub fn unlock_with_key(&self, key: MasterKey) -> zamok_crypto::Result<()> {
+    /// Открыть ключом (ключ восстановления). Отмена так же, как у пароля.
+    pub fn unlock_with_key(&self, key: MasterKey) -> Result<(), UnlockError> {
+        let started = self.generation.load(Ordering::SeqCst);
+        self.commit_unlock(key, started)
+    }
+
+    fn commit_unlock(&self, key: MasterKey, started: u64) -> Result<(), UnlockError> {
         let jwt = fs::read_to_string(self.root.join("vault.cryptomator"))?;
         let config = VaultConfig::from_jwt(&jwt, &key)?;
-        *self.state.write().unwrap() = Some(Unlocked { key, config });
+        let mut st = self.state.write().unwrap();
+        // lock и cancel_unlocks меняют поколение под этим же замком
+        if self.generation.load(Ordering::SeqCst) != started {
+            return Err(UnlockError::Cancelled); // key стирается при удалении
+        }
+        *st = Some(Unlocked { key, config });
+        drop(st);
         self.touch();
         Ok(())
+    }
+
+    /// Отменить открытия, которые сейчас идут (проверяют пароль). Для запертой папки:
+    /// запирание всех папок должно остановить и их.
+    pub fn cancel_unlocks(&self) {
+        let _st = self.state.write().unwrap();
+        self.generation.fetch_add(1, Ordering::SeqCst);
     }
 
     /// Запереть: стереть мастер-ключ и ключи всех открытых файлов.

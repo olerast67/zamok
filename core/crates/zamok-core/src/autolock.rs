@@ -28,6 +28,8 @@ pub const WINDOW_CLASS: PCWSTR = w!("ZamokCoreWindow");
 /// Попросить цикл сообщений завершиться (из потока канала по команде `quit`).
 pub const WM_ZAMOK_QUIT: u32 = WM_APP + 1;
 
+const WTS_CONSOLE_DISCONNECT: usize = 0x2;
+const WTS_REMOTE_DISCONNECT: usize = 0x4;
 const WTS_SESSION_LOGOFF: usize = 0x6;
 const WTS_SESSION_LOCK: usize = 0x7;
 const IDLE_TIMER: usize = 1;
@@ -57,6 +59,11 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     lock_all_fast(core, "screen locked")
                 }
                 WTS_SESSION_LOGOFF => lock_all_fast(core, "logoff"),
+                // Смена пользователя, отключение удалённого рабочего стола: за компьютером
+                // может оказаться другой человек, запираем всегда, как при выходе
+                WTS_CONSOLE_DISCONNECT | WTS_REMOTE_DISCONNECT => {
+                    lock_all_fast(core, "session disconnected")
+                }
                 _ => {}
             }
             LRESULT(0)
