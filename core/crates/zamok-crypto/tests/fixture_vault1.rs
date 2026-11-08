@@ -124,3 +124,29 @@ fn our_vault_roundtrips_through_our_reader() {
     let _ = fs::remove_dir_all(&out);
     assert!(ok);
 }
+
+#[test]
+fn directory_cycle_is_rejected() {
+    // Испорченное хранилище: папка ссылается на корень. Обход должен остановиться с ошибкой.
+    let r = repo();
+    let dst = std::env::temp_dir().join(format!("zamok-cycle-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dst);
+    zamok_crypto::tree::create_from_dir(&r.join("tests/fixtures-src/vault1"), &dst, "pw", 1 << 4)
+        .unwrap();
+    let mut dir_files = Vec::new();
+    let mut stack = vec![dst.join("d")];
+    while let Some(d) = stack.pop() {
+        for e in fs::read_dir(&d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.file_name().unwrap() == "dir.c9r" {
+                dir_files.push(p);
+            }
+        }
+    }
+    fs::write(&dir_files[0], "").unwrap();
+    let res = Vault::open_with_password(&dst, "pw").unwrap().walk();
+    let _ = fs::remove_dir_all(&dst);
+    assert!(res.is_err());
+}

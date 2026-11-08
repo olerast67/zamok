@@ -28,20 +28,39 @@ pub enum Node {
 }
 
 fn safe_name(name: &str) -> Result<()> {
+    let bad_char = |c: char| {
+        matches!(
+            c,
+            '/' | '\\' | '\0' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+        ) || (c as u32) < 32
+    };
+    // Зарезервированные имена устройств Windows: CON, NUL, COM1 и т. п., в том числе с расширением
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end()
+        .to_ascii_uppercase();
+    let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && stem.as_bytes()[3].is_ascii_digit());
     let bad = name.is_empty()
         || name == "."
         || name == ".."
-        || name.chars().any(|c| {
-            matches!(
-                c,
-                '/' | '\\' | '\0' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
-            ) || (c as u32) < 32
-        });
+        || name.ends_with('.')
+        || name.ends_with(' ')
+        || reserved
+        || name.chars().any(bad_char);
     if bad {
         return Err(Error::Authentication);
     }
     Ok(())
 }
+
+/// Пределы обхода: защищают от испорченного хранилища, где каталоги ссылаются друг на друга.
+const MAX_DEPTH: usize = 256;
+const MAX_NODES: usize = 10_000_000;
 
 impl Vault {
     pub fn open_with_password(root: &Path, password: &str) -> Result<Self> {
@@ -68,8 +87,10 @@ impl Vault {
     /// Все узлы дерева, начиная с корня (ID корня пустой).
     pub fn walk(&self) -> Result<Vec<Node>> {
         let mut out = Vec::new();
-        let mut stack = vec![(String::new(), String::new())]; // (ID каталога, путь)
-        while let Some((dir_id, path)) = stack.pop() {
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(String::new());
+        let mut stack = vec![(String::new(), String::new(), 0usize)]; // (ID каталога, путь, глубина)
+        while let Some((dir_id, path, depth)) = stack.pop() {
             let dir = self.root.join(names::dir_path(&self.key, &dir_id));
             for entry in fs::read_dir(&dir)? {
                 let entry = entry?;
@@ -90,6 +111,9 @@ impl Vault {
                 if fname == names::DIRID_BACKUP_FILE {
                     continue;
                 }
+                if out.len() >= MAX_NODES {
+                    return Err(Error::Authentication);
+                }
                 let name = names::decrypt_name(&self.key, &enc_name, &dir_id)?;
                 safe_name(&name)?;
                 let child = if path.is_empty() {
@@ -105,7 +129,11 @@ impl Vault {
                     out.push(Node::Dir {
                         path: child.clone(),
                     });
-                    stack.push((child_id, child));
+                    // Каталог, который уже встречался, или слишком глубокое дерево: хранилище испорчено
+                    if !visited.insert(child_id.clone()) || depth + 1 > MAX_DEPTH {
+                        return Err(Error::Authentication);
+                    }
+                    stack.push((child_id, child, depth + 1));
                 } else if is_dir_node && node_dir.join(SYMLINK_FILE).is_file() {
                     out.push(Node::Symlink { path: child });
                 } else if is_dir_node && node_dir.join(CONTENTS_FILE).is_file() {
@@ -138,7 +166,13 @@ impl Vault {
                         fs::create_dir_all(parent)?;
                     }
                     let data = content::decrypt_file(&self.key, &fs::read(ciphertext)?)?;
-                    fs::write(target, &*data)?;
+                    // create_new: два одинаковых имени (или разный регистр) не перезапишут друг друга
+                    use std::io::Write;
+                    let mut f = fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&target)?;
+                    f.write_all(&data)?;
                     files += 1;
                 }
                 Node::Symlink { .. } => {}
@@ -212,7 +246,10 @@ mod tests {
 
     #[test]
     fn rejects_path_tricks() {
-        for bad in ["..", ".", "a/b", "a\\b", "c:", "x\0y", ""] {
+        for bad in [
+            "..", ".", "a/b", "a\\b", "c:", "x\0y", "", "CON", "nul.txt", "com1.log", "end.",
+            "end ",
+        ] {
             assert!(safe_name(bad).is_err(), "{bad:?}");
         }
         assert!(safe_name("Отчёт 2026.docx").is_ok());
