@@ -11,7 +11,8 @@ use windows::Win32::Security::{
 };
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
-fn current_user_sid() -> anyhow::Result<String> {
+/// SID текущего пользователя строкой (`S-1-5-21-…`).
+pub fn current_user_sid() -> anyhow::Result<String> {
     unsafe {
         let mut token = HANDLE::default();
         OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token)?;

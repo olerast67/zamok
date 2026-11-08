@@ -132,6 +132,11 @@ pub struct Control {
     /// Какой-то путь не удалось сбросить уведомлением (переполнение или слишком длинный путь):
     /// перед ответом «заперто» нужно дождаться, пока кэш ядра истечёт сам.
     fallback_wait: AtomicBool,
+    /// Отсчёт для [`Control::idle_for`].
+    started: std::time::Instant,
+    /// Когда в папке последний раз читали, писали, создавали, переименовывали или смотрели
+    /// содержимое каталога (миллисекунды от `started`).
+    last_activity_ms: AtomicU64,
 }
 
 pub struct ZamokFs {
@@ -183,6 +188,7 @@ impl Control {
         let jwt = fs::read_to_string(self.root.join("vault.cryptomator"))?;
         let config = VaultConfig::from_jwt(&jwt, &key)?;
         *self.state.write().unwrap() = Some(Unlocked { key, config });
+        self.touch();
         Ok(())
     }
 
@@ -217,6 +223,19 @@ impl Control {
         !self.pending_invalidate.lock().unwrap().is_empty()
     }
 
+    /// Отметить работу с папкой (для автозапирания по бездействию).
+    pub fn touch(&self) {
+        let ms = self.started.elapsed().as_millis() as u64;
+        self.last_activity_ms.fetch_max(ms, Ordering::Relaxed);
+    }
+
+    /// Сколько времени с папкой ничего не делали (с момента открытия или последнего обращения).
+    pub fn idle_for(&self) -> std::time::Duration {
+        let now = self.started.elapsed().as_millis() as u64;
+        let last = self.last_activity_ms.load(Ordering::Relaxed);
+        std::time::Duration::from_millis(now.saturating_sub(last))
+    }
+
     fn remember(&self, path: &str) {
         let mut seen = self.seen.lock().unwrap();
         if seen.len() < 500_000 {
@@ -241,6 +260,8 @@ impl ZamokFs {
             seen: Mutex::new(std::collections::HashSet::new()),
             pending_invalidate: Mutex::new(Vec::new()),
             fallback_wait: AtomicBool::new(false),
+            started: std::time::Instant::now(),
+            last_activity_ms: AtomicU64::new(0),
         });
         Ok(ZamokFs {
             root: root.to_path_buf(),
@@ -786,6 +807,7 @@ impl FileSystemContext for ZamokFs {
         _extra_buffer_is_reparse_point: bool,
         file_info: &mut OpenFileInfo,
     ) -> FsResult<Self::FileContext> {
+        self.ctl.touch();
         let path = file_name.to_string_lossy();
         self.with_key(|u| {
             let (parent, name) = parent_and_name(&path)?;
@@ -891,6 +913,7 @@ impl FileSystemContext for ZamokFs {
         _extra_buffer: Option<&[u8]>,
         file_info: &mut FileInfo,
     ) -> FsResult<()> {
+        self.ctl.touch();
         self.check(context)?;
         let c = self.cipher_of(context)?;
         c.lock().unwrap().set_len(0).map_err(cerr)?;
@@ -915,6 +938,7 @@ impl FileSystemContext for ZamokFs {
         marker: DirMarker,
         buffer: &mut [u8],
     ) -> FsResult<u32> {
+        self.ctl.touch();
         self.check(context)?;
         let mut entries: Vec<(String, FileInfo)> = Vec::new();
         let path = context.path.lock().unwrap().clone();
@@ -984,6 +1008,7 @@ impl FileSystemContext for ZamokFs {
         new_file_name: &U16CStr,
         replace_if_exists: bool,
     ) -> FsResult<()> {
+        self.ctl.touch();
         self.check(context)?;
         let old_path = context.path.lock().unwrap().clone();
         let new_path = new_file_name.to_string_lossy();
@@ -1119,6 +1144,7 @@ impl FileSystemContext for ZamokFs {
         _file_name: &U16CStr,
         delete_file: bool,
     ) -> FsResult<()> {
+        self.ctl.touch();
         self.check(context)?;
         if context.virt.is_some() {
             return Err(STATUS_ACCESS_DENIED.into());
@@ -1142,6 +1168,7 @@ impl FileSystemContext for ZamokFs {
         set_allocation_size: bool,
         file_info: &mut FileInfo,
     ) -> FsResult<()> {
+        self.ctl.touch();
         self.check(context)?;
         let c = self.cipher_of(context)?;
         {
@@ -1155,6 +1182,7 @@ impl FileSystemContext for ZamokFs {
     }
 
     fn read(&self, context: &Self::FileContext, buffer: &mut [u8], offset: u64) -> FsResult<u32> {
+        self.ctl.touch();
         self.check(context)?;
         if let Some(v) = &context.virt {
             let data = self.virtual_content(v);
@@ -1182,6 +1210,7 @@ impl FileSystemContext for ZamokFs {
         constrained_io: bool,
         file_info: &mut FileInfo,
     ) -> FsResult<u32> {
+        self.ctl.touch();
         self.check(context)?;
         let c = self.cipher_of(context)?;
         let written = {

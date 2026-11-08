@@ -1,0 +1,367 @@
+//! Состояние всех папок и операции над ними: подключить, открыть, запереть, добавить, убрать.
+//!
+//! Блокировки короткие: долгие действия (проверка пароля через scrypt около секунды,
+//! ожидание сброса кэша ядра) идут без общего замка, поэтому `status` и запирание
+//! других папок не ждут, пока кто-то вводит пароль.
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+
+use zamok_fs::fs::Control;
+use zamok_fs::mount::{notify_shell, settle_lock, Mounted};
+
+use crate::config::{self, Config, FolderConfig, DEFAULT_IDLE_LOCK_SECS};
+use crate::mountpoint::{self, PathState};
+use crate::protocol::{ErrorCode, FolderInfo, FolderState};
+
+pub struct Entry {
+    cfg: Mutex<FolderConfig>,
+    /// Подключённый том. `None`: не подключена (см. `error`).
+    mounted: Mutex<Option<Mounted>>,
+    /// Копия управления томом, чтобы открывать и запирать, не держа `mounted`.
+    control: Mutex<Option<Arc<Control>>>,
+    error: Mutex<Option<ErrorCode>>,
+}
+
+impl Entry {
+    fn new(cfg: FolderConfig) -> Arc<Self> {
+        Arc::new(Entry {
+            cfg: Mutex::new(cfg),
+            mounted: Mutex::new(None),
+            control: Mutex::new(None),
+            error: Mutex::new(None),
+        })
+    }
+
+    fn cfg(&self) -> FolderConfig {
+        self.cfg.lock().unwrap().clone()
+    }
+
+    fn control(&self) -> Option<Arc<Control>> {
+        self.control.lock().unwrap().clone()
+    }
+
+    fn info(&self) -> FolderInfo {
+        let cfg = self.cfg();
+        let state = match self.control() {
+            None => FolderState::Unavailable,
+            Some(c) if c.is_locked() => FolderState::Locked,
+            Some(_) => FolderState::Unlocked,
+        };
+        FolderInfo {
+            id: cfg.id.clone(),
+            name: cfg.name(),
+            path: cfg.path.to_string_lossy().into_owned(),
+            state,
+            idle_lock_secs: cfg.idle_lock_secs,
+            error: *self.error.lock().unwrap(),
+        }
+    }
+
+    /// Подключить запертой, если ещё не подключена.
+    fn ensure_mounted(&self) -> Result<Arc<Control>, ErrorCode> {
+        let mut mounted = self.mounted.lock().unwrap();
+        if let Some(m) = mounted.as_ref() {
+            return Ok(m.control().clone());
+        }
+        let cfg = self.cfg();
+        let result = mount_folder(&cfg);
+        *self.error.lock().unwrap() = result.as_ref().err().copied();
+        let m = result?;
+        let control = m.control().clone();
+        *self.control.lock().unwrap() = Some(control.clone());
+        *mounted = Some(m);
+        tracing::info!(folder = %cfg.id, "mounted (locked)");
+        Ok(control)
+    }
+
+    fn unmount(&self) {
+        *self.control.lock().unwrap() = None;
+        // Drop стирает ключи и отключает том
+        drop(self.mounted.lock().unwrap().take());
+    }
+}
+
+fn vault_looks_valid(vault: &Path) -> bool {
+    vault.join("masterkey.cryptomator").is_file() && vault.join("vault.cryptomator").is_file()
+}
+
+fn mount_folder(cfg: &FolderConfig) -> Result<Mounted, ErrorCode> {
+    if !vault_looks_valid(&cfg.vault) {
+        tracing::warn!(folder = %cfg.id, "vault files are missing");
+        return Err(ErrorCode::BadVault);
+    }
+    match mountpoint::prepare(&cfg.path) {
+        Ok(()) => {}
+        Err(PathState::StaleMount) => {
+            tracing::warn!(folder = %cfg.id, "stale mount point could not be removed");
+            return Err(ErrorCode::MountFailed);
+        }
+        Err(state) => {
+            tracing::warn!(folder = %cfg.id, ?state, "mount path is occupied");
+            return Err(ErrorCode::PathOccupied);
+        }
+    }
+    Mounted::mount(&cfg.vault, &cfg.path, &cfg.name()).map_err(|e| {
+        // Текст ошибки WinFsp без путей: код NTSTATUS
+        tracing::warn!(folder = %cfg.id, error = %e, "mount failed");
+        ErrorCode::MountFailed
+    })
+}
+
+pub struct Core {
+    data_dir: PathBuf,
+    /// Общие настройки; список папок в нём не используется (он в `entries`).
+    settings: Mutex<Config>,
+    entries: Mutex<Vec<Arc<Entry>>>,
+    quit: AtomicBool,
+}
+
+impl Core {
+    /// Прочитать список и подключить все папки запертыми. Папки, которые не подключились
+    /// (диск не вставлен, путь занят), остаются в списке с ошибкой; при открытии core
+    /// попробует подключить их ещё раз.
+    pub fn start(data_dir: &Path) -> anyhow::Result<Arc<Self>> {
+        let mut cfg = Config::load(data_dir)?;
+        let folders = std::mem::take(&mut cfg.folders);
+        let core = Arc::new(Core {
+            data_dir: data_dir.to_path_buf(),
+            settings: Mutex::new(cfg),
+            entries: Mutex::new(folders.into_iter().map(Entry::new).collect()),
+            quit: AtomicBool::new(false),
+        });
+        let entries = core.entries.lock().unwrap().clone();
+        for e in entries {
+            let _ = e.ensure_mounted();
+        }
+        Ok(core)
+    }
+
+    pub fn lock_on_screen_lock(&self) -> bool {
+        self.settings.lock().unwrap().lock_on_screen_lock
+    }
+
+    pub fn should_quit(&self) -> bool {
+        self.quit.load(Ordering::SeqCst)
+    }
+
+    pub fn request_quit(&self) {
+        self.quit.store(true, Ordering::SeqCst);
+    }
+
+    fn save(&self, entries: &[Arc<Entry>]) -> Result<(), ErrorCode> {
+        let mut cfg = self.settings.lock().unwrap().clone();
+        cfg.folders = entries.iter().map(|e| e.cfg()).collect();
+        cfg.save(&self.data_dir).map_err(|e| {
+            tracing::error!(error = %e, "cannot save folder list");
+            ErrorCode::Internal
+        })
+    }
+
+    fn find(&self, path: &str) -> Result<Arc<Entry>, ErrorCode> {
+        let entries = self.entries.lock().unwrap();
+        let probe = Config {
+            folders: entries.iter().map(|e| e.cfg()).collect(),
+            ..Default::default()
+        };
+        probe
+            .find(Path::new(path))
+            .map(|i| entries[i].clone())
+            .ok_or(ErrorCode::NotFound)
+    }
+
+    pub fn status(&self) -> Vec<FolderInfo> {
+        let entries = self.entries.lock().unwrap().clone();
+        entries.iter().map(|e| e.info()).collect()
+    }
+
+    pub fn unlock(&self, path: &str, password: &str) -> Result<FolderInfo, ErrorCode> {
+        let e = self.find(path)?;
+        let control = e.ensure_mounted()?;
+        let id = e.cfg().id;
+        match control.unlock_with_password(password) {
+            Ok(()) => {
+                notify_shell(&e.cfg().path);
+                tracing::info!(folder = %id, "unlocked with password");
+                Ok(e.info())
+            }
+            Err(zamok_crypto::Error::WrongPassword) => {
+                tracing::info!(folder = %id, "wrong password");
+                Err(ErrorCode::WrongPassword)
+            }
+            Err(err) => {
+                tracing::warn!(folder = %id, error = %err, "unlock failed");
+                Err(ErrorCode::BadVault)
+            }
+        }
+    }
+
+    pub fn unlock_recovery(&self, path: &str, words: &str) -> Result<FolderInfo, ErrorCode> {
+        let e = self.find(path)?;
+        let key = zamok_crypto::recovery::decode(words).map_err(|_| ErrorCode::WrongRecoveryKey)?;
+        let control = e.ensure_mounted()?;
+        let id = e.cfg().id;
+        match control.unlock_with_key(key) {
+            Ok(()) => {
+                notify_shell(&e.cfg().path);
+                tracing::info!(folder = %id, "unlocked with recovery key");
+                Ok(e.info())
+            }
+            // Подпись настроек хранилища не сошлась: ключ от другой папки
+            Err(zamok_crypto::Error::BadVaultConfig) => Err(ErrorCode::WrongRecoveryKey),
+            Err(err) => {
+                tracing::warn!(folder = %id, error = %err, "unlock with recovery key failed");
+                Err(ErrorCode::BadVault)
+            }
+        }
+    }
+
+    pub fn lock(&self, path: &str) -> Result<FolderInfo, ErrorCode> {
+        let e = self.find(path)?;
+        if let Some(c) = e.control() {
+            if !c.is_locked() {
+                c.lock();
+                settle_lock(&c, &e.cfg().path);
+                tracing::info!(folder = %e.cfg().id, "locked by request");
+            }
+        }
+        Ok(e.info())
+    }
+
+    /// Сразу стереть ключи всех открытых папок. Быстро: годится перед сном, когда
+    /// на всё есть пара секунд. Возвращает, что ещё надо дождаться ([`Core::settle`]).
+    pub fn lock_all_now(&self, reason: &str) -> Vec<(Arc<Control>, PathBuf)> {
+        let entries = self.entries.lock().unwrap().clone();
+        let mut locked = Vec::new();
+        for e in entries {
+            if let Some(c) = e.control() {
+                if !c.is_locked() {
+                    c.lock();
+                    locked.push((c, e.cfg().path));
+                }
+            }
+        }
+        if !locked.is_empty() {
+            tracing::info!(count = locked.len(), reason, "locked all folders");
+        }
+        locked
+    }
+
+    /// Дождаться сброса кэша ядра у только что запертых папок (параллельно).
+    pub fn settle(locked: &[(Arc<Control>, PathBuf)]) {
+        std::thread::scope(|s| {
+            for (c, p) in locked {
+                s.spawn(move || settle_lock(c, p));
+            }
+        });
+    }
+
+    pub fn lock_all(&self, reason: &str) {
+        let locked = self.lock_all_now(reason);
+        Self::settle(&locked);
+    }
+
+    /// Запереть папки, с которыми долго ничего не делали.
+    pub fn lock_idle(&self) {
+        let entries = self.entries.lock().unwrap().clone();
+        for e in entries {
+            let secs = e.cfg().idle_lock_secs;
+            if secs == 0 {
+                continue;
+            }
+            if let Some(c) = e.control() {
+                if !c.is_locked() && c.idle_for().as_secs() >= secs {
+                    c.lock();
+                    settle_lock(&c, &e.cfg().path);
+                    tracing::info!(folder = %e.cfg().id, "locked after idle timeout");
+                }
+            }
+        }
+    }
+
+    pub fn add(
+        &self,
+        path: &str,
+        vault: &str,
+        idle_lock_secs: Option<u64>,
+    ) -> Result<FolderInfo, ErrorCode> {
+        let path = PathBuf::from(path);
+        let vault = PathBuf::from(vault);
+        if !path.is_absolute() || !vault.is_absolute() || path.parent().is_none() {
+            return Err(ErrorCode::BadRequest);
+        }
+        // Хранилище внутри самой папки подключилось бы само в себя
+        let (np, nv) = (config::normalize(&path), config::normalize(&vault));
+        if nv == np || nv.starts_with(&format!("{np}\\")) {
+            return Err(ErrorCode::BadRequest);
+        }
+        if !vault_looks_valid(&vault) {
+            return Err(ErrorCode::BadVault);
+        }
+        let mut entries = self.entries.lock().unwrap();
+        for e in entries.iter() {
+            let c = e.cfg();
+            let (ep, ev) = (config::normalize(&c.path), config::normalize(&c.vault));
+            let nested = |a: &str, b: &str| a == b || a.starts_with(&format!("{b}\\"));
+            if nested(&np, &ep) || nested(&ep, &np) || ev == nv {
+                return Err(ErrorCode::AlreadyAdded);
+            }
+        }
+        let cfg = FolderConfig {
+            id: config::new_id().map_err(|_| ErrorCode::Internal)?,
+            path,
+            vault,
+            idle_lock_secs: idle_lock_secs.unwrap_or(DEFAULT_IDLE_LOCK_SECS),
+        };
+        let entry = Entry::new(cfg);
+        entry.ensure_mounted()?;
+        entries.push(entry.clone());
+        if let Err(code) = self.save(&entries) {
+            entries.pop();
+            entry.unmount();
+            return Err(code);
+        }
+        tracing::info!(folder = %entry.cfg().id, "folder added");
+        Ok(entry.info())
+    }
+
+    pub fn remove(&self, path: &str) -> Result<(), ErrorCode> {
+        let target = self.find(path)?;
+        let mut entries = self.entries.lock().unwrap();
+        let before = entries.len();
+        entries.retain(|e| !Arc::ptr_eq(e, &target));
+        if entries.len() == before {
+            return Err(ErrorCode::NotFound);
+        }
+        if let Err(code) = self.save(&entries) {
+            entries.push(target);
+            return Err(code);
+        }
+        drop(entries);
+        target.unmount();
+        tracing::info!(folder = %target.cfg().id, "folder removed from the list");
+        Ok(())
+    }
+
+    pub fn set_idle_lock(&self, path: &str, secs: u64) -> Result<FolderInfo, ErrorCode> {
+        let target = self.find(path)?;
+        let entries = self.entries.lock().unwrap();
+        let old = std::mem::replace(&mut target.cfg.lock().unwrap().idle_lock_secs, secs);
+        if let Err(code) = self.save(&entries) {
+            target.cfg.lock().unwrap().idle_lock_secs = old;
+            return Err(code);
+        }
+        Ok(target.info())
+    }
+
+    /// Запереть всё и отключить все папки.
+    pub fn shutdown(&self) {
+        let _ = self.lock_all_now("shutdown");
+        let entries = self.entries.lock().unwrap().clone();
+        for e in entries {
+            e.unmount();
+        }
+        tracing::info!("all folders unmounted");
+    }
+}

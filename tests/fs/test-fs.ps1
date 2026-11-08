@@ -4,7 +4,7 @@
 # Запуск: powershell -NoProfile -ExecutionPolicy Bypass -File tests\fs\test-fs.ps1
 # Скрипт в ASCII: русские имена собираются из кодов символов.
 $ErrorActionPreference = 'Stop'
-$repo = 'C:\dev\zamok'
+$repo = (Resolve-Path "$PSScriptRoot/../..").Path
 $root = "$repo\tests\tmp\fs"
 $vault = "$root\vault"; $mnt = "$root\mnt"; $mirror = "$root\mirror"
 $mountExe = "$repo\core\target\release\zamok-mount.exe"

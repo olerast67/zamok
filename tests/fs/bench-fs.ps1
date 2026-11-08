@@ -50,7 +50,7 @@ $w = Join-Path $root 'ntfs'; if (Test-Path $w) { cmd /c "rmdir /s /q `"$w`"" }; 
 $all.Add((Bench 'NTFS' $w))
 cmd /c "rmdir /s /q `"$w`""
 
-$repo = 'C:\dev\zamok'
+$repo = (Resolve-Path "$PSScriptRoot/../..").Path
 $vault = Join-Path $root 'zamok-vault'; $mnt = Join-Path $root 'zamok-mnt'; $empty = Join-Path $root 'empty-src'
 foreach ($d in $vault) { if (Test-Path $d) { cmd /c "rmdir /s /q `"$d`"" } }
 New-Item -ItemType Directory -Force $empty | Out-Null
