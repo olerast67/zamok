@@ -22,8 +22,8 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use windows::Win32::Foundation::{
     STATUS_ACCESS_DENIED, STATUS_DIRECTORY_NOT_EMPTY, STATUS_FILE_IS_A_DIRECTORY,
-    STATUS_INVALID_PARAMETER, STATUS_NOT_A_DIRECTORY, STATUS_OBJECT_NAME_COLLISION,
-    STATUS_OBJECT_NAME_INVALID, STATUS_OBJECT_NAME_NOT_FOUND, STATUS_OBJECT_PATH_NOT_FOUND,
+    STATUS_NOT_A_DIRECTORY, STATUS_OBJECT_NAME_COLLISION, STATUS_OBJECT_NAME_INVALID,
+    STATUS_OBJECT_NAME_NOT_FOUND, STATUS_OBJECT_PATH_NOT_FOUND,
 };
 use winfsp::constants::FspCleanupFlags::FspCleanupDelete;
 use winfsp::filesystem::{
@@ -96,11 +96,14 @@ pub struct ZFile {
     path: Mutex<String>,
     kind: Mutex<Option<Kind>>,
     virt: Option<Virtual>,
-    cipher: Option<Arc<Mutex<CipherFile>>>,
+    /// Открывается при первом чтении или записи: получение сведений о файле заголовок не трогает.
+    cipher: Mutex<Option<Arc<Mutex<CipherFile>>>>,
     dir_buffer: DirBuffer,
     generation: u64,
     delete_on_close: AtomicBool,
 }
+
+type Listing = HashMap<String, (String, PathBuf)>;
 
 struct Unlocked {
     key: MasterKey,
@@ -117,6 +120,9 @@ pub struct Control {
     open_files: Mutex<HashMap<PathBuf, Weak<Mutex<CipherFile>>>>,
     /// ID каталогов по пути в нижнем регистре.
     dir_cache: Mutex<HashMap<String, (String, String)>>,
+    /// Расшифрованное содержимое каталогов по ID: имя в нижнем регистре -> (имя, узел).
+    /// Сбрасывается при каждом изменении в каталоге.
+    listings: Mutex<HashMap<String, Listing>>,
 }
 
 pub struct ZamokFs {
@@ -181,6 +187,7 @@ impl Control {
             }
         }
         self.dir_cache.lock().unwrap().clear();
+        self.listings.lock().unwrap().clear();
         *st = None; // MasterKey стирается при удалении (ZeroizeOnDrop)
     }
 
@@ -198,6 +205,7 @@ impl ZamokFs {
             generation: AtomicU64::new(1),
             open_files: Mutex::new(HashMap::new()),
             dir_cache: Mutex::new(HashMap::new()),
+            listings: Mutex::new(HashMap::new()),
         });
         Ok(ZamokFs {
             root: root.to_path_buf(),
@@ -239,19 +247,41 @@ impl ZamokFs {
         dir_id: &str,
         name: &str,
     ) -> FsResult<Option<(String, PathBuf)>> {
-        let dir = self.dir_physical(u, dir_id);
-        let (node, _) = names::node_name(&u.key, name, dir_id, u.config.shortening_threshold);
-        let p = dir.join(&node);
-        if p.exists() {
-            return Ok(Some((name.to_string(), p)));
-        }
         let lower = name.to_lowercase();
-        for (clear, node) in self.list_physical(u, dir_id)? {
-            if clear.to_lowercase() == lower {
-                return Ok(Some((clear, node)));
+        self.with_listing(u, dir_id, |l| l.get(&lower).cloned())
+    }
+
+    /// Выполнить `f` над содержимым каталога (загрузить с диска, если его нет в кэше).
+    fn with_listing<T>(
+        &self,
+        u: &Unlocked,
+        dir_id: &str,
+        f: impl FnOnce(&mut Listing) -> T,
+    ) -> FsResult<T> {
+        {
+            let mut all = self.ctl.listings.lock().unwrap();
+            if let Some(l) = all.get_mut(dir_id) {
+                return Ok(f(l));
             }
         }
-        Ok(None)
+        let mut map = Listing::new();
+        for (clear, node) in self.list_physical(u, dir_id)? {
+            map.insert(clear.to_lowercase(), (clear, node));
+        }
+        let mut all = self.ctl.listings.lock().unwrap();
+        let l = all.entry(dir_id.to_string()).or_insert(map);
+        Ok(f(l))
+    }
+
+    /// Обновить кэш каталога, только если он уже загружен.
+    fn listing_update(&self, dir_id: &str, f: impl FnOnce(&mut Listing)) {
+        if let Some(l) = self.ctl.listings.lock().unwrap().get_mut(dir_id) {
+            f(l);
+        }
+    }
+
+    fn invalidate(&self, dir_id: &str) {
+        self.ctl.listings.lock().unwrap().remove(dir_id);
     }
 
     /// Все дети каталога: (имя в открытом виде, узел на диске).
@@ -485,11 +515,25 @@ impl ZamokFs {
             path: Mutex::new(path),
             kind: Mutex::new(kind),
             virt,
-            cipher,
+            cipher: Mutex::new(cipher),
             dir_buffer: DirBuffer::new(),
             generation: self.ctl.generation.load(Ordering::SeqCst),
             delete_on_close: AtomicBool::new(false),
         }
+    }
+
+    /// Зашифрованный файл контекста: открыть при первом обращении.
+    fn cipher_of(&self, ctx: &ZFile) -> FsResult<Arc<Mutex<CipherFile>>> {
+        let mut slot = ctx.cipher.lock().unwrap();
+        if let Some(c) = slot.as_ref() {
+            return Ok(c.clone());
+        }
+        let Some(Kind::File { content }) = ctx.kind.lock().unwrap().clone() else {
+            return Err(STATUS_FILE_IS_A_DIRECTORY.into());
+        };
+        let c = self.with_key(|u| self.cipher_for(u, &content, false))?;
+        *slot = Some(c.clone());
+        Ok(c)
     }
 
     /// Файл, открытый до последнего запирания, больше не работает.
@@ -552,6 +596,10 @@ impl ZamokFs {
         if let Some(full) = &full {
             fs::write(node_path.join(NAME_FILE), full).map_err(ioerr)?;
         }
+        let entry = (name.to_string(), node_path.clone());
+        self.listing_update(dir_id, |l| {
+            l.insert(name.to_lowercase(), entry);
+        });
         if is_dir {
             let id = zamok_crypto::uuid_v4().map_err(|_| FspError::from(STATUS_ACCESS_DENIED))?;
             fs::write(node_path.join(DIR_FILE), &id).map_err(ioerr)?;
@@ -568,10 +616,16 @@ impl ZamokFs {
     }
 
     fn dir_is_empty(&self, u: &Unlocked, id: &str) -> FsResult<bool> {
-        Ok(self.list_physical(u, id)?.is_empty())
+        self.with_listing(u, id, |l| l.is_empty())
     }
 
     fn remove_node(&self, u: &Unlocked, r: &Resolved) -> FsResult<()> {
+        if let Some(name) = r.clear.rsplit('\\').next() {
+            let lower = name.to_lowercase();
+            self.listing_update(&r.parent_id, |l| {
+                l.remove(&lower);
+            });
+        }
         let Some(node) = &r.node else {
             return Err(STATUS_ACCESS_DENIED.into());
         };
@@ -648,7 +702,7 @@ impl FileSystemContext for ZamokFs {
             }
             self.fill_info(&r, file_info.as_mut())?;
             let cipher = match &r.kind {
-                Kind::File { content } => Some(self.cipher_for(u, content, false)?),
+                Kind::File { .. } => None,
                 Kind::Dir { .. } => None,
             };
             let virt = if r.node.is_none() {
@@ -740,7 +794,7 @@ impl FileSystemContext for ZamokFs {
     fn flush(&self, context: Option<&Self::FileContext>, file_info: &mut FileInfo) -> FsResult<()> {
         let Some(ctx) = context else { return Ok(()) };
         self.check(ctx)?;
-        if let Some(c) = &ctx.cipher {
+        if let Some(c) = ctx.cipher.lock().unwrap().clone() {
             c.lock().unwrap().sync().map_err(cerr)?;
         }
         self.info_for_ctx(ctx, file_info)
@@ -780,9 +834,7 @@ impl FileSystemContext for ZamokFs {
         file_info: &mut FileInfo,
     ) -> FsResult<()> {
         self.check(context)?;
-        let Some(c) = &context.cipher else {
-            return Err(STATUS_FILE_IS_A_DIRECTORY.into());
-        };
+        let c = self.cipher_of(context)?;
         c.lock().unwrap().set_len(0).map_err(cerr)?;
         if let Some(Kind::File { content }) = context.kind.lock().unwrap().clone() {
             let cur = fs::metadata(&content)
@@ -834,7 +886,9 @@ impl FileSystemContext for ZamokFs {
                     entries.push((".".into(), fi.clone()));
                     entries.push(("..".into(), fi));
                 }
-                for (clear, node) in self.list_physical(u, id)? {
+                let children: Vec<(String, PathBuf)> =
+                    self.with_listing(u, id, |l| l.values().cloned().collect())?;
+                for (clear, node) in children {
                     let Ok(kind) = Self::kind_of(&node) else {
                         continue;
                     };
@@ -961,6 +1015,8 @@ impl FileSystemContext for ZamokFs {
                     });
                 }
             }
+            self.invalidate(&src.parent_id);
+            self.invalidate(new_dir_id);
             self.ctl.dir_cache.lock().unwrap().clear();
             *context.path.lock().unwrap() = join(&pr.clear, &new_name);
             Ok(())
@@ -1028,9 +1084,7 @@ impl FileSystemContext for ZamokFs {
         file_info: &mut FileInfo,
     ) -> FsResult<()> {
         self.check(context)?;
-        let Some(c) = &context.cipher else {
-            return Err(STATUS_INVALID_PARAMETER.into());
-        };
+        let c = self.cipher_of(context)?;
         {
             let mut f = c.lock().unwrap();
             let len = f.len().map_err(cerr)?;
@@ -1052,9 +1106,7 @@ impl FileSystemContext for ZamokFs {
             buffer[..n].copy_from_slice(&data[offset as usize..offset as usize + n]);
             return Ok(n as u32);
         }
-        let Some(c) = &context.cipher else {
-            return Err(STATUS_FILE_IS_A_DIRECTORY.into());
-        };
+        let c = self.cipher_of(context)?;
         let n = c.lock().unwrap().read_at(offset, buffer).map_err(cerr)?;
         if n == 0 && !buffer.is_empty() {
             return Err(windows::Win32::Foundation::STATUS_END_OF_FILE.into());
@@ -1072,9 +1124,7 @@ impl FileSystemContext for ZamokFs {
         file_info: &mut FileInfo,
     ) -> FsResult<u32> {
         self.check(context)?;
-        let Some(c) = &context.cipher else {
-            return Err(STATUS_ACCESS_DENIED.into());
-        };
+        let c = self.cipher_of(context)?;
         let written = {
             let mut f = c.lock().unwrap();
             let len = f.len().map_err(cerr)?;
