@@ -13,5 +13,11 @@ fn main() {
         zamok_crypto::masterkey::SCRYPT_COST,
     )
     .expect("create vault");
-    println!("ok, format {}", v.config.format);
+    let recovery = format!("{}-recovery.txt", a[2]);
+    std::fs::write(
+        &recovery,
+        zamok_crypto::recovery::encode(v.key()).as_bytes(),
+    )
+    .expect("write recovery key");
+    println!("ok, format {}, recovery key in {recovery}", v.config.format);
 }

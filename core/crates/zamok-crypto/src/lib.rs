@@ -8,12 +8,14 @@
 //! - [`vault`]: файл `vault.cryptomator` (JWT с подписью HMAC-SHA256).
 //! - [`names`]: имена файлов (AES-SIV) и пути каталогов.
 //! - [`content`]: заголовок файла и содержимое кусками по 32 КиБ (AES-GCM).
+//! - [`recovery`]: ключ восстановления из 44 слов, как у Cryptomator.
 //! - [`tree`]: обход хранилища целиком (для восстановления и тестов).
 
 pub mod content;
 pub mod error;
 pub mod masterkey;
 pub mod names;
+pub mod recovery;
 pub mod tree;
 pub mod vault;
 

@@ -4,10 +4,12 @@
 
 `ReadVault.java` делает обратное: читает хранилище библиотеками Cryptomator. Им проверено, что хранилище, созданное Zamok, открывается в Cryptomator (2026-11-08: 7 файлов и 3 папки, имена и содержимое совпали).
 
-Как пересоздать (нужен JDK 25, библиотеки берутся из установленного Cryptomator):
+`org/cryptomator/ui/recoverykey/MakeRecoveryKey.java` создаёт `vault1-recovery.txt` кодом Cryptomator (`RecoveryKeyFactory`), `ResetWithRecoveryKey.java` проверяет ключ, созданный Zamok, и задаёт по нему новый пароль. Они лежат в пакете Cryptomator, потому что его `WordEncoder` не публичный.
+
+Как пересоздать (нужен JDK 26: приложение Cryptomator 1.19.6 собрано под Java 26, библиотеки берутся из установленного Cryptomator):
 
 ```powershell
-$j = 'C:\dev\tools\jdk-25.0.5+8\bin'
+$j = 'C:\dev\tools\jdk-26.0.2.1+1\bin'
 $jars = @(Get-ChildItem 'C:\Program Files\Cryptomator\app\mods' -Filter *.jar) + @(Get-ChildItem 'C:\Program Files\Cryptomator\app' -Filter *.jar)
 $cp = ($jars | ForEach-Object FullName) -join ';'
 & "$j\javac.exe" -encoding UTF-8 -cp $cp -d out MakeVault.java ReadVault.java

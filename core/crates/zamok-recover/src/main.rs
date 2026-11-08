@@ -1,8 +1,9 @@
 //! zamok-recover: выгрузить расшифрованную копию зашифрованной папки.
 //!
-//! zamok-recover <хранилище .Имя.zamok> <новая папка для файлов>
+//! zamok-recover <хранилище .Имя.zamok> <новая папка для файлов> [--recovery-key]
 //!
-//! Пароль спрашивается без отображения на экране. Работает без установленного
+//! Пароль (или с `--recovery-key` ключ восстановления из 44 слов) спрашивается
+//! без отображения на экране. Работает без установленного
 //! Zamok и без WinFsp, подходит и для хранилищ Cryptomator формата 8.
 use std::path::Path;
 use std::process::ExitCode;
@@ -11,8 +12,9 @@ use zamok_crypto::tree::Vault;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() != 3 {
-        eprintln!("usage: zamok-recover <vault folder> <new output folder>");
+    let use_recovery = args.len() == 4 && args[3] == "--recovery-key";
+    if args.len() != 3 && !use_recovery {
+        eprintln!("usage: zamok-recover <vault folder> <new output folder> [--recovery-key]");
         return ExitCode::from(2);
     }
     let (vault, out) = (Path::new(&args[1]), Path::new(&args[2]));
@@ -25,14 +27,24 @@ fn main() -> ExitCode {
         eprintln!("output folder must not exist or must be empty");
         return ExitCode::from(2);
     }
-    let password = match rpassword::prompt_password("Password: ") {
+    let prompt = if use_recovery {
+        "Recovery key (44 words): "
+    } else {
+        "Password: "
+    };
+    let secret = match rpassword::prompt_password(prompt) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("cannot read password: {e}");
+            eprintln!("cannot read input: {e}");
             return ExitCode::from(2);
         }
     };
-    let v = match Vault::open_with_password(vault, &password) {
+    let opened = if use_recovery {
+        zamok_crypto::recovery::decode(&secret).and_then(|key| Vault::open_with_key(vault, key))
+    } else {
+        Vault::open_with_password(vault, &secret)
+    };
+    let v = match opened {
         Ok(v) => v,
         Err(e) => {
             eprintln!("cannot open vault: {e}");
