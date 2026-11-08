@@ -33,6 +33,7 @@ function StartCore([string]$crash = '') {
     $psi.UseShellExecute = $false
     $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
     $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipeName"
+    $psi.EnvironmentVariables['ZAMOK_NO_TRAY'] = '1'
     if ($crash) { $psi.EnvironmentVariables['ZAMOK_TEST_CRASH'] = $crash }
     $p = [Diagnostics.Process]::Start($psi)
     [void](WaitFor { (Test-Path "\\.\pipe\$pipeName") -or $p.HasExited } 60000)
@@ -136,7 +137,10 @@ try {
         ($at -band [IO.FileAttributes]::ReadOnly) -ne 0 -and ($at -band [IO.FileAttributes]::Hidden) -ne 0
     }
     Check 'original, tmp copy and journal are gone' { -not (Test-Path $sa.Aside) -and -not (Test-Path $sa.Tmp) -and (Journals) -eq 0 }
-    Check 'vault is next to the folder and hidden' { ((Get-Item -LiteralPath $sa.Vault -Force).Attributes -band [IO.FileAttributes]::Hidden) -ne 0 }
+    Check 'vault is next to the folder, hidden and system' {
+        $at = (Get-Item -LiteralPath $sa.Vault -Force).Attributes
+        ($at -band [IO.FileAttributes]::Hidden) -ne 0 -and ($at -band [IO.FileAttributes]::System) -ne 0
+    }
     Check 'lock, then recovery key opens it' {
         [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $a)`"}")
         $r = Send "{`"cmd`":`"unlock_recovery`",`"path`":`"$(J $a)`",`"words`":`"$($resp.recovery_key)`"}"

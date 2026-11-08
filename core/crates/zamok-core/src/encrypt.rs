@@ -238,10 +238,15 @@ fn rename_retry(from: &Path, to: &Path, attempts: u32) -> std::io::Result<()> {
     Err(last.unwrap())
 }
 
-fn set_hidden(path: &Path) {
+/// Скрытая и системная: Проводник не показывает такую папку даже с включённым показом
+/// скрытых файлов (только если снять «Скрывать защищённые системные файлы»).
+pub fn set_hidden(path: &Path) {
     use std::os::windows::fs::MetadataExt;
     if let Ok(m) = std::fs::metadata(path) {
-        let _ = zamok_fs::attrs::set_attributes(path, (m.file_attributes() | 0x2) & 0x7);
+        let want = (m.file_attributes() | 0x2 | 0x4) & 0x7;
+        if m.file_attributes() & 0x7 != want {
+            let _ = zamok_fs::attrs::set_attributes(path, want);
+        }
     }
 }
 

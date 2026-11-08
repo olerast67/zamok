@@ -34,6 +34,10 @@ internal static partial class WindowHelper
             p.IsMinimizable = false;
         }
         window.Title = "Zamok";
+        // Системный замок, собранный при установке; запасной свой
+        var icon = new[] { "open-item.ico", "zamok.ico" }
+            .Select(n => Path.Combine(AppContext.BaseDirectory, n)).FirstOrDefault(File.Exists);
+        if (icon is not null) appWindow.SetIcon(icon);
         if (MicaController.IsSupported())
             window.SystemBackdrop = new MicaBackdrop();
     }

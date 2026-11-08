@@ -74,6 +74,7 @@ function StartCore {
     $psi.RedirectStandardError = $true
     $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
     $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipeName"
+    $psi.EnvironmentVariables['ZAMOK_NO_TRAY'] = '1'
     $p = [Diagnostics.Process]::Start($psi)
     [void](WaitFor { (Test-Path "\\.\pipe\$pipeName") -or $p.HasExited } 15000)
     [void](WaitFor { $p.HasExited -or [ZT]::CoreWindow($p.Id) -ne [IntPtr]::Zero } 5000)
@@ -257,6 +258,18 @@ try {
             @((Get-Content "$data\folders.json" -Raw -Encoding UTF8 | ConvertFrom-Json).folders).Count -eq 0
     }
     Check 'unknown folder: not_found' { (Send "{`"cmd`":`"lock`",`"path`":`"$(J $mnt)`"}").error -eq 'not_found' }
+
+    # Chelovek udalil papku v Provodnike (DESIGN.md, razdel 5.1)
+    [void](Send "{`"cmd`":`"add`",`"path`":`"$(J $mnt)`",`"vault`":`"$(J $vault)`"}")
+    Check 'mount point deleted, vault intact: folder comes back locked' {
+        cmd /c rmdir "$mnt" | Out-Null
+        (WaitFor { Test-Path "$mnt\$openWord $ruName.zamok" } 10000) -and (State) -eq 'locked' -and (Test-Path "$vault\masterkey.cryptomator")
+    }
+    Check 'vault deleted: folder leaves the list, the name is free again' {
+        Remove-Item $vault -Recurse -Force
+        (WaitFor { -not (State) } 10000) -and (WaitFor { -not (Test-Path $mnt) } 5000) -and
+            @((Get-Content "$data\folders.json" -Raw -Encoding UTF8 | ConvertFrom-Json).folders).Count -eq 0
+    }
     Check 'log has no folder names, paths or passwords' {
         $log = Get-Content "$data\core.log" -Raw -Encoding UTF8
         $bad = @($ruName, $root, $pw, 'busy') | Where-Object { $log.Contains($_) }

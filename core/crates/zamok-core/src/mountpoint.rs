@@ -117,6 +117,15 @@ fn is_volume_target(t: &str) -> bool {
     t.starts_with(r"\Device\Volume{") || t.starts_with(r"\??\Volume{")
 }
 
+/// Есть ли что-то на пути. Смотрит только атрибуты самой точки подключения и не заходит
+/// внутрь подключённой папки (чтение внутри считалось бы работой с папкой и сбивало бы
+/// автозапирание по бездействию).
+pub fn exists(path: &Path) -> bool {
+    let w = wide(path);
+    let attrs = unsafe { GetFileAttributesW(PCWSTR(w.as_ptr())) };
+    attrs != INVALID_FILE_ATTRIBUTES
+}
+
 pub fn state(path: &Path) -> PathState {
     let w = wide(path);
     let attrs = unsafe { GetFileAttributesW(PCWSTR(w.as_ptr())) };

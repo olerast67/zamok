@@ -64,6 +64,14 @@ fn run() -> anyhow::Result<()> {
     let listener = pipe::Listener::bind(&name)?;
 
     zamok_fs::mount::init_winfsp()?;
+    // Значок запертой папки: собран при установке из значков этой Windows
+    if let Some(icon) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.join("folder-locked.ico")))
+        .filter(|p| p.is_file())
+    {
+        zamok_fs::fs::set_folder_icon(&icon.to_string_lossy());
+    }
     let core = Core::start(&dir)?;
     autolock::install(core.clone())?;
 

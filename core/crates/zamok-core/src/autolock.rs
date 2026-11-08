@@ -81,15 +81,19 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         WM_ENDSESSION => {
             if wparam.0 != 0 {
                 // Сеанс точно завершается: отключить всё и выйти, пока Windows ждёт
+                crate::tray::remove(hwnd);
                 core.shutdown();
                 std::process::exit(0);
             }
             LRESULT(0)
         }
         WM_TIMER if wparam.0 == IDLE_TIMER => {
+            crate::tray::refresh(hwnd, core);
+            crate::shellverbs::update(&core.status());
             if !IDLE_CHECK_RUNNING.swap(true, Ordering::SeqCst) {
                 let core = core.clone();
                 std::thread::spawn(move || {
+                    core.check_folders();
                     core.lock_idle();
                     IDLE_CHECK_RUNNING.store(false, Ordering::SeqCst);
                 });
@@ -97,7 +101,16 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_ZAMOK_QUIT => {
+            crate::tray::remove(hwnd);
             unsafe { PostQuitMessage(0) };
+            LRESULT(0)
+        }
+        crate::tray::WM_TRAY => {
+            crate::tray::on_message(hwnd, lparam, core);
+            LRESULT(0)
+        }
+        m if crate::tray::is_taskbar_created(m) => {
+            crate::tray::on_taskbar_created(hwnd, core);
             LRESULT(0)
         }
         _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
@@ -141,6 +154,7 @@ pub fn install(core: Arc<Core>) -> anyhow::Result<()> {
         if SetTimer(Some(hwnd), IDLE_TIMER, IDLE_TICK_MS, None) == 0 {
             anyhow::bail!("SetTimer failed");
         }
+        crate::tray::install(hwnd, CORE.get().unwrap());
     }
     Ok(())
 }

@@ -116,6 +116,8 @@ fn mount_folder(cfg: &FolderConfig) -> Result<Mounted, ErrorCode> {
             return Err(ErrorCode::PathOccupied);
         }
     }
+    // Хранилище не должно мешать в Проводнике: скрытое и системное (и у старых папок)
+    crate::encrypt::set_hidden(&cfg.vault);
     Mounted::mount(&cfg.vault, &cfg.path, &cfg.name()).map_err(|e| {
         // Текст ошибки WinFsp без путей: код NTSTATUS
         tracing::warn!(folder = %cfg.id, error = %e, "mount failed");
@@ -336,6 +338,42 @@ impl Core {
     pub fn lock_all(&self, reason: &str) {
         let locked = self.lock_all_now(reason);
         Self::settle(&locked);
+    }
+
+    /// Папки, которые человек удалил в Проводнике (DESIGN.md, раздел 5.1):
+    /// - удалено хранилище, а его родительская папка на месте: данных больше нет, папка
+    ///   убирается из списка, имя снова свободно. Если нет и родителя (диск не подключён),
+    ///   папка остаётся в списке;
+    /// - удалена только точка подключения, хранилище цело: папка возвращается на место
+    ///   запертой (по умолчанию вернуть: данные целы).
+    pub fn check_folders(&self) {
+        let entries = self.entries.lock().unwrap().clone();
+        let mut gone = Vec::new();
+        for e in entries {
+            let cfg = e.cfg();
+            if std::fs::symlink_metadata(&cfg.vault).is_err() {
+                if cfg.vault.parent().is_some_and(|p| p.is_dir()) {
+                    gone.push(e);
+                }
+                continue;
+            }
+            if e.control().is_some() && !mountpoint::exists(&cfg.path) {
+                e.unmount();
+                let restored = e.ensure_mounted().is_ok();
+                tracing::info!(folder = %cfg.id, restored, "mount point was deleted, folder restored locked");
+            }
+        }
+        if gone.is_empty() {
+            return;
+        }
+        let mut entries = self.entries.lock().unwrap();
+        entries.retain(|e| !gone.iter().any(|g| Arc::ptr_eq(e, g)));
+        let _ = self.save(&entries);
+        drop(entries);
+        for e in gone {
+            e.unmount();
+            tracing::info!(folder = %e.cfg().id, "vault was deleted, folder removed from the list");
+        }
     }
 
     /// Запереть папки, с которыми долго ничего не делали.
