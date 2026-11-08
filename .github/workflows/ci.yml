@@ -33,3 +33,15 @@ jobs:
       - name: Programs used by tests/fs
         # Явно по имени: если исходник программы пропадёт из репозитория, шаг упадёт.
         run: cargo build -p zamok-fs --bin zamok-mount
+
+  ui:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build Zamok.exe
+        run: dotnet build ui/Zamok.UI/Zamok.UI.csproj -c Release
+      - name: Tests (without the ones that need a running zamok-core)
+        run: dotnet test ui/Zamok.Tests/Zamok.Tests.csproj -c Release --filter "Category!=Integration"

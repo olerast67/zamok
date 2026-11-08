@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="Zamok.Client/Zamok.Client.csproj" />
+  <Project Path="Zamok.Tests/Zamok.Tests.csproj" />
+  <Project Path="Zamok.UI/Zamok.UI.csproj">
+    <Platform Project="x64" />
+  </Project>
+</Solution>
