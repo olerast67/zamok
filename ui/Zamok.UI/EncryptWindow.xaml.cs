@@ -1,7 +1,5 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Windows.ApplicationModel.DataTransfer;
-using Windows.Storage.Pickers;
 using Zamok.Client;
 
 namespace Zamok.UI;
@@ -138,7 +136,7 @@ public sealed partial class EncryptWindow : Window
             if (MakeKey.IsChecked == true)
             {
                 _recoveryKey = r.RecoveryKey;
-                ShowKey(_recoveryKey!);
+                KeyView.Fill(KeyGrid, KeyWords, _recoveryKey!);
                 ShowPage(Page.Key);
             }
             else
@@ -164,50 +162,17 @@ public sealed partial class EncryptWindow : Window
         }
     }
 
-    /// <summary>Слова с номерами по четыре в строке: так их удобно переписывать и сверять.</summary>
-    private void ShowKey(string key)
-    {
-        var words = RecoveryCheck.Split(key);
-        KeyGrid.Children.Clear();
-        KeyGrid.RowDefinitions.Clear();
-        for (var i = 0; i < words.Length; i++)
-        {
-            if (i % 4 == 0) KeyGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var cell = new TextBlock
-            {
-                Text = $"{i + 1,2}. {words[i]}",
-                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas"),
-                FontSize = 13,
-                IsTextSelectionEnabled = true,
-            };
-            Grid.SetRow(cell, i / 4);
-            Grid.SetColumn(cell, i % 4);
-            KeyGrid.Children.Add(cell);
-        }
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(KeyWords,
-            string.Join(" ", words.Select((w, i) => $"{i + 1}. {w}")));
-    }
-
     // 2. Ключ
 
     private async void OnSaveKeyClick(object sender, RoutedEventArgs e)
     {
-        var picker = new FileSavePicker { SuggestedFileName = Strings.Format("Encrypt_KeyFileName", _name) };
-        picker.FileTypeChoices.Add(Strings.Get("Encrypt_KeyFileType"), [".txt"]);
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, WindowHelper.Handle(this));
-        var file = await picker.PickSaveFileAsync();
-        if (file is null) return;
-        var text = Strings.Format("Encrypt_KeyFileText", _name,
-            DateTime.Now.ToString("yyyy-MM-dd HH:mm"), RecoveryCheck.FormatTable(_recoveryKey!)) + "\r\n";
-        await Windows.Storage.FileIO.WriteTextAsync(file, text);
-        KeySaved.Text = Strings.Get("Encrypt_KeySaved");
+        if (await KeyView.SaveAsync(this, _name, _recoveryKey!))
+            KeySaved.Text = Strings.Get("Encrypt_KeySaved");
     }
 
     private void OnCopyKeyClick(object sender, RoutedEventArgs e)
     {
-        var data = new DataPackage();
-        data.SetText(_recoveryKey);
-        Clipboard.SetContent(data);
+        KeyView.Copy(_recoveryKey!);
         KeySaved.Text = Strings.Get("Encrypt_KeyCopied");
     }
 

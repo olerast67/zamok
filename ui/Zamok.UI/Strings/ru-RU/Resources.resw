@@ -55,6 +55,15 @@
   <data name="Encrypt_Finishing" xml:space="preserve"><value>Подменяю папку зашифрованной.</value></data>
   <data name="Encrypt_Done" xml:space="preserve"><value>Папка «{0}» зашифрована и открыта. Она запрётся сама при блокировке экрана, перед сном и через 30 минут без работы.</value></data>
   <data name="Encrypt_Failed" xml:space="preserve"><value>Папка не зашифрована. Все файлы на месте.</value></data>
+  <data name="Manage_Password.Header" xml:space="preserve"><value>Текущий пароль</value></data>
+  <data name="Manage_NewPassword1.Header" xml:space="preserve"><value>Новый пароль</value></data>
+  <data name="Manage_NewPassword2.Header" xml:space="preserve"><value>Новый пароль ещё раз</value></data>
+  <data name="Manage_ChangeStep" xml:space="preserve"><value>Сменить пароль. Ключ восстановления останется прежним.</value></data>
+  <data name="Manage_KeyStep" xml:space="preserve"><value>Ключ восстановления: введите пароль, чтобы его увидеть</value></data>
+  <data name="Manage_Change" xml:space="preserve"><value>Сменить</value></data>
+  <data name="Manage_Show" xml:space="preserve"><value>Показать</value></data>
+  <data name="Manage_Changed" xml:space="preserve"><value>Пароль изменён. Старый больше не открывает папку.</value></data>
+  <data name="Menu_More" xml:space="preserve"><value>Zamok</value></data>
   <data name="Error_core_not_running" xml:space="preserve"><value>Фоновая программа Zamok не запущена.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>На связи не программа Zamok этого пользователя. Пароль не отправлен.</value></data>
   <data name="Error_bad_request" xml:space="preserve"><value>Внутренняя ошибка запроса.</value></data>

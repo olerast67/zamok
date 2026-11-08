@@ -122,7 +122,7 @@ try {
     }
     Check 'second core with the same pipe refuses to start' {
         $p2 = StartCore
-        $ok = $p2.WaitForExit(10000) -and $p2.ExitCode -eq 1
+        $ok = $p2.WaitForExit(10000) -and $p2.ExitCode -eq 3
         if (-not $p2.HasExited) { $p2.Kill() }
         $ok -and -not $script:proc.HasExited
     }
@@ -209,6 +209,12 @@ try {
         (State) -eq 'unlocked'
     }
     Check 'idle folder locks by itself' { WaitFor { (State) -eq 'locked' } 12000 }
+    # Otkrytyy v programme fayl: po bezdeystviyu ne zapiraem, inache dokument ne sohranit
+    [void](Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}")
+    $held = [IO.File]::Open("$mnt\new.txt", 'Open', 'Read', 'ReadWrite')
+    Check 'file held open: idle lock waits' { Start-Sleep 10; (State) -eq 'unlocked' }
+    $held.Dispose()
+    Check 'file closed: idle lock happens' { WaitFor { (State) -eq 'locked' } 12000 }
     [void](Send "{`"cmd`":`"set_idle_lock`",`"path`":`"$(J $mnt)`",`"secs`":0}")
 
     # Perezapusk: spisok sohranyaetsya, papka podklyuchaetsya zapertoy
@@ -275,6 +281,28 @@ try {
         $bad = @($ruName, $root, $pw, 'busy') | Where-Object { $log.Contains($_) }
         if ($bad) { "found in log: $($bad -join ', ')" -eq '' } else { "lines=$(($log -split "`n").Count)" }
     }
+
+    # Storozh (--watch): podnimaet core posle padeniya, uvazhaet obychnyy vyhod
+    [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(15000)
+    $psi = New-Object Diagnostics.ProcessStartInfo $coreExe
+    $psi.UseShellExecute = $false
+    $psi.Arguments = '--watch'
+    $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
+    $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipeName"
+    $psi.EnvironmentVariables['ZAMOK_NO_TRAY'] = '1'
+    $watch = [Diagnostics.Process]::Start($psi)
+    function Child { Get-CimInstance Win32_Process -Filter "ParentProcessId=$($watch.Id)" | Where-Object Name -eq 'zamok-core.exe' | Select-Object -First 1 }
+    [void](WaitFor { Test-Path "\\.\pipe\$pipeName" } 15000)
+    Check 'watchdog: core restarted after a crash' {
+        $first = Child
+        Stop-Process -Id $first.ProcessId -Force
+        (WaitFor { $c = Child; $c -and $c.ProcessId -ne $first.ProcessId -and (Test-Path "\\.\pipe\$pipeName") } 15000) -and (Send '{"cmd":"status"}').ok
+    }
+    Check 'watchdog: quit stops core and the watchdog' {
+        [void](Send '{"cmd":"quit"}')
+        $watch.WaitForExit(20000)
+    }
+    if (-not $watch.HasExited) { $watch.Kill() }
 }
 finally {
     if ($script:proc -and -not $script:proc.HasExited) {

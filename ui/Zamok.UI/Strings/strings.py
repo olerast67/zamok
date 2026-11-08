@@ -69,6 +69,16 @@ S = {
     "Encrypt_Done": ("Папка «{0}» зашифрована и открыта. Она запрётся сама при блокировке экрана, перед сном и через 30 минут без работы.",
                      "The folder \u201c{0}\u201d is encrypted and open. It locks by itself when the screen locks, before sleep and after 30 minutes without use."),
     "Encrypt_Failed": ("Папка не зашифрована. Все файлы на месте.", "The folder was not encrypted. All files are in place."),
+    # Сменить пароль, показать ключ
+    "Manage_Password.Header": ("Текущий пароль", "Current password"),
+    "Manage_NewPassword1.Header": ("Новый пароль", "New password"),
+    "Manage_NewPassword2.Header": ("Новый пароль ещё раз", "Repeat the new password"),
+    "Manage_ChangeStep": ("Сменить пароль. Ключ восстановления останется прежним.", "Change the password. The recovery key stays the same."),
+    "Manage_KeyStep": ("Ключ восстановления: введите пароль, чтобы его увидеть", "Recovery key: enter the password to see it"),
+    "Manage_Change": ("Сменить", "Change"),
+    "Manage_Show": ("Показать", "Show"),
+    "Manage_Changed": ("Пароль изменён. Старый больше не открывает папку.", "The password has been changed. The old one no longer opens the folder."),
+    "Menu_More": ("Zamok", "Zamok"),
     # Ошибки: Error_<код ответа core>
     "Error_core_not_running": ("Фоновая программа Zamok не запущена.", "The Zamok background program is not running."),
     "Error_core_not_trusted": ("На связи не программа Zamok этого пользователя. Пароль не отправлен.",

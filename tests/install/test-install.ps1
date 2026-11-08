@@ -88,14 +88,14 @@ try {
         $p -and (Send '{"cmd":"status"}').ok
     }
     Check 'install: autostart entry points to the core' {
-        (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run').Zamok -eq "`"$installDir\zamok-core.exe`""
+        (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run').Zamok -eq "`"$installDir\zamok-core.exe`" --watch"
     }
     Check 'install: .zamok opens Zamok.exe --unlock' {
         (Get-ItemProperty "$cls\.zamok").'(default)' -eq 'Zamok.OpenItem' -and
             (Get-ItemProperty "$cls\Zamok.OpenItem\shell\open\command").'(default)' -eq "`"$installDir\Zamok.exe`" --unlock `"%1`""
     }
     Check 'install: only the Zamok items added, default actions of folders unchanged' {
-        $now = Snapshot 'ZamokEncrypt|ZamokLock|ZamokUnlock'
+        $now = Snapshot 'ZamokEncrypt|ZamokLock|ZamokUnlock|ZamokMore'
         if ($now -ne $before -or -not (Test-Path "$cls\Directory\shell\ZamokEncrypt")) { throw "before:`n$before`nnow:`n$(Snapshot)" }
         'same plus the Zamok items'
     }
@@ -131,21 +131,21 @@ try {
 
     # Punkty menyu po sostoyaniyu papki (uslovie AppliesTo perepisyvaet core)
     $verbName = @{}
-    foreach ($v in 'ZamokEncrypt', 'ZamokLock', 'ZamokUnlock') { $verbName[$v] = (Get-ItemProperty "$cls\Directory\shell\$v").MUIVerb }
+    foreach ($v in 'ZamokEncrypt', 'ZamokLock', 'ZamokUnlock', 'ZamokMore') { $verbName[$v] = (Get-ItemProperty "$cls\Directory\shell\$v").MUIVerb }
     function Verbs([string]$name) { @($shell.Namespace($root).ParseName($name).Verbs() | ForEach-Object { $_.Name }) }
     function HasOnly([string]$name, [string]$want) {
         $v = Verbs $name
-        $has = @('ZamokEncrypt', 'ZamokLock', 'ZamokUnlock' | Where-Object { $v -contains $verbName[$_] })
+        $has = @('ZamokEncrypt', 'ZamokLock', 'ZamokUnlock', 'ZamokMore' | Where-Object { $v -contains $verbName[$_] })
         ($has -join ',') -eq $want
     }
     New-Item -ItemType Directory -Force "$root\plain" | Out-Null
-    Check 'menu: open Zamok folder has only Lock' { WaitFor { HasOnly $ruName 'ZamokLock' } 8000 }
+    Check 'menu: open Zamok folder has Lock and the Zamok submenu' { WaitFor { HasOnly $ruName 'ZamokLock,ZamokMore' } 8000 }
     Check 'menu: ordinary folder has only Encrypt' { HasOnly 'plain' 'ZamokEncrypt' }
     Check 'menu: Lock locks the folder without a window' {
         $shell.Namespace($root).ParseName($ruName).InvokeVerb('ZamokLock')
         WaitFor { (Folder $dir).state -eq 'locked' } 15000
     }
-    Check 'menu: locked Zamok folder has only Open with password' { WaitFor { HasOnly $ruName 'ZamokUnlock' } 8000 }
+    Check 'menu: locked Zamok folder has Open with password and the Zamok submenu' { WaitFor { HasOnly $ruName 'ZamokUnlock,ZamokMore' } 8000 }
     Check 'locked folder icon comes from folder-locked.ico' {
         $ini = [IO.File]::ReadAllText("$dir\desktop.ini", [Text.Encoding]::Unicode)
         $ini -like "*$installDir\folder-locked.ico*"
@@ -178,6 +178,7 @@ Check 'uninstall: core stopped, files and registry entries gone' {
     -not (Test-Path "\\.\pipe\$pipe") -and -not (Test-Path $installDir) -and -not (Test-Path "$cls\.zamok") -and
         -not (Test-Path "$cls\Zamok.OpenItem") -and -not (Test-Path "$cls\Directory\shell\ZamokEncrypt") -and
         -not (Test-Path "$cls\Directory\shell\ZamokLock") -and -not (Test-Path "$cls\Directory\shell\ZamokUnlock") -and
+        -not (Test-Path "$cls\Directory\shell\ZamokMore") -and
         -not (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run').Zamok
 }
 Check 'uninstall: registry folder actions exactly as before the test' { $now = Snapshot; if ($now -ne $before) { throw "before:`n$before`nnow:`n$now" }; 'same' }

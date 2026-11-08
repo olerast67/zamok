@@ -24,6 +24,9 @@ $verbText = if ($isRu) { Ru 0x0417,0x0430,0x0448,0x0438,0x0444,0x0440,0x043E,0x0
 $typeText = if ($isRu) { (Ru 0x041F,0x0430,0x043F,0x043A,0x0430) + ' Zamok' } else { 'Zamok folder' }
 # "Zaperet", "Otkryt parolem"
 $lockText = if ($isRu) { Ru 0x0417,0x0430,0x043F,0x0435,0x0440,0x0435,0x0442,0x044C } else { 'Lock' }
+# "Smenit parol", "Pokazat klyuch vosstanovleniya"
+$changeText = if ($isRu) { Ru 0x0421,0x043C,0x0435,0x043D,0x0438,0x0442,0x044C,0x20,0x043F,0x0430,0x0440,0x043E,0x043B,0x044C } else { 'Change password' }
+$showKeyText = if ($isRu) { Ru 0x041F,0x043E,0x043A,0x0430,0x0437,0x0430,0x0442,0x044C,0x20,0x043A,0x043B,0x044E,0x0447,0x20,0x0432,0x043E,0x0441,0x0441,0x0442,0x0430,0x043D,0x043E,0x0432,0x043B,0x0435,0x043D,0x0438,0x044F } else { 'Show recovery key' }
 $unlockText = if ($isRu) { Ru 0x041E,0x0442,0x043A,0x0440,0x044B,0x0442,0x044C,0x20,0x043F,0x0430,0x0440,0x043E,0x043B,0x0435,0x043C } else { 'Open with password' }
 
 if ((Split-Path $InstallDir -Leaf) -ne 'Zamok') { throw "InstallDir must end with \Zamok: $InstallDir" }
@@ -98,11 +101,18 @@ SetKey "$cls\Directory\shell\ZamokLock" @{ 'MUIVerb' = $lockText; 'Icon' = "$Ins
 SetKey "$cls\Directory\shell\ZamokLock\command" @{ '(default)' = "`"$exe`" --lock `"%1`"" }
 SetKey "$cls\Directory\shell\ZamokUnlock" @{ 'MUIVerb' = $unlockText; 'Icon' = "$InstallDir\open-item.ico"; 'AppliesTo' = $nothing }
 SetKey "$cls\Directory\shell\ZamokUnlock\command" @{ '(default)' = "`"$exe`" --unlock `"%1`"" }
+# Podmenyu "Zamok" na papkah Zamok: redkie deystviya, chtoby ne zagromozhdat menyu
+SetKey "$cls\Directory\shell\ZamokMore" @{ 'MUIVerb' = 'Zamok'; 'Icon' = "$InstallDir\open-item.ico"; 'SubCommands' = ''; 'AppliesTo' = $nothing }
+SetKey "$cls\Directory\shell\ZamokMore\shell\1ChangePassword" @{ 'MUIVerb' = $changeText }
+SetKey "$cls\Directory\shell\ZamokMore\shell\1ChangePassword\command" @{ '(default)' = "`"$exe`" --change-password `"%1`"" }
+SetKey "$cls\Directory\shell\ZamokMore\shell\2ShowKey" @{ 'MUIVerb' = $showKeyText }
+SetKey "$cls\Directory\shell\ZamokMore\shell\2ShowKey\command" @{ '(default)' = "`"$exe`" --show-key `"%1`"" }
 SetKey "$cls\.zamok" @{ '(default)' = 'Zamok.OpenItem' }
 SetKey "$cls\Zamok.OpenItem" @{ '(default)' = $typeText; 'FriendlyTypeName' = $typeText }
 SetKey "$cls\Zamok.OpenItem\DefaultIcon" @{ '(default)' = "$InstallDir\open-item.ico" }
 SetKey "$cls\Zamok.OpenItem\shell\open\command" @{ '(default)' = "`"$exe`" --unlock `"%1`"" }
-Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Zamok' -Value "`"$core`""
+# Avtozapusk cherez storozha: on perezapuskaet core, esli tot upal
+Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Zamok' -Value "`"$core`" --watch"
 
 # Zapis ob ustanovke: uninstall-dev.ps1 udalyaet tolko eto
 @{
@@ -110,7 +120,7 @@ Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Za
     installed = (Get-Date).ToString('s')
     commit = (& git -C $repo rev-parse --short HEAD 2>$null)
     dir = $InstallDir
-    keys = @("$cls\Directory\shell\ZamokEncrypt", "$cls\Directory\shell\ZamokLock", "$cls\Directory\shell\ZamokUnlock", "$cls\.zamok", "$cls\Zamok.OpenItem")
+    keys = @("$cls\Directory\shell\ZamokEncrypt", "$cls\Directory\shell\ZamokLock", "$cls\Directory\shell\ZamokUnlock", "$cls\Directory\shell\ZamokMore", "$cls\.zamok", "$cls\Zamok.OpenItem")
     run = 'Zamok'
 } | ConvertTo-Json | Set-Content "$InstallDir\install.json" -Encoding UTF8
 
@@ -119,7 +129,7 @@ Add-Type -Namespace ZamokInstall -Name Shell -MemberDefinition '[DllImport("shel
 [ZamokInstall.Shell]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
 
 if (-not $NoStart) {
-    Start-Process $core
+    Start-Process $core -ArgumentList '--watch'
     $deadline = (Get-Date).AddSeconds(15)
     while (-not (Test-Path "\\.\pipe\$pipe") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
     if (-not (Test-Path "\\.\pipe\$pipe")) { throw 'zamok-core did not start: see %LOCALAPPDATA%\Zamok\core.log' }
