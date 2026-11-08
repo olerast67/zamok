@@ -50,7 +50,7 @@ $stage = "$repo\tests\tmp\install-stage"
 if (-not $NoBuild) {
     Write-Host 'Building zamok-core (Rust, release)...'
     Push-Location "$repo\core"
-    & "$env:USERPROFILE\.cargo\bin\cargo.exe" build -q --release -p zamok-core
+    & "$env:USERPROFILE\.cargo\bin\cargo.exe" build -q --release -p zamok-core -p zamok-shell
     if ($LASTEXITCODE) { throw 'cargo build failed' }
     Pop-Location
     Write-Host 'Publishing Zamok.exe (C#, self-contained)...'
@@ -58,6 +58,8 @@ if (-not $NoBuild) {
     & dotnet publish "$repo\ui\Zamok.UI\Zamok.UI.csproj" -c Release -o $stage -v q | Out-Null
     if ($LASTEXITCODE) { throw 'dotnet publish failed' }
     Copy-Item "$repo\core\target\release\zamok-core.exe" $stage
+    # Rasshirenie Provodnika: core kopiruet ego v svoyu papku i registriruet sam
+    Copy-Item "$repo\core\target\release\zamok_shell.dll" "$stage\zamok-shell.dll"
     Copy-Item "$repo\assets\zamok.ico", "$repo\assets\zamok-open.ico" $stage
     # Znachki iz znachkov etoy Windows (papka i zamok iz imageres.dll) sobiraet sam Zamok.exe
     $mk = Start-Process "$stage\Zamok.exe" -ArgumentList '--make-icons', "`"$stage`"" -PassThru -Wait
@@ -126,7 +128,7 @@ Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Za
     installed = (Get-Date).ToString('s')
     commit = (& git -C $repo rev-parse --short HEAD 2>$null)
     dir = $InstallDir
-    keys = @("$cls\Directory\shell\ZamokEncrypt", "$cls\Directory\shell\ZamokLock", "$cls\Directory\shell\ZamokUnlock", "$cls\Directory\shell\ZamokMore", "$cls\.zamok", "$cls\Zamok.OpenItem")
+    keys = @("$cls\Directory\shell\ZamokEncrypt", "$cls\Directory\shell\ZamokLock", "$cls\Directory\shell\ZamokUnlock", "$cls\Directory\shell\ZamokMore", "$cls\.zamok", "$cls\Zamok.OpenItem", "$cls\CLSID\{3F7A9C12-8E4B-4D61-A5C7-19E2B60D4F83}", "$cls\Directory\shellex\CopyHookHandlers\Zamok")
     run = 'Zamok'
 } | ConvertTo-Json | Set-Content "$InstallDir\install.json" -Encoding UTF8
 

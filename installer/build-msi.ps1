@@ -8,7 +8,7 @@ $out = "$repo\installer\out"
 $app = "$out\app"
 
 Push-Location "$repo\core"
-& "$env:USERPROFILE\.cargo\bin\cargo.exe" build -q --release -p zamok-core
+& "$env:USERPROFILE\.cargo\bin\cargo.exe" build -q --release -p zamok-core -p zamok-shell
 if ($LASTEXITCODE) { throw 'cargo build failed' }
 Pop-Location
 
@@ -16,6 +16,7 @@ Remove-Item $app -Recurse -Force -ErrorAction SilentlyContinue
 & dotnet publish "$repo\ui\Zamok.UI\Zamok.UI.csproj" -c Release -o $app -v q | Out-Null
 if ($LASTEXITCODE) { throw 'dotnet publish failed' }
 Copy-Item "$repo\core\target\release\zamok-core.exe" $app
+Copy-Item "$repo\core\target\release\zamok_shell.dll" "$app\zamok-shell.dll"
 # Zapasnye znachki; nastoyashchie Zamok.exe sobiraet pri ustanovke iz znachkov Windows
 Copy-Item "$repo\assets\zamok.ico", "$repo\assets\zamok-open.ico" $app
 Get-ChildItem $app -Filter *.pdb | Remove-Item

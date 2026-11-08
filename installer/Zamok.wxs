@@ -104,6 +104,10 @@
       <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="Zamok"
                      Value="&quot;[INSTALLFOLDER]zamok-core.exe&quot; --watch" Type="string" />
 
+      <!-- Расширение Проводника регистрирует zamok-core (shellhook.rs), при удалении убираем -->
+      <RemoveRegistryKey Root="HKCU" Key="Software\Classes\CLSID\{3F7A9C12-8E4B-4D61-A5C7-19E2B60D4F83}" Action="removeOnUninstall" />
+      <RemoveRegistryKey Root="HKCU" Key="Software\Classes\Directory\shellex\CopyHookHandlers\Zamok" Action="removeOnUninstall" />
+
       <!-- Значки, которые Zamok.exe собирает при установке из значков этой Windows -->
       <RemoveFile Id="RmFolderLocked" Name="folder-locked.ico" On="uninstall" />
       <RemoveFile Id="RmFolderLockedPng" Name="folder-locked-64.png" On="uninstall" />
