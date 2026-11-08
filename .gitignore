@@ -33,3 +33,7 @@ desktop.ini
 
 # Заметки сессий Claude Code
 .claude/handoff*.md
+
+# Сборка инструмента эталонов
+tests/fixtures-tool/out/
+tests/fixtures-tool/cp.txt

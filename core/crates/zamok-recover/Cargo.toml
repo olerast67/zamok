@@ -1,0 +1,11 @@
+[package]
+name = "zamok-recover"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Decrypt a Zamok (Cryptomator format 8) folder without installing Zamok"
+
+[dependencies]
+zamok-crypto = { path = "../zamok-crypto" }
+rpassword = "7"

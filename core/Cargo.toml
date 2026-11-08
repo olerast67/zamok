@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = ["crates/zamok-crypto", "crates/zamok-recover"]
+
+[workspace.package]
+edition = "2021"
+license = "GPL-3.0-only"
+repository = "https://github.com/olerast67/zamok"
+
+[profile.release]
+panic = "abort"
