@@ -149,13 +149,25 @@ public sealed partial class CoreClient
     {
         if (!GetNamedPipeServerProcessId(pipe, out var pid))
             throw new CoreNotTrustedException("cannot identify the pipe server");
+        var trust = Inspect(pid);
+        if (trust is null)
+            throw new CoreNotTrustedException("cannot inspect the pipe server");
         var me = WindowsIdentity.GetCurrent().User;
-        var owner = ProcessOwner(pid);
-        if (me is null || owner is null || !me.Equals(owner))
+        if (me is null || !me.Equals(trust.Owner))
             throw new CoreNotTrustedException("the pipe server belongs to another user");
+        // Урезанный процесс этого же пользователя (песочница браузера, низкая целостность)
+        // не должен получить пароль, даже если занял имя канала раньше core
+        if (trust.IntegrityRid < MediumIntegrityRid || trust.IsAppContainer || trust.IsRestricted)
+            throw new CoreNotTrustedException("the pipe server runs with reduced rights");
     }
 
-    internal static SecurityIdentifier? ProcessOwner(uint pid)
+    internal const uint MediumIntegrityRid = 0x2000;
+
+    /// <summary>Что известно о процессе: владелец и насколько урезаны его права.</summary>
+    internal sealed record ProcessTrust(SecurityIdentifier Owner, uint IntegrityRid,
+        bool IsAppContainer, bool IsRestricted);
+
+    internal static ProcessTrust? Inspect(uint pid)
     {
         const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
         const uint TOKEN_QUERY = 0x0008;
@@ -165,9 +177,59 @@ public sealed partial class CoreClient
         using (token)
         {
             using var identity = new WindowsIdentity(token.DangerousGetHandle());
-            return identity.User;
+            if (identity.User is null) return null;
+            var rid = IntegrityRid(token);
+            var appContainer = TokenDword(token, TokenIsAppContainer);
+            if (rid is null || appContainer is null) return null;
+            return new ProcessTrust(identity.User, rid.Value, appContainer.Value != 0,
+                IsTokenRestricted(token));
         }
     }
+
+    private const int TokenIntegrityLevel = 25;
+    private const int TokenIsAppContainer = 29;
+
+    /// <summary>Последняя часть SID метки целостности: 0x1000 низкая, 0x2000 средняя, 0x3000 высокая.</summary>
+    private static uint? IntegrityRid(SafeAccessTokenHandle token)
+    {
+        GetTokenInformation(token, TokenIntegrityLevel, IntPtr.Zero, 0, out var len);
+        if (len == 0) return null;
+        var buf = Marshal.AllocHGlobal((int)len);
+        try
+        {
+            if (!GetTokenInformation(token, TokenIntegrityLevel, buf, len, out _)) return null;
+            // TOKEN_MANDATORY_LABEL { SID_AND_ATTRIBUTES { PSID Sid; DWORD Attributes } }
+            var sid = new SecurityIdentifier(Marshal.ReadIntPtr(buf));
+            var parts = sid.Value.Split('-');
+            return uint.Parse(parts[^1]);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buf);
+        }
+    }
+
+    private static uint? TokenDword(SafeAccessTokenHandle token, int cls)
+    {
+        var buf = Marshal.AllocHGlobal(4);
+        try
+        {
+            return GetTokenInformation(token, cls, buf, 4, out _) ? (uint)Marshal.ReadInt32(buf) : null;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buf);
+        }
+    }
+
+    [LibraryImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetTokenInformation(SafeAccessTokenHandle token, int cls,
+        IntPtr info, uint length, out uint returned);
+
+    [LibraryImport("advapi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool IsTokenRestricted(SafeAccessTokenHandle token);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

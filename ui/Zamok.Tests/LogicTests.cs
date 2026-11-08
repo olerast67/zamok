@@ -68,3 +68,21 @@ public class RecoveryCheckTests
         Assert.False(c.IsCorrect(1, null));
     }
 }
+
+public class ProcessTrustTests
+{
+    [Fact]
+    public void CurrentProcessIsTrustedAtMediumOrHigherWithoutSandbox()
+    {
+        var t = CoreClient.Inspect((uint)Environment.ProcessId)!;
+        Assert.NotNull(t);
+        Assert.Equal(System.Security.Principal.WindowsIdentity.GetCurrent().User, t.Owner);
+        Assert.True(t.IntegrityRid >= CoreClient.MediumIntegrityRid, $"rid {t.IntegrityRid:x}");
+        Assert.False(t.IsAppContainer);
+        Assert.False(t.IsRestricted);
+    }
+
+    [Fact]
+    public void UnknownProcessCannotBeInspected() =>
+        Assert.Null(CoreClient.Inspect(0xFFFFFFF0));
+}
