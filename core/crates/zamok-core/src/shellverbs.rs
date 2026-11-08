@@ -128,6 +128,7 @@ mod tests {
             path: path.into(),
             state,
             idle_lock_secs: 0,
+            hello: false,
             error: None,
         }
     }

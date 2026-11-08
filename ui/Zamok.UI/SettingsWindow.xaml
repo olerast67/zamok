@@ -64,6 +64,12 @@
                             x:Uid="Settings_Show" Click="OnShowClick" />
                 </StackPanel>
 
+                <StackPanel x:Name="HelloPanel" Visibility="Collapsed" Spacing="2">
+                    <ToggleSwitch x:Name="HelloSwitch" AutomationProperties.AutomationId="HelloSwitch"
+                                  x:Uid="Settings_Hello" Toggled="OnHelloToggled" />
+                    <TextBlock x:Uid="Settings_HelloNote" TextWrapping="Wrap" FontSize="12" Opacity="0.7" />
+                </StackPanel>
+
                 <ComboBox x:Name="IdleBox" AutomationProperties.AutomationId="IdleBox"
                           x:Uid="Settings_Idle" MinWidth="220" SelectionChanged="OnIdleChanged" />
 

@@ -337,6 +337,13 @@ pub fn dispatch(line: &[u8], core: &Arc<Core>) -> Response {
                 Err(code) => Response::err(code),
             }
         }
+        Request::HelloEnable {
+            path,
+            password,
+            wrap_key,
+        } => one(core.hello_enable(&path, &password, &wrap_key)),
+        Request::HelloDisable { path } => one(core.hello_disable(&path)),
+        Request::UnlockHello { path, wrap_key } => one(core.unlock_hello(&path, &wrap_key)),
         Request::Quit => {
             core.request_quit();
             Response::ok()

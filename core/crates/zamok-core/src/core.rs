@@ -31,6 +31,8 @@ pub struct Entry {
     waiting_told: AtomicBool,
     /// Куда указывает точка подключения папки: по этому адресу находим её после переименования.
     target: Mutex<Option<String>>,
+    /// Файл обёрнутого мастер-ключа для Windows Hello (`hello\<id>.key`).
+    hello_file: Mutex<Option<PathBuf>>,
 }
 
 /// Что произошло при запирании по бездействию (для уведомления в трее).
@@ -49,6 +51,7 @@ impl Entry {
             lock_epoch: AtomicU64::new(0),
             waiting_told: AtomicBool::new(false),
             target: Mutex::new(None),
+            hello_file: Mutex::new(None),
         })
     }
 
@@ -73,6 +76,12 @@ impl Entry {
             path: cfg.path.to_string_lossy().into_owned(),
             state,
             idle_lock_secs: cfg.idle_lock_secs,
+            hello: self
+                .hello_file
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|p| p.is_file()),
             error: *self.error.lock().unwrap(),
         }
     }
@@ -168,6 +177,10 @@ impl Core {
         });
         let entries = core.entries.lock().unwrap().clone();
         for e in entries {
+            let file = core.hello_path(&e);
+            if file.is_file() {
+                *e.hello_file.lock().unwrap() = Some(file);
+            }
             let _ = e.ensure_mounted();
         }
         // Шифрования, прерванные сбоем: довести до конца или откатить
@@ -321,6 +334,83 @@ impl Core {
                 tracing::warn!(folder = %id, error = %err, "unlock with recovery key failed");
                 Err(ErrorCode::BadVault)
             }
+        }
+    }
+
+    fn hello_path(&self, e: &Entry) -> PathBuf {
+        self.data_dir
+            .join("hello")
+            .join(format!("{}.key", e.cfg().id))
+    }
+
+    fn wrap_key(b64: &str) -> Result<zeroize::Zeroizing<[u8; 32]>, ErrorCode> {
+        use base64::Engine;
+        let raw = zeroize::Zeroizing::new(
+            base64::engine::general_purpose::STANDARD
+                .decode(b64.trim())
+                .map_err(|_| ErrorCode::BadRequest)?,
+        );
+        let mut k = zeroize::Zeroizing::new([0u8; 32]);
+        if raw.len() != 32 {
+            return Err(ErrorCode::BadRequest);
+        }
+        k.copy_from_slice(&raw);
+        Ok(k)
+    }
+
+    /// Включить вход по Windows Hello для папки (после проверки пароля).
+    pub fn hello_enable(
+        &self,
+        path: &str,
+        password: &str,
+        wrap_key: &str,
+    ) -> Result<FolderInfo, ErrorCode> {
+        let kek = Self::wrap_key(wrap_key)?;
+        let (e, key) = self.master_key(path, password)?;
+        let blob =
+            zamok_crypto::masterkey::wrap_with(&key, &kek).map_err(|_| ErrorCode::Internal)?;
+        let file = self.hello_path(&e);
+        let write = || -> std::io::Result<()> {
+            std::fs::create_dir_all(file.parent().unwrap())?;
+            let tmp = file.with_extension("tmp");
+            std::fs::write(&tmp, &blob)?;
+            std::fs::rename(&tmp, &file)
+        };
+        write().map_err(|_| ErrorCode::Internal)?;
+        *e.hello_file.lock().unwrap() = Some(file);
+        tracing::info!(folder = %e.cfg().id, "windows hello enabled");
+        Ok(e.info())
+    }
+
+    pub fn hello_disable(&self, path: &str) -> Result<FolderInfo, ErrorCode> {
+        let e = self.find(path)?;
+        let _ = std::fs::remove_file(self.hello_path(&e));
+        *e.hello_file.lock().unwrap() = None;
+        tracing::info!(folder = %e.cfg().id, "windows hello disabled");
+        Ok(e.info())
+    }
+
+    /// Открыть ключом из подписи Windows Hello.
+    pub fn unlock_hello(&self, path: &str, wrap_key: &str) -> Result<FolderInfo, ErrorCode> {
+        let kek = Self::wrap_key(wrap_key)?;
+        let e = self.find(path)?;
+        if self.is_busy(&e) {
+            return Err(ErrorCode::JobRunning);
+        }
+        let epoch = e.lock_epoch.load(Ordering::SeqCst);
+        let blob = std::fs::read(self.hello_path(&e)).map_err(|_| ErrorCode::HelloFailed)?;
+        let key = zamok_crypto::masterkey::unwrap_with(&blob, &kek)
+            .map_err(|_| ErrorCode::HelloFailed)?;
+        let control = e.ensure_mounted()?;
+        let still_wanted = || e.lock_epoch.load(Ordering::SeqCst) == epoch;
+        match control.unlock_with_key_if(key, &still_wanted) {
+            Ok(()) => {
+                notify_shell(&e.cfg().path);
+                tracing::info!(folder = %e.cfg().id, "unlocked with windows hello");
+                Ok(e.info())
+            }
+            Err(UnlockError::Cancelled) => Err(ErrorCode::UnlockCancelled),
+            Err(_) => Err(ErrorCode::HelloFailed),
         }
     }
 
@@ -644,6 +734,7 @@ impl Core {
         }
         drop(entries);
         target.unmount();
+        let _ = std::fs::remove_file(self.hello_path(&target));
         tracing::info!(folder = %target.cfg().id, "folder removed from the list");
         Ok(())
     }

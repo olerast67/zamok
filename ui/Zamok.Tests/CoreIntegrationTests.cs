@@ -115,6 +115,18 @@ public sealed class CoreIntegrationTests : IDisposable
         Assert.Equal("wrong_password", (await _client.ShowRecoveryKeyAsync(dir, "верный пароль")).Error);
         Assert.Equal(started.RecoveryKey, (await _client.ShowRecoveryKeyAsync(dir, "новый пароль 1")).RecoveryKey);
         Assert.False(File.Exists(Path.Combine(_root, ".Клиенты.zamok", "masterkey.cryptomator.tmp")));
+
+        // Windows Hello на стороне core: ключ обёртки подставной (настоящий даёт подпись Hello)
+        var wrap = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        var other = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        Assert.Equal("wrong_password", (await _client.HelloEnableAsync(dir, "не тот", wrap)).Error);
+        Assert.True((await _client.HelloEnableAsync(dir, "новый пароль 1", wrap)).Folder!.Hello);
+        await _client.LockAsync(dir);
+        Assert.Equal("hello_failed", (await _client.UnlockHelloAsync(dir, other)).Error);
+        Assert.True((await _client.UnlockHelloAsync(dir, wrap)).Folder!.IsUnlocked);
+        Assert.False((await _client.HelloDisableAsync(dir)).Folder!.Hello);
+        await _client.LockAsync(dir);
+        Assert.Equal("hello_failed", (await _client.UnlockHelloAsync(dir, wrap)).Error);
     }
 
     [Fact]
