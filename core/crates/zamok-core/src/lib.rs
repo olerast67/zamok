@@ -9,6 +9,7 @@
 //! - [`decrypt`]: «Расшифровать навсегда» тем же способом в обратную сторону.
 //! - [`autolock`]: блокировка экрана, сон, выход из системы, бездействие.
 //! - [`shellverbs`]: пункты «Запереть» и «Открыть паролем» только на папках Zamok.
+//! - [`shellhook`]: список папок в общей памяти для `zamok-shell.dll` и её установка.
 //! - [`tray`]: значок в трее со списком папок и «Запереть всё».
 
 pub mod autolock;
@@ -20,5 +21,6 @@ pub mod mountpoint;
 pub mod pipe;
 pub mod preflight;
 pub mod protocol;
+pub mod shellhook;
 pub mod shellverbs;
 pub mod tray;
