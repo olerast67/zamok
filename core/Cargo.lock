@@ -21,6 +21,7 @@ dependencies = [
  "cfg-if",
  "cipher",
  "cpufeatures 0.2.17",
+ "zeroize",
 ]
 
 [[package]]
@@ -35,6 +36,7 @@ dependencies = [
  "ctr",
  "ghash",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -1398,6 +1400,7 @@ dependencies = [
 name = "zamok-crypto"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "aes-gcm",
  "aes-kw",
  "aes-siv",
@@ -1426,6 +1429,7 @@ dependencies = [
  "rpassword",
  "tempfile",
  "thiserror",
+ "widestring",
  "windows 0.62.2",
  "winfsp",
  "zamok-crypto",
