@@ -77,6 +77,10 @@ pub enum Request {
         path: String,
         password: Zeroizing<String>,
     },
+    /// Общие настройки: запирать ли при блокировке экрана.
+    SetLockOnScreenLock {
+        on: bool,
+    },
     /// Запереть всё, отключить папки и завершиться.
     Quit,
 }
@@ -175,6 +179,11 @@ pub struct JobInfo {
     pub error: Option<ErrorCode>,
 }
 
+#[derive(Serialize, Debug, Clone)]
+pub struct Settings {
+    pub lock_on_screen_lock: bool,
+}
+
 #[derive(Serialize, Debug, Default)]
 pub struct Response {
     pub ok: bool,
@@ -188,6 +197,8 @@ pub struct Response {
     pub job: Option<JobInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jobs: Option<Vec<JobInfo>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settings: Option<Settings>,
     /// Ключ восстановления, 44 слова: только в ответе на `encrypt`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recovery_key: Option<String>,

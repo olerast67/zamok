@@ -1,0 +1,183 @@
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Zamok.Client;
+
+namespace Zamok.UI;
+
+/// <summary>
+/// Окно настроек (DESIGN.md, раздел 2.5): список зашифрованных папок, свойства шифрования
+/// выбранной, время автозапирания, «Запирать при блокировке экрана», «О программе».
+/// Состояние папок обновляется раз в 2 секунды, пока окно открыто.
+/// </summary>
+public sealed partial class SettingsWindow : Window
+{
+    /// <summary>Варианты автозапирания в минутах; 0 = не запирать по времени.</summary>
+    private static readonly ulong[] IdleMinutes = [5, 15, 30, 60, 120, 0];
+
+    private readonly CoreClient _client = new();
+    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private FolderInfo[] _folders = [];
+    private string? _selectedId;
+    private bool _updating;
+
+    public SettingsWindow()
+    {
+        InitializeComponent();
+        WindowHelper.SetupDialog(this, Root, TitleBar, TitleIcon, 680, 540);
+        var icon = WindowHelper.FolderIcon(32);
+        if (icon is not null) FolderIcon.Source = icon;
+        foreach (var m in IdleMinutes)
+            IdleBox.Items.Add(m == 0 ? Strings.Get("Settings_IdleNever") : Strings.Format("Settings_IdleMinutes", m));
+        _timer.Tick += async (_, _) => await RefreshAsync();
+        Activated += async (_, _) => { if (!_timer.IsEnabled) { _timer.Start(); await RefreshAsync(); } };
+        Closed += (_, _) => _timer.Stop();
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            await RefreshCoreAsync();
+        }
+        catch (Exception e)
+        {
+            ShowError(e.Message);
+        }
+    }
+
+    private async Task RefreshCoreAsync()
+    {
+        Response status;
+        try
+        {
+            status = await _client.StatusAsync();
+        }
+        catch (Exception e) when (e is CoreNotRunningException or CoreNotTrustedException)
+        {
+            ShowError(Strings.Error(e is CoreNotRunningException ? "core_not_running" : "core_not_trusted"));
+            return;
+        }
+        _updating = true;
+        try
+        {
+            ScreenLockSwitch.IsOn = status.Settings?.LockOnScreenLock ?? true;
+            _folders = status.Folders ?? [];
+            // Пересобрать список, только если состав или состояния поменялись
+            var shown = string.Join("|", _folders.Select(f => f.Id + f.State));
+            if ((string?)FolderList.Tag != shown)
+            {
+                FolderList.Tag = shown;
+                FolderList.Items.Clear();
+                foreach (var f in _folders)
+                {
+                    var row = new StackPanel { Padding = new Thickness(0, 4, 0, 4) };
+                    row.Children.Add(new TextBlock { Text = f.Name, TextTrimming = TextTrimming.CharacterEllipsis });
+                    // Цвета темы лежат в словарях тем, поиск по ключу их не находит: вторичный текст
+                    // делаем мельче и прозрачнее
+                    row.Children.Add(new TextBlock { Text = StateText(f), FontSize = 12, Opacity = 0.7 });
+                    FolderList.Items.Add(new ListViewItem { Content = row, Tag = f.Id });
+                }
+                var index = Array.FindIndex(_folders, f => f.Id == _selectedId);
+                FolderList.SelectedIndex = index >= 0 ? index : (_folders.Length > 0 ? 0 : -1);
+            }
+            Empty.Visibility = _folders.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            ShowDetails();
+        }
+        finally
+        {
+            _updating = false;
+        }
+    }
+
+    private static string StateText(FolderInfo f) => Strings.Get(f.State switch
+    {
+        "unlocked" => "Settings_StateOpen",
+        "locked" => "Settings_StateLocked",
+        _ => "Settings_StateUnavailable",
+    });
+
+    private FolderInfo? Selected => _folders.FirstOrDefault(f => f.Id == _selectedId);
+
+    private void OnFolderSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (FolderList.SelectedItem is ListViewItem item) _selectedId = (string)item.Tag;
+        var was = _updating;
+        _updating = true;
+        ShowDetails();
+        _updating = was;
+    }
+
+    private void ShowDetails()
+    {
+        var f = Selected;
+        Details.Visibility = f is null ? Visibility.Collapsed : Visibility.Visible;
+        if (f is null) return;
+        DetailName.Text = f.Name;
+        DetailState.Text = StateText(f);
+        ToggleButton.Content = Strings.Get(f.IsUnlocked ? "Settings_Lock" : "Settings_Open");
+        ToggleButton.IsEnabled = f.State != "unavailable";
+        PropPath.Text = Strings.Format("Settings_PropPath", f.Path);
+        PropVault.Text = Strings.Format("Settings_PropVault", VaultPath(f.Path));
+        var minutes = f.IdleLockSecs / 60;
+        var idx = Array.IndexOf(IdleMinutes, minutes);
+        IdleBox.SelectedIndex = idx >= 0 ? idx : Array.IndexOf(IdleMinutes, 30UL);
+    }
+
+    /// <summary>Хранилище лежит рядом с папкой: <c>.Имя.zamok</c>.</summary>
+    internal static string VaultPath(string path)
+    {
+        var parent = Path.GetDirectoryName(path) ?? "";
+        return Path.Combine(parent, "." + Path.GetFileName(path) + ".zamok");
+    }
+
+    private void ShowError(string text)
+    {
+        ErrorText.Text = text;
+        ErrorText.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private async void OnToggleClick(object sender, RoutedEventArgs e)
+    {
+        var f = Selected;
+        if (f is null) return;
+        ShowError("");
+        if (f.IsUnlocked)
+        {
+            try { await _client.LockAsync(f.Path); } catch { }
+            await RefreshAsync();
+        }
+        else
+        {
+            new UnlockWindow(f.Path).Activate();
+        }
+    }
+
+    private void OnShowClick(object sender, RoutedEventArgs e)
+    {
+        if (Selected is { } f)
+            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{f.Path}\"");
+    }
+
+    private async void OnIdleChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_updating || Selected is not { } f || IdleBox.SelectedIndex < 0) return;
+        var secs = IdleMinutes[IdleBox.SelectedIndex] * 60;
+        if (secs == f.IdleLockSecs) return;
+        try
+        {
+            var r = await _client.SetIdleLockAsync(f.Path, secs);
+            if (!r.Ok) ShowError(Strings.Error(r.Error));
+        }
+        catch (CoreNotRunningException) { ShowError(Strings.Error("core_not_running")); }
+        await RefreshAsync();
+    }
+
+    private async void OnScreenLockToggled(object sender, RoutedEventArgs e)
+    {
+        if (_updating) return;
+        try { await _client.SetLockOnScreenLockAsync(ScreenLockSwitch.IsOn); }
+        catch (CoreNotRunningException) { ShowError(Strings.Error("core_not_running")); }
+    }
+
+    private void OnCloseClick(object sender, RoutedEventArgs e) => Close();
+}

@@ -12,7 +12,10 @@ public sealed record Response(
     JobInfo? Job,
     JobInfo[]? Jobs,
     string? RecoveryKey,
-    string[]? Examples);
+    string[]? Examples,
+    Settings? Settings = null);
+
+public sealed record Settings(bool LockOnScreenLock);
 
 public sealed record FolderInfo(
     string Id,

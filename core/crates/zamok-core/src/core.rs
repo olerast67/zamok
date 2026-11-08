@@ -27,6 +27,14 @@ pub struct Entry {
     /// подключения тома) и ставит ключ, только если число не изменилось: запирание,
     /// пришедшее посреди открытия, всегда его отменяет.
     lock_epoch: AtomicU64,
+    /// Уже сказали, что запирание ждёт закрытия файла (чтобы не повторять каждые 2 секунды).
+    waiting_told: AtomicBool,
+}
+
+/// Что произошло при запирании по бездействию (для уведомления в трее).
+pub enum IdleEvent {
+    Locked { name: String, minutes: u64 },
+    Waiting { name: String, minutes: u64 },
 }
 
 impl Entry {
@@ -37,6 +45,7 @@ impl Entry {
             control: Mutex::new(None),
             error: Mutex::new(None),
             lock_epoch: AtomicU64::new(0),
+            waiting_told: AtomicBool::new(false),
         })
     }
 
@@ -493,27 +502,61 @@ impl Core {
         }
     }
 
-    /// Запереть папки, с которыми долго ничего не делали.
-    pub fn lock_idle(&self) {
+    /// Запереть папки, с которыми долго ничего не делали. Возвращает события для уведомлений:
+    /// папка заперта, или пора запирать, но программа держит файл (о каждой папке один раз).
+    pub fn lock_idle(&self) -> Vec<IdleEvent> {
         let entries = self.entries.lock().unwrap().clone();
+        let mut events = Vec::new();
         for e in entries {
-            let secs = e.cfg().idle_lock_secs;
+            let cfg = e.cfg();
+            let secs = cfg.idle_lock_secs;
             if secs == 0 {
                 continue;
             }
-            if let Some(c) = e.control() {
-                // Пока программа держит файл из папки, по бездействию не запираем: иначе
-                // открытый документ потом не сохранить. Win+L и сон запирают сразу.
-                if !c.is_locked()
-                    && c.idle_for().as_secs() >= secs
-                    && c.open_files() == 0
-                    && c.lock()
-                {
-                    settle_lock(&c, &e.cfg().path);
-                    tracing::info!(folder = %e.cfg().id, "locked after idle timeout");
+            let Some(c) = e.control() else { continue };
+            if c.is_locked() || c.idle_for().as_secs() < secs {
+                e.waiting_told.store(false, Ordering::SeqCst);
+                continue;
+            }
+            // Пока программа держит файл из папки, по бездействию не запираем: иначе
+            // открытый документ потом не сохранить. Win+L и сон запирают сразу.
+            if c.open_files() > 0 {
+                if !e.waiting_told.swap(true, Ordering::SeqCst) {
+                    events.push(IdleEvent::Waiting {
+                        name: cfg.name(),
+                        minutes: secs / 60,
+                    });
                 }
+                continue;
+            }
+            if c.lock() {
+                settle_lock(&c, &cfg.path);
+                e.waiting_told.store(false, Ordering::SeqCst);
+                tracing::info!(folder = %cfg.id, "locked after idle timeout");
+                events.push(IdleEvent::Locked {
+                    name: cfg.name(),
+                    minutes: secs / 60,
+                });
             }
         }
+        events
+    }
+
+    /// Общие настройки для окна настроек.
+    pub fn settings(&self) -> crate::protocol::Settings {
+        crate::protocol::Settings {
+            lock_on_screen_lock: self.lock_on_screen_lock(),
+        }
+    }
+
+    pub fn set_lock_on_screen_lock(&self, on: bool) -> Result<(), ErrorCode> {
+        let old = std::mem::replace(&mut self.settings.lock().unwrap().lock_on_screen_lock, on);
+        let entries = self.entries.lock().unwrap();
+        if let Err(code) = self.save(&entries) {
+            self.settings.lock().unwrap().lock_on_screen_lock = old;
+            return Err(code);
+        }
+        Ok(())
     }
 
     pub fn add(

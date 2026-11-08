@@ -70,6 +70,25 @@
   <data name="Manage_DecryptWarning.Text" xml:space="preserve"><value>Файлы станут обычными, без шифрования, и останутся на том же месте. Сначала создаётся проверенная расшифрованная копия, зашифрованные данные удаляются последними.</value></data>
   <data name="Manage_Decrypt" xml:space="preserve"><value>Расшифровать</value></data>
   <data name="Manage_Decrypted" xml:space="preserve"><value>Папка «{0}» расшифрована и снова обычная.</value></data>
+  <data name="Settings_Title.Text" xml:space="preserve"><value>Настройки Zamok</value></data>
+  <data name="Settings_Folders.Text" xml:space="preserve"><value>Зашифрованные папки</value></data>
+  <data name="Settings_Show.Content" xml:space="preserve"><value>Показать в Проводнике</value></data>
+  <data name="Settings_Idle.Header" xml:space="preserve"><value>Запирать, если с папкой не работают</value></data>
+  <data name="Settings_IdleMinutes" xml:space="preserve"><value>через {0} мин</value></data>
+  <data name="Settings_IdleNever" xml:space="preserve"><value>не запирать по времени</value></data>
+  <data name="Settings_Properties.Text" xml:space="preserve"><value>Свойства шифрования</value></data>
+  <data name="Settings_PropPath" xml:space="preserve"><value>Папка: {0}</value></data>
+  <data name="Settings_PropVault" xml:space="preserve"><value>Зашифрованные данные: {0}</value></data>
+  <data name="Settings_Crypto.Text" xml:space="preserve"><value>Формат Cryptomator 8: содержимое AES-256-GCM, имена AES-SIV, ключ из пароля через scrypt. Без Zamok папку открывает Cryptomator на любой системе.</value></data>
+  <data name="Settings_Empty.Text" xml:space="preserve"><value>Зашифрованных папок пока нет.</value></data>
+  <data name="Settings_EmptyHow.Text" xml:space="preserve"><value>Чтобы зашифровать папку, щёлкните её правой кнопкой и выберите «Зашифровать паролем».</value></data>
+  <data name="Settings_ScreenLock.Header" xml:space="preserve"><value>Запирать все папки при блокировке экрана (Win+L)</value></data>
+  <data name="Settings_Close.Content" xml:space="preserve"><value>Закрыть</value></data>
+  <data name="Settings_StateOpen" xml:space="preserve"><value>открыта</value></data>
+  <data name="Settings_StateLocked" xml:space="preserve"><value>заперта</value></data>
+  <data name="Settings_StateUnavailable" xml:space="preserve"><value>недоступна</value></data>
+  <data name="Settings_Lock" xml:space="preserve"><value>Запереть</value></data>
+  <data name="Settings_Open" xml:space="preserve"><value>Открыть</value></data>
   <data name="Error_core_not_running" xml:space="preserve"><value>Фоновая программа Zamok не запущена.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>На связи не программа Zamok этого пользователя. Пароль не отправлен.</value></data>
   <data name="Error_bad_request" xml:space="preserve"><value>Внутренняя ошибка запроса.</value></data>

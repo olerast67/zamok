@@ -89,6 +89,21 @@ public sealed partial class CoreClient
             w.WriteString("password", password);
         }, ct);
 
+    public Task<Response> SetIdleLockAsync(string path, ulong secs, CancellationToken ct = default) =>
+        SendAsync(w =>
+        {
+            w.WriteString("cmd", "set_idle_lock");
+            w.WriteString("path", path);
+            w.WriteNumber("secs", secs);
+        }, ct);
+
+    public Task<Response> SetLockOnScreenLockAsync(bool on, CancellationToken ct = default) =>
+        SendAsync(w =>
+        {
+            w.WriteString("cmd", "set_lock_on_screen_lock");
+            w.WriteBoolean("on", on);
+        }, ct);
+
     public Task<Response> DecryptAsync(string path, string password, CancellationToken ct = default) =>
         SendAsync(w =>
         {

@@ -236,7 +236,12 @@ pub fn dispatch(line: &[u8], core: &Arc<Core>) -> Response {
             ok: true,
             folders: Some(core.status()),
             jobs: Some(core.jobs()),
+            settings: Some(core.settings()),
             ..Default::default()
+        },
+        Request::SetLockOnScreenLock { on } => match core.set_lock_on_screen_lock(on) {
+            Ok(()) => Response::ok(),
+            Err(code) => Response::err(code),
         },
         Request::Encrypt {
             path,
