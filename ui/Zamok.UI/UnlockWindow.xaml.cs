@@ -20,21 +20,36 @@ public sealed partial class UnlockWindow : Window
 
     private async void OnHelloClick(object sender, RoutedEventArgs e) => await TryHelloAsync();
 
-    private async Task TryHelloAsync()
+    /// <summary>Открыть через Windows Hello. <c>true</c>: папка открыта, окно уже закрыто.</summary>
+    private async Task<bool> TryHelloAsync()
     {
-        if (_folderId is null) return;
+        if (_folderId is null) return false;
         HelloButton.IsEnabled = false;
         try
         {
             var key = await Hello.WrapKeyAsync(_folderId, create: false);
-            if (key is null) { ShowError(Strings.Error("hello_failed")); return; }
+            if (key is null) { ShowError(Strings.Error("hello_failed")); return false; }
             var r = await _client.UnlockHelloAsync(_path, key);
-            if (r.Ok) { Close(); return; }
+            if (r.Ok) { Close(); return true; }
             ShowError(Strings.Error(r.Error));
         }
         catch (CoreNotRunningException) { ShowError(Strings.Error("core_not_running")); }
         catch (CoreNotTrustedException) { ShowFatal(Strings.Error("core_not_trusted")); }
-        finally { HelloButton.IsEnabled = true; Password.Focus(FocusState.Programmatic); }
+        HelloButton.IsEnabled = true;
+        Password.Focus(FocusState.Programmatic);
+        return false;
+    }
+
+    /// <summary>Пока идёт запрос Windows Hello, поле пароля не показываем: оно только запасной путь.</summary>
+    private void ShowHelloWaiting(bool waiting)
+    {
+        var form = waiting ? Visibility.Collapsed : Visibility.Visible;
+        InputArea.Visibility = form;
+        HelloButton.Visibility = form;
+        ModeLink.Visibility = form;
+        OpenButton.Visibility = form;
+        Prompt.Text = Strings.Get(waiting ? "Unlock_HelloWaiting" : "Unlock_Prompt/Text");
+        WindowHelper.FitHeight(this, Root, 420);
     }
 
     public UnlockWindow(string path)
@@ -71,9 +86,8 @@ public sealed partial class UnlockWindow : Window
             if (folder.Hello && await Hello.IsAvailableAsync())
             {
                 _folderId = folder.Id;
-                HelloButton.Visibility = Visibility.Visible;
-                WindowHelper.FitHeight(this, Root, 420);
-                await TryHelloAsync(); // запрос появляется сам, пароль остаётся запасным путём
+                ShowHelloWaiting(true);
+                if (!await TryHelloAsync()) ShowHelloWaiting(false); // отменили: нужен пароль
             }
         }
         catch (CoreNotRunningException)
