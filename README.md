@@ -131,6 +131,8 @@ Version 0.1.0-alpha. Open items that matter for your data, all from the [roadmap
 
 ## License
 
-GPL-3.0, see [LICENSE](LICENSE).
+GPL-3.0, see [LICENSE](LICENSE), with an additional permission for the Windows App SDK: [LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md).
+
+**How this was made:** the author designed the app, directed the work and checked it on a real computer. Much of the code was written with an AI coding assistant (Claude by Anthropic). It has not been audited by a third party.
 
 Zamok uses WinFsp: WinFsp - Windows File System Proxy, Copyright (C) Bill Zissimopoulos, https://github.com/winfsp/winfsp
