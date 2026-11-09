@@ -91,6 +91,8 @@
   <data name="Settings_HelloNote.Text" xml:space="preserve"><value>Кто знает PIN-код Windows, тот откроет и папку. Вход работает только на этом компьютере, пароль и ключ восстановления остаются главными.</value></data>
   <data name="Settings_HelloTitle" xml:space="preserve"><value>Включить Windows Hello</value></data>
   <data name="Settings_HelloEnable" xml:space="preserve"><value>Включить</value></data>
+  <data name="Unlock_HelloWaiting" xml:space="preserve"><value>Подтвердите вход в окне Windows Hello.</value></data>
+  <data name="Settings_HelloPassword" xml:space="preserve"><value>Пароль этой папки (не пароль Windows)</value></data>
   <data name="Unlock_HelloText.Text" xml:space="preserve"><value>Открыть через Windows Hello</value></data>
   <data name="Error_hello_failed" xml:space="preserve"><value>Windows Hello не подтвердил вход. Введите пароль.</value></data>
   <data name="Settings_StateOpen" xml:space="preserve"><value>открыта</value></data>
@@ -105,13 +107,13 @@
   <data name="Settings_Open" xml:space="preserve"><value>Открыть</value></data>
   <data name="Error_core_not_running" xml:space="preserve"><value>Не удалось запустить фоновую программу Zamok. Перезагрузите компьютер.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>На связи не программа Zamok этого пользователя. Пароль не отправлен.</value></data>
+  <data name="Error_vault_damaged" xml:space="preserve"><value>Часть зашифрованных файлов отрезана от дерева папок. Папка осталась зашифрованной, ничего не удалено.</value></data>
   <data name="Error_bad_request" xml:space="preserve"><value>Внутренняя ошибка запроса.</value></data>
   <data name="Error_not_found" xml:space="preserve"><value>Эта папка не зашифрована Zamok.</value></data>
   <data name="Error_wrong_password" xml:space="preserve"><value>Пароль не подошёл.</value></data>
   <data name="Error_wrong_recovery_key" xml:space="preserve"><value>Ключ восстановления не подошёл. Проверьте слова и их порядок.</value></data>
   <data name="Error_already_added" xml:space="preserve"><value>Папка уже зашифрована или лежит внутри зашифрованной.</value></data>
   <data name="Error_path_occupied" xml:space="preserve"><value>На месте папки лежит другая папка или файл.</value></data>
-  <data name="Error_vault_damaged" xml:space="preserve"><value>Часть зашифрованных файлов отрезана от дерева папок. Папка осталась зашифрованной, ничего не удалено.</value></data>
   <data name="Error_bad_vault" xml:space="preserve"><value>Зашифрованные данные папки не найдены или повреждены.</value></data>
   <data name="Error_mount_failed" xml:space="preserve"><value>Не удалось подключить папку. Проверьте, что WinFsp установлен.</value></data>
   <data name="Error_internal" xml:space="preserve"><value>Внутренняя ошибка Zamok.</value></data>

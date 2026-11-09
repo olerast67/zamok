@@ -91,6 +91,8 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Settings_HelloNote.Text" xml:space="preserve"><value>Anyone who knows the Windows PIN can open the folder too. It works only on this computer; the password and the recovery key stay the main way in.</value></data>
   <data name="Settings_HelloTitle" xml:space="preserve"><value>Turn on Windows Hello</value></data>
   <data name="Settings_HelloEnable" xml:space="preserve"><value>Turn on</value></data>
+  <data name="Unlock_HelloWaiting" xml:space="preserve"><value>Confirm in the Windows Hello window.</value></data>
+  <data name="Settings_HelloPassword" xml:space="preserve"><value>Password of this folder (not your Windows password)</value></data>
   <data name="Unlock_HelloText.Text" xml:space="preserve"><value>Open with Windows Hello</value></data>
   <data name="Error_hello_failed" xml:space="preserve"><value>Windows Hello did not confirm. Enter the password.</value></data>
   <data name="Settings_StateOpen" xml:space="preserve"><value>open</value></data>
@@ -105,13 +107,13 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Settings_Open" xml:space="preserve"><value>Open</value></data>
   <data name="Error_core_not_running" xml:space="preserve"><value>Could not start the Zamok background program. Restart the computer.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>The other side is not this user's Zamok program. The password was not sent.</value></data>
+  <data name="Error_vault_damaged" xml:space="preserve"><value>Some encrypted files are cut off from the folder tree. The folder stays encrypted and nothing was deleted.</value></data>
   <data name="Error_bad_request" xml:space="preserve"><value>Internal request error.</value></data>
   <data name="Error_not_found" xml:space="preserve"><value>This folder is not encrypted with Zamok.</value></data>
   <data name="Error_wrong_password" xml:space="preserve"><value>Wrong password.</value></data>
   <data name="Error_wrong_recovery_key" xml:space="preserve"><value>The recovery key does not match. Check the words and their order.</value></data>
   <data name="Error_already_added" xml:space="preserve"><value>The folder is already encrypted or is inside an encrypted folder.</value></data>
   <data name="Error_path_occupied" xml:space="preserve"><value>Another folder or file is in the place of this folder.</value></data>
-  <data name="Error_vault_damaged" xml:space="preserve"><value>Some encrypted files are cut off from the folder tree. The folder stays encrypted and nothing was deleted.</value></data>
   <data name="Error_bad_vault" xml:space="preserve"><value>The encrypted data of the folder is missing or damaged.</value></data>
   <data name="Error_mount_failed" xml:space="preserve"><value>Could not mount the folder. Check that WinFsp is installed.</value></data>
   <data name="Error_internal" xml:space="preserve"><value>Internal Zamok error.</value></data>
