@@ -29,3 +29,4 @@ winfsp = { version = "0.13.2", features = ["delayload"] }
 
 [dev-dependencies]
 tempfile = "3"
+widestring = "1"

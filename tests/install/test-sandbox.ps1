@@ -21,7 +21,7 @@ Pop-Location
 $ErrorActionPreference = 'Continue'
 $here = 'C:\Users\WDAGUtilityAccount\Desktop\sb'
 $out = "$here\result.txt"
-function Say([string]$s) { Add-Content -LiteralPath $out -Value $s -Encoding UTF8 }
+function Say([string]$s) { for ($i = 0; $i -lt 20; $i++) { try { Add-Content -LiteralPath $out -Value $s -Encoding UTF8 -ErrorAction Stop; return } catch { Start-Sleep -Milliseconds 200 } } }
 function Check([string]$name, [scriptblock]$b) { $v = $false; try { $v = & $b } catch { Say "ERR $name : $($_.Exception.Message)" }; if ($v) { Say "PASS $name" } else { Say "FAIL $name" } }
 function WaitFor([scriptblock]$c, [int]$ms) { $d = (Get-Date).AddMilliseconds($ms); while (-not (& $c)) { if ((Get-Date) -gt $d) { return $false }; Start-Sleep -Milliseconds 200 }; $true }
 function WinFsp { (Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\WinFsp' -ErrorAction SilentlyContinue).InstallDir }

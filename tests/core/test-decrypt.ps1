@@ -180,6 +180,25 @@ try {
         }
         if (-not $script:proc.HasExited) { [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(20000) }
     }
+    # Ssylka na papku isporchena: fayly otrezany ot dereva, rasshifrovka otkazyvaet, hranilishche celo
+    $script:proc = StartCore
+    $v = "$root\damaged\$ruName"; Encrypted $v
+    [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $v)`"}")
+    $links = @(Get-ChildItem -LiteralPath (Sib $v).Vault -Recurse -Force -Filter dir.c9r)
+    $saved = @{}
+    foreach ($l in $links) { $saved[$l.FullName] = [IO.File]::ReadAllText($l.FullName); [IO.File]::WriteAllText($l.FullName, '00000000-0000-0000-0000-000000000000-' + $saved.Count) }
+    $r = Send (DecryptReq $v)
+    Check 'damaged folder link: decrypt refused with vault_damaged, vault kept' {
+        $r.error -eq 'vault_damaged' -and (Test-Path -LiteralPath "$((Sib $v).Vault)\masterkey.cryptomator") -and
+            -not (Test-Path (DecTmp $v)) -and (DecJournals) -eq 0
+    }
+    foreach ($k in $saved.Keys) { [IO.File]::WriteAllText($k, $saved[$k]) }
+    Check 'after the link is repaired the folder opens with the same content' {
+        $u = Send "{`"cmd`":`"unlock`",`"path`":`"$(J $v)`",`"password`":`"$pw`"}"
+        $u.ok -and (Manifest $v) -eq $ref
+    }
+    [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(20000)
+
     Check 'log has no folder names, paths or passwords' {
         $log = Get-Content "$data\core.log" -Raw -Encoding UTF8
         $bad = @($ruName, $ruPapka, $root, $pw) | Where-Object { $log.Contains($_) }

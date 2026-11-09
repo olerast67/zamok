@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.Win32.SafeHandles;
 
@@ -150,7 +151,7 @@ public sealed partial class CoreClient
             w.WriteString("id", id);
         }, ct);
 
-    private async Task<Response> SendAsync(Action<Utf8JsonWriter> body, CancellationToken ct)
+    private async Task<Response> SendOnceAsync(Action<Utf8JsonWriter> body, CancellationToken ct)
     {
         using var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut,
             PipeOptions.Asynchronous);
@@ -168,7 +169,12 @@ public sealed partial class CoreClient
         var buffer = new ArrayBufferWriter<byte>(1024);
         try
         {
-            using (var w = new Utf8JsonWriter(buffer))
+            using (var w = new Utf8JsonWriter(buffer, new JsonWriterOptions
+            {
+                // Без экранирования кириллицы: иначе пароль проходит через внутренний буфер
+                // разбора serde_json, который core не может стереть
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            }))
             {
                 w.WriteStartObject();
                 body(w);

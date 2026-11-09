@@ -92,25 +92,42 @@ impl Journal {
 }
 
 /// Удалить нашу расшифрованную копию: только папку `.….zamok-decrypted.tmp` из журнала.
-fn remove_tmp(j: &Journal) {
+fn remove_tmp(j: &Journal) -> std::io::Result<()> {
     let ok = j
         .tmp
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .is_some_and(|n| n.starts_with('.') && n.ends_with(".zamok-decrypted.tmp"));
-    if ok {
-        let _ = std::fs::remove_dir_all(&j.tmp);
+    if !ok {
+        return Err(std::io::Error::other(
+            "refusing to delete: not a decrypted copy",
+        ));
+    }
+    match std::fs::remove_dir_all(&j.tmp) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
     }
 }
 
 /// Откат до подмены: копия удаляется, папка остаётся (или снова становится) зашифрованной.
+/// Копию не удалось удалить: журнал остаётся, core попробует ещё раз. Шаг сначала
+/// возвращается на `copying`: наполовину удалённая копия не должна встать на место папки.
 fn rollback(core: &Core, j: &Journal, data_dir: &Path) {
-    remove_tmp(j);
+    let mut j = j.clone();
+    if j.step != Step::Copying && j.set(Step::Copying, data_dir).is_err() {
+        tracing::error!(job = %j.id, "rollback: cannot update the journal; copy kept");
+        return;
+    }
+    let tmp_removed = remove_tmp(&j);
     if core
         .register_encrypted(&j.path, &j.vault, j.idle_lock_secs)
         .is_err()
     {
         tracing::error!(job = %j.id, "rollback: cannot mount the folder again; journal kept");
+        return;
+    }
+    if let Err(e) = tmp_removed {
+        tracing::error!(job = %j.id, error = %e, "rollback: cannot delete the decrypted copy; journal kept");
         return;
     }
     j.remove(data_dir);
@@ -121,7 +138,7 @@ fn rollback(core: &Core, j: &Journal, data_dir: &Path) {
 /// и создания, атрибуты берутся с файлов шифротекста (так их показывала папка Zamok).
 fn copy_out(vault: &Vault, tmp: &Path, progress: &Progress) -> Result<(), ErrorCode> {
     std::fs::create_dir(tmp).map_err(|_| ErrorCode::CopyFailed)?;
-    let nodes = vault.walk().map_err(|_| ErrorCode::BadVault)?;
+    let nodes = vault.walk().map_err(|_| ErrorCode::VaultDamaged)?;
     let mut attrs_later = Vec::new();
     for node in nodes {
         if progress.cancel.load(Ordering::SeqCst) {
@@ -262,10 +279,10 @@ pub fn start(
         return Err(ErrorCode::FilesInUse);
     }
     // Запереть и не давать открыть, пока идёт копия: изменения в папке потерялись бы
-    core.set_busy(&path, true);
+    let busy = core.busy_guard(&path);
     let _ = core.lock(&p);
     let v = Vault::open_with_key(&vault, key).map_err(|_| ErrorCode::BadVault)?;
-    let nodes = v.walk().map_err(|_| ErrorCode::BadVault)?;
+    let nodes = v.walk().map_err(|_| ErrorCode::VaultDamaged)?;
     let (mut files, mut bytes) = (0u64, 0u64);
     for n in &nodes {
         if let Node::File { ciphertext, .. } = n {
@@ -277,7 +294,6 @@ pub fn start(
     let parent = path.parent().ok_or(ErrorCode::BadRequest)?;
     let need = bytes + bytes / 10 + files * 4096 + 64 * 1024 * 1024;
     if crate::preflight::free_space(parent).is_none_or(|f| f < need) {
-        core.set_busy(&path, false);
         return Err(ErrorCode::NotEnoughSpace);
     }
     let name = path
@@ -287,7 +303,6 @@ pub fn start(
         .into_owned();
     let tmp = parent.join(format!(".{name}.zamok-decrypted.tmp"));
     if std::fs::symlink_metadata(&tmp).is_ok() {
-        core.set_busy(&path, false);
         return Err(ErrorCode::VaultExists);
     }
     let id = crate::config::new_id().map_err(|_| ErrorCode::Internal)?;
@@ -332,10 +347,23 @@ pub fn start(
         if let Err(code) = result {
             tracing::warn!(job = %j.id, ?code, "decryption stopped");
         }
-        core.set_busy(&j.path, false);
+        drop(busy);
         pr.finish(result);
     });
     Ok(progress)
+}
+
+/// Ещё раз попробовать убрать расшифрованную копию, которая не удалилась при откате.
+pub fn retry_rollback(core: &Core, data_dir: &Path) {
+    // Занято на всю уборку: журнал новой работы не примется за брошенный
+    let Some(_starting) = core.begin_job() else {
+        return;
+    };
+    for j in Journal::load_all(data_dir) {
+        if j.step == Step::Copying {
+            rollback(core, &j, data_dir);
+        }
+    }
 }
 
 /// При старте core: доделать или откатить расшифровки, прерванные сбоем.
@@ -348,5 +376,37 @@ pub fn recover(core: &Core, data_dir: &Path) {
                 let _ = finish(core, &mut j, data_dir);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remove_tmp_only_touches_our_copy() {
+        let d = tempfile::tempdir().unwrap();
+        let other = d.path().join("Клиенты");
+        std::fs::create_dir(&other).unwrap();
+        let mut j = Journal {
+            version: 1,
+            id: "d1".into(),
+            step: Step::Copying,
+            path: other.clone(),
+            vault: d.path().join(".Клиенты.zamok"),
+            tmp: other.clone(),
+            idle_lock_secs: 0,
+            masterkey_sha256: "ab".into(),
+        };
+        // Чужое имя: отказ, папка цела
+        assert!(remove_tmp(&j).is_err());
+        assert!(other.exists());
+        // Своя копия удаляется, отсутствие копии не ошибка
+        j.tmp = d.path().join(".Клиенты.zamok-decrypted.tmp");
+        std::fs::create_dir(&j.tmp).unwrap();
+        std::fs::write(j.tmp.join("a.txt"), b"x").unwrap();
+        assert!(remove_tmp(&j).is_ok());
+        assert!(!j.tmp.exists());
+        assert!(remove_tmp(&j).is_ok());
     }
 }

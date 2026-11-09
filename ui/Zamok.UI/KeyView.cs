@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -8,7 +9,7 @@ using Zamok.Client;
 namespace Zamok.UI;
 
 /// <summary>Ключ восстановления в окне: сетка 11 x 4 с номерами, сохранение в файл, копирование.</summary>
-internal static class KeyView
+internal static partial class KeyView
 {
     /// <summary>
     /// Заполнить сетку (4 столбца) словами с номерами. Каждое слово в своей ячейке: оно не
@@ -50,10 +51,38 @@ internal static class KeyView
         return true;
     }
 
+    private static DispatcherTimer? _clearTimer;
+    private static uint _copiedSequence;
+
+    /// <summary>
+    /// В буфер, но мимо журнала Win+V и облачной синхронизации. Через минуту буфер очищается,
+    /// если в нём всё ещё ключ: номер изменения буфера говорит об этом, не читая содержимое.
+    /// </summary>
     public static void Copy(string key)
     {
         var data = new DataPackage();
         data.SetText(key);
-        Clipboard.SetContent(data);
+        Clipboard.SetContentWithOptions(data, new ClipboardContentOptions
+        {
+            IsAllowedInHistory = false,
+            IsRoamable = false,
+        });
+        _copiedSequence = GetClipboardSequenceNumber();
+        _clearTimer?.Stop();
+        _clearTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+        _clearTimer.Tick += (_, _) => ClearIfStillOurs();
+        _clearTimer.Start();
     }
+
+    /// <summary>Очистить буфер, если там ключ. Вызывается и при закрытии окна: таймер умрёт вместе с ним.</summary>
+    public static void ClearIfStillOurs()
+    {
+        _clearTimer?.Stop();
+        _clearTimer = null;
+        if (_copiedSequence != 0 && GetClipboardSequenceNumber() == _copiedSequence) Clipboard.Clear();
+        _copiedSequence = 0;
+    }
+
+    [LibraryImport("user32.dll")]
+    private static partial uint GetClipboardSequenceNumber();
 }

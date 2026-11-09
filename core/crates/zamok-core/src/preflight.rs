@@ -173,6 +173,24 @@ fn is_ntfs(path: &Path) -> bool {
     ok && String::from_utf16_lossy(&fs_name[..len]) == "NTFS"
 }
 
+/// Серийный номер тома, на котором лежит `path`.
+pub fn volume_serial(path: &Path) -> Option<u32> {
+    let root = volume_root(path)?;
+    let mut serial = 0u32;
+    unsafe {
+        GetVolumeInformationW(
+            PCWSTR(root.as_ptr()),
+            None,
+            Some(&mut serial),
+            None,
+            None,
+            None,
+        )
+    }
+    .ok()?;
+    Some(serial)
+}
+
 pub fn free_space(dir: &Path) -> Option<u64> {
     let w = wide(&dir.to_string_lossy());
     let mut free = 0u64;

@@ -1,7 +1,7 @@
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Animation;
-using Windows.System;
 using Zamok.Client;
 
 namespace Zamok.UI;
@@ -33,6 +33,7 @@ public sealed partial class UnlockWindow : Window
             ShowError(Strings.Error(r.Error));
         }
         catch (CoreNotRunningException) { ShowError(Strings.Error("core_not_running")); }
+        catch (CoreNotTrustedException) { ShowFatal(Strings.Error("core_not_trusted")); }
         finally { HelloButton.IsEnabled = true; Password.Focus(FocusState.Programmatic); }
     }
 
@@ -45,6 +46,9 @@ public sealed partial class UnlockWindow : Window
         if (icon is not null) FolderIcon.Source = icon;
         else FallbackIcon.Visibility = Visibility.Visible;
         ShowFolder(path.TrimEnd('\\'), null);
+        Title = FolderName.Text;
+        AutomationProperties.SetName(Busy, Strings.Get("A11y_Busy"));
+        WindowHelper.HookKeys(Root, () => OnOpenClick(OpenButton, new RoutedEventArgs()), Close);
         WindowHelper.FitHeight(this, Root, 420);
         Activated += OnFirstActivated;
     }
@@ -99,6 +103,7 @@ public sealed partial class UnlockWindow : Window
             : path;
         FolderName.Text = name ?? Path.GetFileName(folder);
         FolderPath.Text = Path.GetDirectoryName(folder) ?? "";
+        ToolTipService.SetToolTip(FolderPath, FolderPath.Text);
     }
 
     private void ShowError(string text)
@@ -115,19 +120,6 @@ public sealed partial class UnlockWindow : Window
         RecoveryWords.IsEnabled = false;
         OpenButton.IsEnabled = false;
         ModeLink.IsEnabled = false;
-    }
-
-    private void OnInputKeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        if (e.Key == VirtualKey.Enter)
-        {
-            e.Handled = true;
-            OnOpenClick(sender, e);
-        }
-        else if (e.Key == VirtualKey.Escape)
-        {
-            Close();
-        }
     }
 
     private void OnModeClick(object sender, RoutedEventArgs e)
@@ -184,6 +176,7 @@ public sealed partial class UnlockWindow : Window
     private void SetBusy(bool busy)
     {
         Busy.IsActive = busy;
+        Busy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         OpenButton.IsEnabled = !busy;
         Password.IsEnabled = !busy;
         RecoveryWords.IsEnabled = !busy;

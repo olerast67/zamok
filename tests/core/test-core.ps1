@@ -321,6 +321,26 @@ try {
         Move-Item -LiteralPath $mntB -Destination $mnt
         (VaultIs $vault $vaultB) -and (WaitFor { (State) -eq 'locked' } 10000)
     }
+    Check 'parent renamed while core was off, old name taken again: entry follows the vault' {
+        Move-Item -LiteralPath $mnt -Destination $mntB
+        $moved = (VaultIs $vaultB $vault) -and (WaitFor { (FirstState) -eq 'locked' } 10000)
+        Start-Sleep -Seconds 3
+        [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(15000)
+        $renamed = "$root\other-renamed"
+        Rename-Item -LiteralPath $other -NewName 'other-renamed'
+        New-Item -ItemType Directory -Force $other | Out-Null
+        $script:proc = StartCore
+        $folder = "$renamed\$ruName"
+        $ok = (WaitFor { @((Send '{"cmd":"status"}').folders | Where-Object { $_.path -eq $folder -and $_.state -eq 'locked' }).Count -eq 1 } 15000) -and
+            ((Get-Content "$data\folders.json" -Raw -Encoding UTF8 | ConvertFrom-Json).folders[0].vault -eq "$renamed\.$ruName.zamok")
+        [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(15000)
+        Remove-Item -LiteralPath $other -Force
+        Rename-Item -LiteralPath $renamed -NewName 'other'
+        $script:proc = StartCore
+        $back = WaitFor { @((Send '{"cmd":"status"}').folders | Where-Object { $_.path -eq $mntB -and $_.state -eq 'locked' }).Count -eq 1 } 15000
+        Move-Item -LiteralPath $mntB -Destination $mnt
+        $moved -and $ok -and $back -and (VaultIs $vault $vaultB) -and (WaitFor { (State) -eq 'locked' } 10000)
+    }
     # Vyrezat v Provodnike: papka v bufere obmena s pometkoy "perenos" (2) ili "kopirovanie" (5)
     function PutOnClipboard([string]$path, [int]$effect) {
         $env:ZC_PATH = $path; $env:ZC_EFFECT = "$effect"; $env:ZC_FORMAT = 'Preferred DropEffect'

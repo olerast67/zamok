@@ -138,7 +138,7 @@ pub struct ZFile {
     dir_buffer: DirBuffer,
     generation: u64,
     delete_on_close: AtomicBool,
-    /// Счётчик открытых файлов папки (у каталогов и виртуальных файлов `None`).
+    /// Счётчик открытых файлов поколения этого дескриптора (у каталогов и виртуальных файлов `None`).
     open_files: Option<Arc<AtomicUsize>>,
 }
 
@@ -180,8 +180,9 @@ pub struct Control {
     /// перед ответом «заперто» нужно дождаться, пока кэш ядра истечёт сам.
     fallback_wait: AtomicBool,
     /// Сколько файлов папки сейчас открыто программами (каталоги не считаются: окно
-    /// Проводника на папке не должно держать её открытой).
-    open_handles: Arc<AtomicUsize>,
+    /// Проводника на папке не должно держать её открытой). При запирании счётчик заменяется
+    /// новым: дескрипторы, открытые до запирания, уже не работают и считаться не должны.
+    open_handles: Mutex<Arc<AtomicUsize>>,
     /// Отсчёт для [`Control::idle_for`].
     started: std::time::Instant,
     /// Когда в папке последний раз читали, писали, создавали, переименовывали или смотрели
@@ -223,6 +224,12 @@ fn valid_name(name: &str) -> bool {
         || name.chars().any(|c| {
             matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || (c as u32) < 32
         }))
+}
+
+/// Имя для нового узла: те же правила, что при обходе хранилища. Иначе в хранилище попадало
+/// бы имя, которое потом не проходит расшифровку навсегда и `zamok-recover`.
+fn valid_new_name(name: &str) -> bool {
+    zamok_crypto::tree::safe_name(name).is_ok()
 }
 
 impl Control {
@@ -299,6 +306,7 @@ impl Control {
                 f.lock().unwrap().seal();
             }
         }
+        *self.open_handles.lock().unwrap() = Arc::new(AtomicUsize::new(0));
         self.dir_cache.lock().unwrap().clear();
         self.listings.lock().unwrap().clear();
         let mut seen: Vec<String> = self.seen.lock().unwrap().drain().collect();
@@ -330,7 +338,7 @@ impl Control {
 
     /// Сколько файлов папки сейчас открыто программами.
     pub fn open_files(&self) -> usize {
-        self.open_handles.load(Ordering::SeqCst)
+        self.open_handles.lock().unwrap().load(Ordering::SeqCst)
     }
 
     /// Сколько времени с папкой ничего не делали (с момента открытия или последнего обращения).
@@ -364,7 +372,7 @@ impl ZamokFs {
             seen: Mutex::new(std::collections::HashSet::new()),
             pending_invalidate: Mutex::new(Vec::new()),
             fallback_wait: AtomicBool::new(false),
-            open_handles: Arc::new(AtomicUsize::new(0)),
+            open_handles: Mutex::new(Arc::new(AtomicUsize::new(0))),
             started: std::time::Instant::now(),
             last_activity_ms: AtomicU64::new(0),
         });
@@ -696,8 +704,9 @@ impl ZamokFs {
     ) -> ZFile {
         let counted = virt.is_none() && matches!(kind, Some(Kind::File { .. }));
         let open_files = counted.then(|| {
-            self.ctl.open_handles.fetch_add(1, Ordering::SeqCst);
-            self.ctl.open_handles.clone()
+            let counter = self.ctl.open_handles.lock().unwrap().clone();
+            counter.fetch_add(1, Ordering::SeqCst);
+            counter
         });
         ZFile {
             open_files,
@@ -815,12 +824,6 @@ impl ZamokFs {
     }
 
     fn remove_node(&self, u: &Unlocked, r: &Resolved) -> FsResult<()> {
-        if let Some(name) = r.clear.rsplit('\\').next() {
-            let lower = name.to_lowercase();
-            self.listing_update(&r.parent_id, |l| {
-                l.remove(&lower);
-            });
-        }
         let Some(node) = &r.node else {
             return Err(STATUS_ACCESS_DENIED.into());
         };
@@ -847,7 +850,22 @@ impl ZamokFs {
                 }
             }
         }
+        // Из кэша только после удаления на диске: иначе неудача спрятала бы живой файл
+        if let Some(name) = r.clear.rsplit('\\').next() {
+            let lower = name.to_lowercase();
+            self.listing_update(&r.parent_id, |l| {
+                l.remove(&lower);
+            });
+        }
         Ok(())
+    }
+
+    /// Закрыть для записи файл, который заменён другим при переименовании.
+    fn seal_open(&self, content: &Path) {
+        let open = self.ctl.open_files.lock().unwrap().remove(content);
+        if let Some(f) = open.and_then(|w| w.upgrade()) {
+            f.lock().unwrap().seal();
+        }
     }
 }
 
@@ -948,7 +966,7 @@ impl FileSystemContext for ZamokFs {
         let path = file_name.to_string_lossy();
         self.with_key(|u| {
             let (parent, name) = parent_and_name(&path)?;
-            if !valid_name(&name) {
+            if !valid_new_name(&name) {
                 return Err(STATUS_OBJECT_NAME_INVALID.into());
             }
             let pr = self.resolve(u, &parent)?;
@@ -1166,7 +1184,7 @@ impl FileSystemContext for ZamokFs {
                 return Err(STATUS_ACCESS_DENIED.into());
             };
             let (new_parent, new_name) = parent_and_name(&new_path)?;
-            if !valid_name(&new_name) {
+            if !valid_new_name(&new_name) {
                 return Err(STATUS_OBJECT_NAME_INVALID.into());
             }
             let pr = self.resolve(u, &new_parent)?;
@@ -1174,6 +1192,7 @@ impl FileSystemContext for ZamokFs {
                 return Err(STATUS_NOT_A_DIRECTORY.into());
             };
             // Переименование только регистра букв того же узла
+            let mut replaced: Option<Resolved> = None;
             let same_node = src.parent_id == *new_dir_id
                 && src.clear.rsplit('\\').next().map(|n| n.to_lowercase())
                     == Some(new_name.to_lowercase());
@@ -1193,7 +1212,15 @@ impl FileSystemContext for ZamokFs {
                             return Err(STATUS_ACCESS_DENIED.into());
                         }
                     }
-                    self.remove_node(u, &target)?;
+                    // Файл поверх файла заменяется одним действием при переименовании ниже,
+                    // как на NTFS: сбой между двумя шагами не должен терять старый файл
+                    if matches!(src.kind, Kind::File { .. })
+                        && matches!(target.kind, Kind::File { .. })
+                    {
+                        replaced = Some(target);
+                    } else {
+                        self.remove_node(u, &target)?;
+                    }
                 }
             }
             let dir = self.dir_physical(u, new_dir_id);
@@ -1236,6 +1263,19 @@ impl FileSystemContext for ZamokFs {
                     }
                     if src_long && src_node != dst_node {
                         let _ = fs::remove_dir_all(&src_node);
+                    }
+                    if let Some(old) = &replaced {
+                        if let Kind::File {
+                            content: old_content,
+                        } = &old.kind
+                        {
+                            self.seal_open(old_content);
+                        }
+                        // Цель отличалась регистром букв: у неё свой узел, он остался. Файл уже
+                        // перенесён, поэтому неудача здесь не отменяет переименование
+                        if old.node.as_ref() != Some(&dst_node) {
+                            let _ = self.remove_node(u, old);
+                        }
                     }
                     // таблица открытых файлов: новый путь содержимого
                     let mut table = self.ctl.open_files.lock().unwrap();
@@ -1416,5 +1456,130 @@ impl winfsp::notify::NotifyingFileSystemContext<Vec<String>> for ZamokFs {
                 self.ctl.fallback_wait.store(true, Ordering::SeqCst);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::windows::fs::OpenOptionsExt;
+    use widestring::U16CString;
+
+    /// Файловая система над пустым хранилищем, уже открытая.
+    fn open_fs(root: &Path) -> ZamokFs {
+        // DirBuffer в контексте обращается к библиотеке WinFsp
+        winfsp::winfsp_init().unwrap();
+        zamok_crypto::tree::Vault::create_empty(root, "pw", 1 << 4).unwrap();
+        let z = ZamokFs::new(root, "t").unwrap();
+        z.control().unlock_with_password("pw").unwrap();
+        z
+    }
+
+    /// Файл с содержимым `body`; контекст как у открытого в программе файла.
+    fn make_file(z: &ZamokFs, path: &str, body: &[u8]) -> ZFile {
+        z.with_key(|u| {
+            let (_, name) = parent_and_name(path)?;
+            let Kind::File { content } = z.make_node(u, "", &name, false)? else {
+                unreachable!()
+            };
+            {
+                let c = z.cipher_for(u, &content, true)?;
+                c.lock().unwrap().write_at(0, body).map_err(cerr)?;
+                c.lock().unwrap().sync().map_err(cerr)?;
+            }
+            Ok(z.new_context(path.into(), Some(Kind::File { content }), None, None))
+        })
+        .unwrap()
+    }
+
+    fn content(ctx: &ZFile) -> PathBuf {
+        match ctx.kind.lock().unwrap().clone() {
+            Some(Kind::File { content }) => content,
+            _ => unreachable!(),
+        }
+    }
+
+    fn read_back(z: &ZamokFs, path: &str) -> Vec<u8> {
+        z.with_key(|u| {
+            let r = z.resolve(u, path)?;
+            let Kind::File { content } = r.kind else {
+                unreachable!()
+            };
+            let c = z.cipher_for(u, &content, false)?;
+            let mut buf = vec![0u8; 64];
+            let n = c.lock().unwrap().read_at(0, &mut buf).map_err(cerr)?;
+            buf.truncate(n);
+            Ok(buf)
+        })
+        .unwrap()
+    }
+
+    fn name(s: &str) -> U16CString {
+        U16CString::from_str(s).unwrap()
+    }
+
+    #[test]
+    fn replacing_a_file_is_atomic_and_keeps_the_target_on_failure() {
+        let d = tempfile::tempdir().unwrap();
+        let z = open_fs(&d.path().join("v"));
+        let doc = make_file(&z, "\\doc.txt", b"old");
+        let tmp = make_file(&z, "\\tmp.txt", b"new");
+        let doc_path = content(&doc);
+        // Шифротекст источника держит другая программа: переименовать нельзя
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x1)
+            .open(content(&tmp))
+            .unwrap();
+        assert!(z
+            .rename(&tmp, &name("\\tmp.txt"), &name("\\doc.txt"), true)
+            .is_err());
+        assert!(doc_path.is_file(), "the old file must stay on disk");
+        assert_eq!(read_back(&z, "\\doc.txt"), b"old");
+        drop(held);
+        z.rename(&tmp, &name("\\tmp.txt"), &name("\\doc.txt"), true)
+            .unwrap();
+        assert_eq!(read_back(&z, "\\doc.txt"), b"new");
+        assert!(z.with_key(|u| z.resolve(u, "\\tmp.txt")).is_err());
+    }
+
+    #[test]
+    fn replace_of_a_name_that_differs_in_case_leaves_one_file() {
+        let d = tempfile::tempdir().unwrap();
+        let z = open_fs(&d.path().join("v"));
+        let _doc = make_file(&z, "\\doc.txt", b"old");
+        let tmp = make_file(&z, "\\tmp.txt", b"new");
+        z.rename(&tmp, &name("\\tmp.txt"), &name("\\DOC.txt"), true)
+            .unwrap();
+        assert_eq!(read_back(&z, "\\doc.txt"), b"new");
+        let names = z.with_key(|u| z.with_listing(u, "", |l| l.len())).unwrap();
+        assert_eq!(names, 1);
+    }
+
+    #[test]
+    fn names_rejected_by_the_vault_walk_cannot_be_created() {
+        for bad in ["CON", "foo.", "foo ", "nul.txt"] {
+            assert!(!valid_new_name(bad), "{bad}");
+        }
+        assert!(valid_new_name("Отчёт.docx"));
+    }
+
+    #[test]
+    fn handles_from_before_a_lock_are_not_counted_after_unlock() {
+        let d = tempfile::tempdir().unwrap();
+        let z = open_fs(&d.path().join("v"));
+        let old = make_file(&z, "\\a.txt", b"x");
+        assert_eq!(z.control().open_files(), 1);
+        assert!(z.control().lock());
+        assert_eq!(z.control().open_files(), 0);
+        z.control().unlock_with_password("pw").unwrap();
+        assert_eq!(z.control().open_files(), 0);
+        let new = make_file(&z, "\\b.txt", b"y");
+        assert_eq!(z.control().open_files(), 1);
+        // Старый дескриптор закрывается и уменьшает только свой счётчик
+        drop(old);
+        assert_eq!(z.control().open_files(), 1);
+        drop(new);
+        assert_eq!(z.control().open_files(), 0);
     }
 }

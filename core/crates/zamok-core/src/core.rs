@@ -5,7 +5,7 @@
 //! других папок не ждут, пока кто-то вводит пароль.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use zamok_fs::fs::{Control, UnlockError};
@@ -37,6 +37,10 @@ pub struct Entry {
     file_id: Mutex<Option<i64>>,
     /// Файл обёрнутого мастер-ключа для Windows Hello (`hello\<id>.key`).
     hello_file: Mutex<Option<PathBuf>>,
+    /// Сколько проверок подряд хранилища нет на месте.
+    missing_ticks: AtomicU32,
+    /// Хранилище пропало, папка отключена; когда появится, подключится снова сама.
+    offline: AtomicBool,
 }
 
 /// Что произошло при запирании по бездействию (для уведомления в трее).
@@ -58,6 +62,8 @@ impl Entry {
             target: Mutex::new(None),
             file_id: Mutex::new(None),
             hello_file: Mutex::new(None),
+            missing_ticks: AtomicU32::new(0),
+            offline: AtomicBool::new(false),
         })
     }
 
@@ -82,6 +88,7 @@ impl Entry {
             path: cfg.path.to_string_lossy().into_owned(),
             state,
             idle_lock_secs: cfg.idle_lock_secs,
+            open_files: self.control().map_or(0, |c| c.open_files()),
             hello: self
                 .hello_file
                 .lock()
@@ -165,6 +172,62 @@ pub struct Core {
     /// изменения во время копирования потерялись бы.
     busy: Mutex<std::collections::HashSet<String>>,
     quit: AtomicBool,
+    /// Начало работы (шифрование или расшифровка) занято: от проверок до появления работы.
+    starting: AtomicBool,
+    /// Сколько раз запирали всё сразу (Win+L, сон, «запереть всё»).
+    lock_alls: AtomicU64,
+    /// Счётчик проверок: повторные уборки идут не на каждой.
+    ticks: AtomicU64,
+}
+
+/// Занятое начало работы; отпускается при удалении.
+pub struct JobStart<'a>(&'a Core);
+
+impl Drop for JobStart<'_> {
+    fn drop(&mut self) {
+        self.0.starting.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Папка занята расшифровкой, пока жив этот объект: любой ранний выход её освобождает.
+pub struct BusyGuard {
+    core: Arc<Core>,
+    path: PathBuf,
+}
+
+impl Drop for BusyGuard {
+    fn drop(&mut self) {
+        self.core.set_busy(&self.path, false);
+    }
+}
+
+/// Сколько проверок подряд хранилища не должно быть, чтобы считать его удалённым.
+const VAULT_GONE_TICKS: u32 = 3;
+/// Повторные уборки раз в столько проверок (проверка идёт раз в 2 секунды).
+const RETRY_EVERY_TICKS: u64 = 15;
+
+/// Что случилось с хранилищем, которого нет на старом месте.
+enum VaultMissing {
+    Deleted,
+    Moved,
+    Keep,
+}
+
+/// Удалено ли хранилище наверняка: ошибка именно «не найдено», родитель на месте, это тот же
+/// том, на котором хранилище лежало, и так несколько проверок подряд. Иначе запись остаётся:
+/// букву диска могла занять другая флешка.
+fn certainly_deleted(
+    kind: std::io::ErrorKind,
+    parent_exists: bool,
+    stored_serial: Option<u32>,
+    current_serial: Option<u32>,
+    ticks: u32,
+) -> bool {
+    kind == std::io::ErrorKind::NotFound
+        && parent_exists
+        && stored_serial.is_some()
+        && stored_serial == current_serial
+        && ticks >= VAULT_GONE_TICKS
 }
 
 impl Core {
@@ -189,6 +252,9 @@ impl Core {
             jobs: Mutex::new(Vec::new()),
             busy: Mutex::new(std::collections::HashSet::new()),
             quit: AtomicBool::new(false),
+            starting: AtomicBool::new(false),
+            lock_alls: AtomicU64::new(0),
+            ticks: AtomicU64::new(0),
         });
         let entries = core.entries.lock().unwrap().clone();
         for e in entries {
@@ -201,6 +267,20 @@ impl Core {
         // Шифрования, прерванные сбоем: довести до конца или откатить
         crate::encrypt::recover(&core, data_dir);
         crate::decrypt::recover(&core, data_dir);
+        // Прошлый сеанс мог закончиться с открытой папкой: тогда ярлыки в «Недавних» остались.
+        // Отдельным потоком: запуск не ждёт разбора ярлыков
+        let folders: Vec<PathBuf> = core
+            .entries
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| e.cfg().path)
+            .collect();
+        std::thread::spawn(move || {
+            for f in folders {
+                crate::recent::clean(&f);
+            }
+        });
         Ok(core)
     }
 
@@ -249,7 +329,26 @@ impl Core {
     }
 
     pub fn job_running(&self) -> bool {
+        self.starting.load(Ordering::SeqCst) || self.any_job_running()
+    }
+
+    fn any_job_running(&self) -> bool {
         self.jobs.lock().unwrap().iter().any(|j| j.is_running())
+    }
+
+    /// Занять начало работы. `None`: другая работа идёт или как раз начинается. Занято до
+    /// удаления результата, то есть проверки и журнал двух работ не идут одновременно.
+    pub fn begin_job(&self) -> Option<JobStart<'_>> {
+        if self.starting.swap(true, Ordering::SeqCst) {
+            return None;
+        }
+        let guard = JobStart(self);
+        (!self.any_job_running()).then_some(guard)
+    }
+
+    /// Сколько раз запирали всё сразу.
+    pub fn lock_all_count(&self) -> u64 {
+        self.lock_alls.load(Ordering::SeqCst)
     }
 
     pub fn jobs(&self) -> Vec<JobInfo> {
@@ -295,6 +394,26 @@ impl Core {
     }
 
     pub fn unlock(&self, path: &str, password: &str) -> Result<FolderInfo, ErrorCode> {
+        self.unlock_when(path, password, &|| true)
+    }
+
+    /// Открыть в конце шифрования: только если с его начала ничего не запирали сразу. Иначе
+    /// папка открылась бы на заблокированном компьютере и ждала бы запирания по времени.
+    pub fn unlock_if_no_lock_since(
+        &self,
+        path: &str,
+        password: &str,
+        lock_alls: u64,
+    ) -> Result<FolderInfo, ErrorCode> {
+        self.unlock_when(path, password, &|| self.lock_all_count() == lock_alls)
+    }
+
+    fn unlock_when(
+        &self,
+        path: &str,
+        password: &str,
+        also_wanted: &dyn Fn() -> bool,
+    ) -> Result<FolderInfo, ErrorCode> {
         let e = self.find(path)?;
         if self.is_busy(&e) {
             return Err(ErrorCode::JobRunning);
@@ -302,7 +421,7 @@ impl Core {
         let epoch = e.lock_epoch.load(Ordering::SeqCst);
         let control = e.ensure_mounted()?;
         let id = e.cfg().id;
-        let still_wanted = || e.lock_epoch.load(Ordering::SeqCst) == epoch;
+        let still_wanted = || e.lock_epoch.load(Ordering::SeqCst) == epoch && also_wanted();
         match control.unlock_with_password_if(password, &still_wanted) {
             Ok(()) => {
                 notify_shell(&e.cfg().path);
@@ -463,6 +582,15 @@ impl Core {
         }
     }
 
+    /// Занять папку на время расшифровки (см. [`BusyGuard`]).
+    pub fn busy_guard(self: &Arc<Self>, path: &Path) -> BusyGuard {
+        self.set_busy(path, true);
+        BusyGuard {
+            core: self.clone(),
+            path: path.to_path_buf(),
+        }
+    }
+
     fn is_busy(&self, e: &Entry) -> bool {
         self.busy
             .lock()
@@ -547,6 +675,7 @@ impl Core {
     /// Сразу стереть ключи всех открытых папок. Быстро: годится перед сном, когда
     /// на всё есть пара секунд. Возвращает, что ещё надо дождаться ([`Core::settle`]).
     pub fn lock_all_now(&self, reason: &str) -> Vec<(Arc<Control>, PathBuf)> {
+        self.lock_alls.fetch_add(1, Ordering::SeqCst);
         let entries = self.entries.lock().unwrap().clone();
         let mut locked = Vec::new();
         for e in entries {
@@ -622,6 +751,89 @@ impl Core {
         tracing::info!(folder = %cfg.id, moved, mounted, "vault follows the moved folder");
     }
 
+    /// Хранилища нет на старом месте. Удалено наверняка: убрать из списка. Сомнение (другой том, нет диска, нет доступа):
+    /// запись остаётся, папка «недоступна».
+    fn vault_missing(
+        &self,
+        e: &Arc<Entry>,
+        cfg: &FolderConfig,
+        kind: std::io::ErrorKind,
+    ) -> VaultMissing {
+        if kind != std::io::ErrorKind::NotFound {
+            e.missing_ticks.store(0, Ordering::SeqCst);
+            return VaultMissing::Keep;
+        }
+        if self.relocate(e, cfg) {
+            e.missing_ticks.store(0, Ordering::SeqCst);
+            return VaultMissing::Moved;
+        }
+        let ticks = e.missing_ticks.fetch_add(1, Ordering::SeqCst) + 1;
+        let parent = cfg.vault.parent().is_some_and(|p| p.is_dir());
+        let serial = parent
+            .then(|| crate::preflight::volume_serial(&cfg.vault))
+            .flatten();
+        if certainly_deleted(kind, parent, cfg.volume_serial, serial, ticks) {
+            return VaultMissing::Deleted;
+        }
+        if ticks >= VAULT_GONE_TICKS && !e.offline.swap(true, Ordering::SeqCst) {
+            e.unmount();
+            *e.error.lock().unwrap() = Some(ErrorCode::BadVault);
+            tracing::info!(folder = %cfg.id, "vault is not reachable, folder kept as unavailable");
+        }
+        VaultMissing::Keep
+    }
+
+    /// Хранилище ушло вместе с переименованной родительской папкой: при работающем core это
+    /// не даёт сделать точка подключения, но пока core не запущен такое возможно. Находим
+    /// его по номеру NTFS и запоминаем новое место.
+    fn relocate(&self, e: &Arc<Entry>, cfg: &FolderConfig) -> bool {
+        let Some(id) = cfg.vault_file_id else {
+            return false;
+        };
+        let Some(hint) = cfg.vault.ancestors().skip(1).find(|p| p.is_dir()) else {
+            return false;
+        };
+        // Номер имеет смысл только на том же томе
+        if cfg.volume_serial.is_none() || crate::preflight::volume_serial(hint) != cfg.volume_serial
+        {
+            return false;
+        }
+        let Some(found) = mountpoint::find_dir_by_id(hint, id) else {
+            return false;
+        };
+        if found.file_name() != cfg.vault.file_name() || !vault_looks_valid(&found) {
+            return false;
+        }
+        e.unmount();
+        {
+            let mut c = e.cfg.lock().unwrap();
+            // Папка лежала рядом с хранилищем: тогда и она переехала вместе с родителем
+            if cfg.path.parent() == cfg.vault.parent() {
+                if let (Some(parent), Some(leaf)) = (found.parent(), cfg.path.file_name()) {
+                    c.path = parent.join(leaf);
+                }
+            }
+            c.vault = found;
+        }
+        e.offline.store(false, Ordering::SeqCst);
+        let mounted = e.ensure_mounted().is_ok();
+        tracing::info!(folder = %cfg.id, mounted, "vault found at a new place, list updated");
+        true
+    }
+
+    /// Раз в 30 секунд повторить уборку, которая не удалась сразу. Своим потоком: удаление
+    /// большой папки не должно задерживать запирание по бездействию.
+    pub fn retry_leftovers(self: &Arc<Self>) {
+        if self.ticks.fetch_add(1, Ordering::SeqCst) % RETRY_EVERY_TICKS != RETRY_EVERY_TICKS - 1 {
+            return;
+        }
+        let core = self.clone();
+        std::thread::spawn(move || {
+            crate::encrypt::retry_cleanup(&core, &core.data_dir);
+            crate::decrypt::retry_rollback(&core, &core.data_dir);
+        });
+    }
+
     /// Папки, которые человек удалил в Проводнике (DESIGN.md, раздел 5.1):
     /// - удалено хранилище, а его родительская папка на месте: данных больше нет, папка
     ///   убирается из списка, имя снова свободно. Если нет и родителя (диск не подключён),
@@ -634,11 +846,34 @@ impl Core {
         let mut moved_any = false;
         for e in entries {
             let cfg = e.cfg();
-            if std::fs::symlink_metadata(&cfg.vault).is_err() {
-                if cfg.vault.parent().is_some_and(|p| p.is_dir()) {
-                    gone.push(e);
+            if let Err(err) = std::fs::symlink_metadata(&cfg.vault) {
+                match self.vault_missing(&e, &cfg, err.kind()) {
+                    VaultMissing::Deleted => gone.push(e),
+                    VaultMissing::Moved => moved_any = true,
+                    VaultMissing::Keep => {}
                 }
                 continue;
+            }
+            e.missing_ticks.store(0, Ordering::SeqCst);
+            // Хранилище с тем же именем на другом томе (другая флешка) не подключаем
+            let same_volume = cfg.volume_serial.is_none()
+                || crate::preflight::volume_serial(&cfg.vault) == cfg.volume_serial;
+            if same_volume && e.offline.swap(false, Ordering::SeqCst) {
+                let mounted = e.ensure_mounted().is_ok();
+                tracing::info!(folder = %cfg.id, mounted, "vault is back, folder mounted again");
+            }
+            if cfg.vault_file_id.is_none() && same_volume {
+                if let Some(id) = mountpoint::file_id(&cfg.vault) {
+                    e.cfg.lock().unwrap().vault_file_id = Some(id);
+                    moved_any = true;
+                }
+            }
+            // Записи старых версий узнают свой том, как только хранилище доступно
+            if cfg.volume_serial.is_none() {
+                if let Some(serial) = crate::preflight::volume_serial(&cfg.vault) {
+                    e.cfg.lock().unwrap().volume_serial = Some(serial);
+                    moved_any = true;
+                }
             }
             if e.control().is_some() && !mountpoint::exists(&cfg.path) {
                 // Переименовали или перенесли в Проводнике в пределах диска: у точки подключения
@@ -774,6 +1009,8 @@ impl Core {
         }
         let cfg = FolderConfig {
             id: config::new_id().map_err(|_| ErrorCode::Internal)?,
+            volume_serial: crate::preflight::volume_serial(&vault),
+            vault_file_id: mountpoint::file_id(&vault),
             path,
             vault,
             vault_prev: None,
@@ -829,5 +1066,33 @@ impl Core {
             e.unmount();
         }
         tracing::info!("all folders unmounted");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::ErrorKind::{NotFound, PermissionDenied};
+
+    #[test]
+    fn entry_is_dropped_only_when_the_vault_is_certainly_deleted() {
+        let t = VAULT_GONE_TICKS;
+        assert!(certainly_deleted(NotFound, true, Some(7), Some(7), t));
+        // Рано: хранилище могло пропасть на мгновение
+        assert!(!certainly_deleted(NotFound, true, Some(7), Some(7), t - 1));
+        // Букву диска заняла другая флешка
+        assert!(!certainly_deleted(NotFound, true, Some(7), Some(8), t));
+        // Нет доступа: хранилище может быть целым
+        assert!(!certainly_deleted(
+            PermissionDenied,
+            true,
+            Some(7),
+            Some(7),
+            t
+        ));
+        // Диска нет
+        assert!(!certainly_deleted(NotFound, false, Some(7), None, t));
+        // Запись старой версии: том неизвестен, сомнение в пользу записи
+        assert!(!certainly_deleted(NotFound, true, None, Some(7), t));
     }
 }

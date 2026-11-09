@@ -114,6 +114,8 @@ pub enum ErrorCode {
     PathOccupied,
     /// Нет хранилища по указанному пути или оно повреждено.
     BadVault,
+    /// Дерево папок хранилища повреждено: расшифровать навсегда нельзя, хранилище цело.
+    VaultDamaged,
     MountFailed,
     // Проверки перед шифрованием (в ответе бывают примеры: относительные пути)
     /// Не папка: файл, ссылка или точка подключения.
@@ -170,6 +172,8 @@ pub struct FolderInfo {
     pub path: String,
     pub state: FolderState,
     pub idle_lock_secs: u64,
+    /// Сколько файлов папки сейчас открыто: окна предупреждают перед запиранием.
+    pub open_files: usize,
     /// Включён вход по Windows Hello.
     pub hello: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -221,7 +225,10 @@ pub struct Response {
     pub settings: Option<Settings>,
     /// Ключ восстановления, 44 слова: только в ответе на `encrypt`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub recovery_key: Option<String>,
+    pub recovery_key: Option<zeroize::Zeroizing<String>>,
+    /// Сколько папок ждут удаления открытого оригинала (его держит другая программа).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub originals_left: Option<usize>,
     /// Примеры того, что мешает (относительные пути), при отказе проверок.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub examples: Option<Vec<String>>,

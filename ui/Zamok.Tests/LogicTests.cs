@@ -116,3 +116,27 @@ public class RecoveryFormatTests
     public void NormalizePlainWordsAndOrder(string input, string expected) =>
         Assert.Equal(expected, RecoveryCheck.Normalize(input));
 }
+
+public class CoreClientFailureTests
+{
+    [Theory]
+    [InlineData("this is not json\n")]
+    [InlineData("")]
+    public async Task BadAnswerIsReportedAsCoreNotRunning(string answer)
+    {
+        var name = $"zamok-test-{Guid.NewGuid():N}";
+        using var server = new System.IO.Pipes.NamedPipeServerStream(name, System.IO.Pipes.PipeDirection.InOut, 1,
+            System.IO.Pipes.PipeTransmissionMode.Byte, System.IO.Pipes.PipeOptions.Asynchronous);
+        var serving = Task.Run(async () =>
+        {
+            await server.WaitForConnectionAsync();
+            var buf = new byte[256];
+            while (Array.IndexOf(buf, (byte)10, 0, await server.ReadAsync(buf)) < 0) { }
+            if (answer.Length > 0) await server.WriteAsync(System.Text.Encoding.UTF8.GetBytes(answer));
+            server.Disconnect();
+        });
+        await Assert.ThrowsAsync<CoreNotRunningException>(
+            () => new CoreClient(name).StatusAsync().WaitAsync(TimeSpan.FromSeconds(20)));
+        await serving.WaitAsync(TimeSpan.FromSeconds(20));
+    }
+}

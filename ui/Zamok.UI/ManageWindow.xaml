@@ -39,20 +39,18 @@
                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                     <TextBlock x:Name="Heading" AutomationProperties.AutomationId="Heading"
-                               FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                    <TextBlock x:Name="StepText" Style="{StaticResource CaptionTextBlockStyle}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                               FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock x:Name="StepText" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
             </Grid>
 
             <!-- Пароль (старый) и новый пароль -->
             <StackPanel x:Name="PageInput" Grid.Row="1" Spacing="10">
                 <TextBlock x:Name="DecryptWarning" x:Uid="Manage_DecryptWarning" TextWrapping="Wrap"
-                           Visibility="Collapsed" Style="{StaticResource CaptionTextBlockStyle}"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                           Visibility="Collapsed" />
                 <PasswordBox x:Name="Password" AutomationProperties.AutomationId="Password"
-                             x:Uid="Manage_Password" PasswordRevealMode="Peek" KeyDown="OnKeyDown" />
+                             x:Uid="Manage_Password" PasswordRevealMode="Peek" />
                 <PasswordBox x:Name="NewPassword1" AutomationProperties.AutomationId="NewPassword1"
                              x:Uid="Manage_NewPassword1" PasswordRevealMode="Peek" PasswordChanged="OnNewChanged" />
                 <PasswordBox x:Name="NewPassword2" AutomationProperties.AutomationId="NewPassword2"
@@ -104,6 +102,7 @@
 
             <!-- Ход расшифровки -->
             <StackPanel x:Name="PageProgress" Grid.Row="1" Spacing="10" Visibility="Collapsed">
+                <TextBlock x:Uid="Manage_Decrypting" TextWrapping="Wrap" />
                 <ProgressBar x:Name="Progress" AutomationProperties.AutomationId="Progress" Maximum="1" />
                 <TextBlock x:Name="ProgressText" AutomationProperties.AutomationId="ProgressText"
                            Style="{StaticResource CaptionTextBlockStyle}"

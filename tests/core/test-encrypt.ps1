@@ -28,13 +28,14 @@ function WaitFor([scriptblock]$cond, [int]$ms = 10000) {
     while (-not (& $cond)) { if ((Get-Date) -gt $deadline) { return $false }; Start-Sleep -Milliseconds 100 }
     $true
 }
-function StartCore([string]$crash = '') {
+function StartCore([string]$crash = '', [string]$pause = '') {
     $psi = New-Object Diagnostics.ProcessStartInfo $coreExe
     $psi.UseShellExecute = $false
     $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
     $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipeName"
     $psi.EnvironmentVariables['ZAMOK_NO_TRAY'] = '1'
     if ($crash) { $psi.EnvironmentVariables['ZAMOK_TEST_CRASH'] = $crash }
+    if ($pause) { $psi.EnvironmentVariables['ZAMOK_TEST_PAUSE'] = $pause }
     $p = [Diagnostics.Process]::Start($psi)
     [void](WaitFor { (Test-Path "\\.\pipe\$pipeName") -or $p.HasExited } 60000)
     $p
@@ -85,6 +86,10 @@ function Manifest([string]$dir) {
             "F $rel " + [BitConverter]::ToString($sha.ComputeHash($b))
         }
     } | Sort-Object) -join "`n"
+}
+function Sha([string]$file) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($file)))
 }
 function Sib([string]$path) {
     $parent = Split-Path $path -Parent; $name = Split-Path $path -Leaf
@@ -201,9 +206,9 @@ try {
 
     # E. Avariya na kazhdom shage, potom perezapusk
     $points = @(
-        @{ P = 'copying'; Back = $true }, @{ P = 'copy:3'; Back = $true }, @{ P = 'verified_before_journal'; Back = $true },
+        @{ P = 'copying'; Back = $true }, @{ P = 'copy:3'; Back = $true }, @{ P = 'flush_done'; Back = $true }, @{ P = 'verified_before_journal'; Back = $true },
         @{ P = 'verified'; Back = $false }, @{ P = 'vault_placed_before_journal'; Back = $false }, @{ P = 'vault_placed'; Back = $false },
-        @{ P = 'original_aside_before_journal'; Back = $false }, @{ P = 'original_aside'; Back = $false },
+        @{ P = 'original_aside_before_journal'; Back = $false }, @{ P = 'original_aside'; Back = $false }, @{ P = 'aside_checked'; Back = $false },
         @{ P = 'registered_before_journal'; Back = $false }, @{ P = 'registered'; Back = $false }, @{ P = 'aside_deleted'; Back = $false }
     )
     $i = 0
@@ -228,6 +233,67 @@ try {
             }
         }
         if (-not $script:proc.HasExited) { [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(20000) }
+    }
+
+    # F. Fayl poyavilsya posle posledney proverki, poka shel sbros na disk: on ne dolzhen propast
+    $added = 'added-during-flush.txt'
+    function NothingLeft($p) { -not (Test-Path $p.Tmp) -and -not (Test-Path $p.Vault) -and -not (Test-Path $p.Aside) -and (Journals) -eq 0 }
+    function FlushJob([string]$dir, [string]$gate, [scriptblock]$during) {
+        $resp = Send (EncryptReq $dir)
+        [void](WaitFor { Test-Path "$gate.reached" } 60000)
+        & $during
+        New-Item -ItemType File $gate | Out-Null
+        $resp
+    }
+    $g1 = "$root\gate1"; $f1 = "$root\f1\$ruName"; MakeSample $f1; $s1 = Sib $f1
+    $script:proc = StartCore '' "flush_window|$g1"
+    $r1 = FlushJob $f1 $g1 { [IO.File]::WriteAllText("$f1\$added", 'must survive') }
+    $j1 = WaitJob $r1.job.id
+    Check 'file added during the flush: job refused, the file and the original survive' {
+        $j1.error -eq 'changed_during_copy' -and -not (IsMount $f1) -and
+            ((Get-Content -LiteralPath "$f1\$added" -Raw) -eq 'must survive') -and
+            (Manifest $f1) -eq ((@($ref -split "`n") + "F $added $(Sha "$f1\$added")" | Sort-Object) -join "`n") -and
+            (NothingLeft $s1) -and -not (Folder $f1)
+    }
+    [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(20000)
+    Remove-Item "$g1", "$g1.reached" -Force
+    $f2 = "$root\f2\$ruName"; MakeSample $f2; $s2 = Sib $f2
+    $script:proc = StartCore '' "flush_window|$g1"
+    $r2 = FlushJob $f2 $g1 { [IO.File]::WriteAllText("$f2\many\f1.txt", 'changed during the flush') }
+    $j2 = WaitJob $r2.job.id
+    Check 'file changed during the flush: job refused, the new content survives' {
+        $j2.error -eq 'changed_during_copy' -and -not (IsMount $f2) -and
+            ((Get-Content -LiteralPath "$f2\many\f1.txt" -Raw) -eq 'changed during the flush') -and (NothingLeft $s2)
+    }
+    [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(20000)
+    Remove-Item "$g1", "$g1.reached" -Force
+    # Zaperli vse (Win+L, son) vo vremya raboty: v konce papka ne otkryvaetsya
+    $f3 = "$root\f3\$ruName"; MakeSample $f3
+    $script:proc = StartCore '' "flush_window|$g1"
+    $r3 = FlushJob $f3 $g1 { [void](Send '{"cmd":"lock_all"}') }
+    $j3 = WaitJob $r3.job.id
+    Check 'lock all during the job: encrypted, but stays locked' {
+        $j3.state -eq 'done' -and (Folder $f3).state -eq 'locked' -and (Journals) -eq 0
+    }
+    Check 'that folder opens with the password, same content' {
+        $u = Send "{`"cmd`":`"unlock`",`"path`":`"$(J $f3)`",`"password`":`"$pw`"}"
+        $u.ok -and (Manifest $f3) -eq $ref
+    }
+    [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(20000)
+    # Avariya posle sbrosa na disk, fayl poyavilsya do perezapuska: vosstanovlenie sveryaet s opisyu
+    foreach ($case in @(@{ P = 'verified'; InAside = $false }, @{ P = 'original_aside'; InAside = $true })) {
+        $e = "$root\r-$($case.P)\$ruName"; MakeSample $e; $se = Sib $e
+        $script:proc = StartCore $case.P
+        try { [void](Send (EncryptReq $e)) } catch {}
+        [void]$script:proc.WaitForExit(120000)
+        $where = if ($case.InAside) { $se.Aside } else { $e }
+        [IO.File]::WriteAllText("$where\$added", 'must survive')
+        $script:proc = StartCore
+        Check "crash at $($case.P), file added before restart: recovery rolls back, the file survives" {
+            -not (IsMount $e) -and (Test-Path -LiteralPath "$e\$added") -and
+                ((Get-Content -LiteralPath "$e\$added" -Raw) -eq 'must survive') -and (NothingLeft $se) -and -not (Folder $e)
+        }
+        [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(20000)
     }
 
     Check 'log has no folder names, paths or passwords' {

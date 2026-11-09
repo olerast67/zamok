@@ -48,14 +48,16 @@
 
 Как открыть папку ключом: в запертой папке дважды щёлкните «Открыть {0}.zamok», нажмите «Забыли пароль?» и вставьте весь этот файл или введите 44 слова по порядку.</value></data>
   <data name="Encrypt_KeySaved" xml:space="preserve"><value>Сохранено.</value></data>
-  <data name="Encrypt_KeyCopied" xml:space="preserve"><value>Скопировано. После вставки удалите ключ из буфера обмена.</value></data>
+  <data name="Encrypt_KeyCopied" xml:space="preserve"><value>Скопировано, буфер очистится через минуту.</value></data>
   <data name="Encrypt_VerifyIntro.Text" xml:space="preserve"><value>Введите слова с этими номерами, чтобы убедиться, что ключ записан.</value></data>
   <data name="Encrypt_WordN" xml:space="preserve"><value>Слово № {0}</value></data>
   <data name="Encrypt_WordsWrong" xml:space="preserve"><value>Слова не совпали. Нажмите «Назад» и проверьте запись.</value></data>
   <data name="Encrypt_ProgressFiles" xml:space="preserve"><value>Файлов: {0} из {1}, {2:0.0} из {3:0.0} МБ</value></data>
-  <data name="Encrypt_Copying" xml:space="preserve"><value>Шифрую и проверяю каждый файл. Оригинал удалю только в конце, после проверки копии.</value></data>
-  <data name="Encrypt_Finishing" xml:space="preserve"><value>Подменяю папку зашифрованной.</value></data>
-  <data name="Encrypt_Done" xml:space="preserve"><value>Папка «{0}» зашифрована и открыта. Она запрётся сама при блокировке экрана, перед сном и через 30 минут без работы.</value></data>
+  <data name="Encrypt_Copying" xml:space="preserve"><value>Каждый файл шифруется и проверяется. Оригинал удаляется только в конце, после проверки копии.</value></data>
+  <data name="Encrypt_Finishing" xml:space="preserve"><value>Папка заменяется зашифрованной. Отменить уже нельзя, осталось несколько секунд.</value></data>
+  <data name="Encrypt_Cancelling" xml:space="preserve"><value>Отмена…</value></data>
+  <data name="Encrypt_TooLate" xml:space="preserve"><value>Отменить уже нельзя: папка заменяется зашифрованной. Сохраните ключ.</value></data>
+  <data name="Encrypt_Done" xml:space="preserve"><value>Папка «{0}» зашифрована и открыта. Запираться она будет сама, как задано в настройках Zamok.</value></data>
   <data name="Encrypt_Failed" xml:space="preserve"><value>Папка не зашифрована. Все файлы на месте.</value></data>
   <data name="Manage_Password.Header" xml:space="preserve"><value>Текущий пароль</value></data>
   <data name="Manage_NewPassword1.Header" xml:space="preserve"><value>Новый пароль</value></data>
@@ -66,6 +68,7 @@
   <data name="Manage_Show" xml:space="preserve"><value>Показать</value></data>
   <data name="Manage_Changed" xml:space="preserve"><value>Пароль изменён. Старый больше не открывает папку.</value></data>
   <data name="Menu_More" xml:space="preserve"><value>Zamok</value></data>
+  <data name="Manage_Decrypting.Text" xml:space="preserve"><value>Папка расшифровывается. Не выключайте компьютер, пока работа не закончится.</value></data>
   <data name="Manage_DecryptStep" xml:space="preserve"><value>Расшифровать навсегда</value></data>
   <data name="Manage_DecryptWarning.Text" xml:space="preserve"><value>Файлы станут обычными, без шифрования, и останутся на том же месте. Сначала создаётся проверенная расшифрованная копия, зашифрованные данные удаляются последними.</value></data>
   <data name="Manage_Decrypt" xml:space="preserve"><value>Расшифровать</value></data>
@@ -79,7 +82,7 @@
   <data name="Settings_Properties.Text" xml:space="preserve"><value>Свойства шифрования</value></data>
   <data name="Settings_PropPath" xml:space="preserve"><value>Папка: {0}</value></data>
   <data name="Settings_PropVault" xml:space="preserve"><value>Зашифрованные данные: {0}</value></data>
-  <data name="Settings_Crypto.Text" xml:space="preserve"><value>Формат Cryptomator 8: содержимое AES-256-GCM, имена AES-SIV, ключ из пароля через scrypt. Без Zamok папку открывает Cryptomator на любой системе.</value></data>
+  <data name="Settings_Crypto.Text" xml:space="preserve"><value>Формат Cryptomator 8. Без Zamok папку открывает Cryptomator на любой системе.</value></data>
   <data name="Settings_Empty.Text" xml:space="preserve"><value>Зашифрованных папок пока нет.</value></data>
   <data name="Settings_EmptyHow.Text" xml:space="preserve"><value>Чтобы зашифровать папку, щёлкните её правой кнопкой и выберите «Зашифровать паролем».</value></data>
   <data name="Settings_ScreenLock.Header" xml:space="preserve"><value>Запирать все папки при блокировке экрана (Win+L)</value></data>
@@ -94,8 +97,13 @@
   <data name="Settings_StateLocked" xml:space="preserve"><value>заперта</value></data>
   <data name="Settings_StateUnavailable" xml:space="preserve"><value>недоступна</value></data>
   <data name="Settings_Lock" xml:space="preserve"><value>Запереть</value></data>
+  <data name="Lock_OpenFiles" xml:space="preserve"><value>В папке «{0}» открыты файлы, файлов: {1}. Несохранённые изменения пропадут: программа не сможет их записать. Запереть всё равно?</value></data>
+  <data name="App_Unexpected" xml:space="preserve"><value>Внутренняя ошибка Zamok. Попробуйте ещё раз. Файлы в папке не затронуты этой ошибкой.</value></data>
+  <data name="A11y_Strength" xml:space="preserve"><value>Надёжность пароля</value></data>
+  <data name="A11y_Progress" xml:space="preserve"><value>Ход работы</value></data>
+  <data name="A11y_Busy" xml:space="preserve"><value>Идёт проверка</value></data>
   <data name="Settings_Open" xml:space="preserve"><value>Открыть</value></data>
-  <data name="Error_core_not_running" xml:space="preserve"><value>Фоновая программа Zamok не запущена.</value></data>
+  <data name="Error_core_not_running" xml:space="preserve"><value>Не удалось запустить фоновую программу Zamok. Перезагрузите компьютер.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>На связи не программа Zamok этого пользователя. Пароль не отправлен.</value></data>
   <data name="Error_bad_request" xml:space="preserve"><value>Внутренняя ошибка запроса.</value></data>
   <data name="Error_not_found" xml:space="preserve"><value>Эта папка не зашифрована Zamok.</value></data>
@@ -103,6 +111,7 @@
   <data name="Error_wrong_recovery_key" xml:space="preserve"><value>Ключ восстановления не подошёл. Проверьте слова и их порядок.</value></data>
   <data name="Error_already_added" xml:space="preserve"><value>Папка уже зашифрована или лежит внутри зашифрованной.</value></data>
   <data name="Error_path_occupied" xml:space="preserve"><value>На месте папки лежит другая папка или файл.</value></data>
+  <data name="Error_vault_damaged" xml:space="preserve"><value>Часть зашифрованных файлов отрезана от дерева папок. Папка осталась зашифрованной, ничего не удалено.</value></data>
   <data name="Error_bad_vault" xml:space="preserve"><value>Зашифрованные данные папки не найдены или повреждены.</value></data>
   <data name="Error_mount_failed" xml:space="preserve"><value>Не удалось подключить папку. Проверьте, что WinFsp установлен.</value></data>
   <data name="Error_internal" xml:space="preserve"><value>Внутренняя ошибка Zamok.</value></data>
@@ -116,7 +125,7 @@
   <data name="Error_files_in_use" xml:space="preserve"><value>Эти файлы открыты в других программах. Закройте их и попробуйте снова:</value></data>
   <data name="Error_unreadable" xml:space="preserve"><value>Эти файлы нельзя прочитать:</value></data>
   <data name="Error_not_enough_space" xml:space="preserve"><value>На диске не хватает места на вторую копию папки.</value></data>
-  <data name="Error_job_running" xml:space="preserve"><value>Уже шифруется другая папка. Дождитесь окончания.</value></data>
+  <data name="Error_job_running" xml:space="preserve"><value>Идёт шифрование или расшифровка папки. Дождитесь окончания.</value></data>
   <data name="Error_recovery_pending" xml:space="preserve"><value>Прошлое шифрование не завершено. Перезапустите компьютер или фоновую программу Zamok.</value></data>
   <data name="Error_changed_during_copy" xml:space="preserve"><value>Пока шла работа, в папке что-то изменилось. Всё отменено, файлы на месте. Закройте программы, которые пишут в папку, и попробуйте снова.</value></data>
   <data name="Error_verify_failed" xml:space="preserve"><value>Проверка зашифрованной копии не прошла. Всё отменено, файлы на месте.</value></data>

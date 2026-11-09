@@ -22,6 +22,8 @@ pub enum Error {
     BadRecoveryKey,
     #[error("operating system random number generator failed")]
     Random,
+    #[error("encrypted files are cut off from the folder tree")]
+    OrphanedData,
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }

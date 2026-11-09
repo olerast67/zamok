@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Zamok.Client;
 
@@ -20,11 +21,15 @@ public sealed partial class SettingsWindow : Window
     private string? _selectedId;
     private bool _updating;
     private bool _helloAvailable;
+    private bool _coreDownShown;
+    private string? _fitKey;
 
     public SettingsWindow()
     {
         InitializeComponent();
         WindowHelper.SetupDialog(this, Root, TitleBar, TitleIcon, 680, 540);
+        Title = Strings.Get("Settings_Title/Text");
+        WindowHelper.HookKeys(Root, null, Close);
         var icon = WindowHelper.FolderIcon(32);
         if (icon is not null) FolderIcon.Source = icon;
         foreach (var m in IdleMinutes)
@@ -46,9 +51,9 @@ public sealed partial class SettingsWindow : Window
         {
             await RefreshCoreAsync();
         }
-        catch (Exception e)
+        catch (Exception)
         {
-            ShowError(e.Message);
+            ShowError(Strings.Error("internal"));
         }
     }
 
@@ -62,7 +67,13 @@ public sealed partial class SettingsWindow : Window
         catch (Exception e) when (e is CoreNotRunningException or CoreNotTrustedException)
         {
             ShowError(Strings.Error(e is CoreNotRunningException ? "core_not_running" : "core_not_trusted"));
+            _coreDownShown = true;
             return;
+        }
+        if (_coreDownShown)
+        {
+            _coreDownShown = false;
+            ShowError("");
         }
         _updating = true;
         try
@@ -82,7 +93,9 @@ public sealed partial class SettingsWindow : Window
                     // Цвета темы лежат в словарях тем, поиск по ключу их не находит: вторичный текст
                     // делаем мельче и прозрачнее
                     row.Children.Add(new TextBlock { Text = StateText(f), FontSize = 12, Opacity = 0.7 });
-                    FolderList.Items.Add(new ListViewItem { Content = row, Tag = f.Id });
+                    var item = new ListViewItem { Content = row, Tag = f.Id };
+                    AutomationProperties.SetName(item, $"{f.Name}: {StateText(f)}");
+                    FolderList.Items.Add(item);
                 }
                 var index = Array.FindIndex(_folders, f => f.Id == _selectedId);
                 FolderList.SelectedIndex = index >= 0 ? index : (_folders.Length > 0 ? 0 : -1);
@@ -120,7 +133,10 @@ public sealed partial class SettingsWindow : Window
         Details.Visibility = f is null ? Visibility.Collapsed : Visibility.Visible;
         if (f is null) return;
         DetailName.Text = f.Name;
-        DetailState.Text = StateText(f);
+        // Недоступна: сразу видно почему, а не только слово «недоступна»
+        DetailState.Text = f.State == "unavailable" && f.Error is not null
+            ? $"{StateText(f)}: {Strings.Error(f.Error)}"
+            : StateText(f);
         ToggleButton.Content = Strings.Get(f.IsUnlocked ? "Settings_Lock" : "Settings_Open");
         ToggleButton.IsEnabled = f.State != "unavailable";
         PropPath.Text = Strings.Format("Settings_PropPath", f.Path);
@@ -130,6 +146,16 @@ public sealed partial class SettingsWindow : Window
         var minutes = f.IdleLockSecs / 60;
         var idx = Array.IndexOf(IdleMinutes, minutes);
         IdleBox.SelectedIndex = idx >= 0 ? idx : Array.IndexOf(IdleMinutes, 30UL);
+        FitToContent();
+    }
+
+    /// <summary>Подогнать высоту, только если состав окна поменялся: иначе таймер двигал бы окно.</summary>
+    private void FitToContent()
+    {
+        var key = $"{_folders.Length}|{_selectedId}|{Selected?.State}|{Selected?.Error}|{HelloPanel.Visibility}|{ErrorText.Text}";
+        if (key == _fitKey) return;
+        _fitKey = key;
+        WindowHelper.FitHeight(this, Root, 680);
     }
 
     /// <summary>Хранилище лежит рядом с папкой: <c>.Имя.zamok</c>.</summary>
@@ -143,6 +169,7 @@ public sealed partial class SettingsWindow : Window
     {
         ErrorText.Text = text;
         ErrorText.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+        FitToContent();
     }
 
     private async void OnToggleClick(object sender, RoutedEventArgs e)
@@ -152,7 +179,14 @@ public sealed partial class SettingsWindow : Window
         ShowError("");
         if (f.IsUnlocked)
         {
-            try { await _client.LockAsync(f.Path); } catch { }
+            if (f.OpenFiles > 0 && !WindowHelper.Confirm(
+                    Strings.Format("Lock_OpenFiles", f.Name, f.OpenFiles), WindowHelper.Handle(this))) return;
+            try
+            {
+                var r = await _client.LockAsync(f.Path);
+                if (!r.Ok) ShowError(Strings.Error(r.Error));
+            }
+            catch (Exception ex) when (ex is CoreNotRunningException or CoreNotTrustedException) { ShowCoreError(ex); }
             await RefreshAsync();
         }
         else
@@ -177,15 +211,18 @@ public sealed partial class SettingsWindow : Window
             var r = await _client.SetIdleLockAsync(f.Path, secs);
             if (!r.Ok) ShowError(Strings.Error(r.Error));
         }
-        catch (CoreNotRunningException) { ShowError(Strings.Error("core_not_running")); }
+        catch (Exception ex) when (ex is CoreNotRunningException or CoreNotTrustedException) { ShowCoreError(ex); }
         await RefreshAsync();
     }
+
+    private void ShowCoreError(Exception e) =>
+        ShowError(Strings.Error(e is CoreNotRunningException ? "core_not_running" : "core_not_trusted"));
 
     private async void OnScreenLockToggled(object sender, RoutedEventArgs e)
     {
         if (_updating) return;
         try { await _client.SetLockOnScreenLockAsync(ScreenLockSwitch.IsOn); }
-        catch (CoreNotRunningException) { ShowError(Strings.Error("core_not_running")); }
+        catch (Exception ex) when (ex is CoreNotRunningException or CoreNotTrustedException) { ShowCoreError(ex); }
     }
 
     private async void OnHelloToggled(object sender, RoutedEventArgs e)
@@ -226,7 +263,7 @@ public sealed partial class SettingsWindow : Window
                 }
             }
         }
-        catch (CoreNotRunningException) { ShowError(Strings.Error("core_not_running")); }
+        catch (Exception ex) when (ex is CoreNotRunningException or CoreNotTrustedException) { ShowCoreError(ex); }
         await RefreshAsync();
         HelloSwitch.IsOn = Selected?.Hello ?? false;
     }

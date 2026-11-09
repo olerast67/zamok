@@ -88,6 +88,8 @@ mod tests {
             path: d.path().join("Клиенты"),
             vault: vault.clone(),
             vault_prev: None,
+            volume_serial: None,
+            vault_file_id: None,
             idle_lock_secs: 0,
         });
         cfg.folders.push(FolderConfig {
@@ -95,6 +97,8 @@ mod tests {
             path: d.path().join("Нет"),
             vault: d.path().join(".Нет.zamok"),
             vault_prev: None,
+            volume_serial: None,
+            vault_file_id: None,
             idle_lock_secs: 0,
         });
         cfg.save(d.path()).unwrap();
