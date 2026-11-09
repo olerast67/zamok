@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zamok, шифрование папок в Windows из Проводника</title>
+<meta name="description" content="Zamok шифрует папки в Windows 10 и 11 из Проводника. Папка остаётся на своём пути. Бесплатно, открытый код GPL-3.0, альфа-версия, сторонний аудит не проводился.">
+<link rel="icon" href="../favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="alternate" hreflang="ru" href="https://olerast67.github.io/zamok/ru/">
+<link rel="alternate" hreflang="en" href="https://olerast67.github.io/zamok/">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <a class="brand" href="./"><img src="../icon-256.png" alt="" width="32" height="32">Zamok</a>
+  <nav><a href="../" lang="en" hreflang="en">English</a><a href="https://github.com/olerast67/zamok">GitHub</a></nav>
+</header>
+
+<main>
+<div class="hero">
+  <div>
+    <h1>Шифруйте папку из&nbsp;Проводника, и&nbsp;она останется на&nbsp;своём пути</h1>
+    <p class="lead">Правый клик по&nbsp;папке в&nbsp;Windows 10 или&nbsp;11, «Зашифровать паролем». Чтобы открыть, дважды щёлкните значок замка внутри и&nbsp;введите пароль или&nbsp;подтвердите вход через Windows Hello. Заблокировали экран, и&nbsp;папка снова заперта.</p>
+    <p class="status">Бесплатно, <span class="nw">GPL-3.0</span>. Версия 0.1.<span class="nw">0-alpha</span>, сторонний аудит не&nbsp;проводился. Держите копию важных данных вне Zamok.</p>
+    <a class="button" data-cta href="https://github.com/olerast67/zamok/releases">Скачать Zamok для&nbsp;Windows</a>
+  </div>
+  <img class="window" src="../images/screens/ru/unlock.png" alt="Окно пароля Zamok для папки Documents" width="527" height="411">
+</div>
+
+<div class="warning prose">
+  <h2>Не&nbsp;перетаскивайте открытую папку мышкой</h2>
+  <p>Проводник скопирует файлы на&nbsp;новое место без&nbsp;шифрования и&nbsp;удалит их&nbsp;из&nbsp;хранилища. Сначала заприте папку: у&nbsp;запертой копировать нечего, и&nbsp;она останется на&nbsp;месте. Zamok сам отменяет «Вырезать» на&nbsp;зашифрованной папке и&nbsp;перенос родительской папки на&nbsp;другой диск. Перетаскивание самой папки Windows перехватить не&nbsp;даёт.</p>
+</div>
+
+<section>
+  <h2>От&nbsp;чего защищает</h2>
+  <div class="columns">
+    <div>
+      <h3>Защищает</h3>
+      <ul>
+        <li>украденный или&nbsp;потерянный выключенный ноутбук</li>
+        <li>копию папки, флешку, облако</li>
+        <li>другого пользователя этого компьютера (проверка вторым пользователем ещё впереди)</li>
+        <li>человека за&nbsp;вашим компьютером, пока папка заперта</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Не&nbsp;защищает</h3>
+      <ul>
+        <li>от&nbsp;вируса на&nbsp;вашем компьютере, пока папка открыта</li>
+        <li>от&nbsp;человека, который знает пароль или&nbsp;PIN-код Windows Hello</li>
+        <li>от&nbsp;удаления: зашифрованную папку нельзя прочитать, но&nbsp;можно удалить</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Следы в&nbsp;Windows</h2>
+  <p class="prose">Сам Zamok расшифрованное на&nbsp;диск не&nbsp;пишет. Почти все эти следы при&nbsp;краже ноутбука закрывает шифрование системного диска BitLocker или&nbsp;«Шифрованием устройства».</p>
+  <div class="table"><table>
+    <tr><th>Где</th><th>Что происходит</th></tr>
+    <tr><td>Индекс поиска Windows</td><td>Файлы отдаются с&nbsp;пометкой «не&nbsp;индексировать»</td></tr>
+    <tr><td>Кэш миниатюр</td><td>Проводник может сохранить уменьшенные копии картинок на&nbsp;системном диске, отключить это для&nbsp;одной папки нельзя</td></tr>
+    <tr><td>«Недавние файлы»</td><td>Ярлыки на&nbsp;файлы папки удаляются при&nbsp;запирании; списки в&nbsp;панели задач пока остаются</td></tr>
+    <tr><td>Автосохранение и&nbsp;временные файлы</td><td>Word, Photoshop и&nbsp;другие пишут их&nbsp;в&nbsp;свои папки вне Zamok</td></tr>
+    <tr><td>Файл подкачки и&nbsp;файл гибернации</td><td>В&nbsp;них может попасть содержимое памяти, включая ключи</td></tr>
+    <tr><td>Корзина</td><td>Её&nbsp;нет: файл из&nbsp;открытой папки удаляется сразу</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Окна программы</h2>
+  <div class="shots">
+    <figure><img class="window" src="../images/screens/ru/encrypt-password.png" alt="Мастер шифрования, шаг с паролем" width="577" height="559" loading="lazy"><figcaption>Выбор пароля</figcaption></figure>
+    <figure><img class="window" src="../images/screens/ru/encrypt-recovery-key.png" alt="Ключ восстановления из 44 слов" width="652" height="693" loading="lazy"><figcaption>Ключ восстановления тестовой папки</figcaption></figure>
+    <figure><img class="window" src="../images/screens/ru/settings.png" alt="Настройки со списком папок" width="852" height="747" loading="lazy"><figcaption>Настройки</figcaption></figure>
+  </div>
+</section>
+
+<section class="prose">
+  <h2>Как&nbsp;это устроено</h2>
+  <p>Zamok записывает зашифрованную копию в&nbsp;скрытую папку рядом с&nbsp;оригиналом, проверяет её&nbsp;и&nbsp;только потом удаляет оригинал. На&nbsp;прежнем пути драйвер WinFsp показывает виртуальную папку, поэтому ярлыки и&nbsp;проекты в&nbsp;программах продолжают работать.</p>
+  <p>Папка запирается по&nbsp;Win+L, при&nbsp;сне и&nbsp;гибернации, при&nbsp;выходе из&nbsp;системы и&nbsp;через 30&nbsp;минут без&nbsp;работы с&nbsp;ней. Ctrl+Alt+Shift+L запирает все папки. Программы не&nbsp;обращаются к&nbsp;сети, телеметрии и&nbsp;аккаунтов нет.</p>
+</section>
+
+<section class="prose">
+  <h2>Установка</h2>
+  <p>Скачайте <code>Zamok-Setup-&lt;версия&gt;.exe</code>. Внутри драйвер WinFsp, права администратора нужны только для&nbsp;него. Нужна Windows 10 или&nbsp;11, x64, и&nbsp;папка на&nbsp;диске NTFS. Папки внутри OneDrive, Dropbox и&nbsp;Яндекс.Диска Zamok пока не&nbsp;шифрует.</p>
+  <p>Установщик пока без&nbsp;подписи, поэтому SmartScreen покажет «Система Windows защитила ваш компьютер». Сверьте <span class="nw">SHA-256</span> со&nbsp;страницей релиза, потом нажмите «Подробнее» и&nbsp;«Выполнить в&nbsp;любом случае». Интеллектуальное управление приложениями в&nbsp;Windows 11&nbsp;блокирует неподписанные программы, и&nbsp;при&nbsp;включённой защите Zamok не&nbsp;поставить.</p>
+</section>
+
+<section class="prose">
+  <h2>Если&nbsp;Zamok перестанет работать</h2>
+  <p>Зашифрованная папка это обычное хранилище формата Cryptomator 8, оно лежит в&nbsp;скрытой папке <code>.Имя.zamok</code>. Откройте <code>vault.cryptomator</code> в&nbsp;<a href="https://cryptomator.org">Cryptomator</a> на&nbsp;Windows, macOS, Linux, iOS или&nbsp;Android паролем или&nbsp;ключом восстановления. Совместимость проверена в&nbsp;обе стороны с&nbsp;Cryptomator 1.19.6.</p>
+</section>
+
+<section>
+  <h2>Zamok, VeraCrypt и&nbsp;Cryptomator</h2>
+  <div class="table"><table>
+    <tr><th></th><th>Zamok</th><th>VeraCrypt</th><th>Cryptomator</th></tr>
+    <tr><td>Где лежат файлы при&nbsp;работе</td><td>В&nbsp;папке на&nbsp;её&nbsp;пути</td><td>В&nbsp;контейнере или&nbsp;разделе, подключённом как&nbsp;диск</td><td>В&nbsp;хранилище, подключённом как&nbsp;виртуальный диск</td></tr>
+    <tr><td>Шифрование системного диска</td><td>Нет</td><td>Есть</td><td>Нет</td></tr>
+    <tr><td>Системы</td><td>Windows</td><td>Windows, macOS, Linux</td><td>Windows, macOS, Linux, iOS, Android</td></tr>
+    <tr><td>Папки в&nbsp;облаке</td><td>Пока отказывает</td><td>Контейнер синхронизируется одним файлом</td><td>Сделан для&nbsp;этого</td></tr>
+    <tr><td>Независимый аудит</td><td>Нет</td><td>Был, для&nbsp;прошлых версий</td><td>Был, для&nbsp;прошлых версий</td></tr>
+    <tr><td>Зрелость</td><td>Альфа</td><td>Много лет релизов</td><td>Много лет релизов</td></tr>
+  </table></div>
+  <p class="prose" style="margin-top:20px">Если&nbsp;проверенный инструмент нужен сегодня, берите VeraCrypt или&nbsp;Cryptomator.</p>
+</section>
+</main>
+
+<footer>
+  <p>Код, дорожная карта и&nbsp;документы на&nbsp;<a href="https://github.com/olerast67/zamok">GitHub</a>. <a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">Конфиденциальность</a>, <a href="https://github.com/olerast67/zamok/blob/main/SECURITY.md">как&nbsp;сообщить об&nbsp;уязвимости</a>.</p>
+  <p><span class="nw">GPL-3.0</span>. WinFsp - Windows File System Proxy, Copyright (C) Bill Zissimopoulos, <a href="https://github.com/winfsp/winfsp">github.com/winfsp/winfsp</a></p>
+</footer>
+</div>
+</body>
+</html>
