@@ -10,9 +10,11 @@
 //! - [`content`]: заголовок файла и содержимое кусками по 32 КиБ (AES-GCM).
 //! - [`recovery`]: ключ восстановления из 44 слов, как у Cryptomator.
 //! - [`tree`]: обход хранилища целиком (для восстановления и тестов).
+//! - [`locked`]: память для ключей, которую Windows не выгружает на диск.
 
 pub mod content;
 pub mod error;
+pub mod locked;
 pub mod masterkey;
 pub mod names;
 pub mod recovery;
@@ -20,7 +22,39 @@ pub mod tree;
 pub mod vault;
 
 pub use error::{Error, Result};
+pub use locked::Locked;
 pub use masterkey::MasterKey;
+
+/// Предел размера служебных файлов хранилища. Настоящие занимают от десятков байт до пары
+/// килобайт; огромный подложенный файл не должен читаться в память целиком.
+pub const META_FILE_MAX: u64 = 1024 * 1024;
+
+/// Прочитать файл, если он не длиннее `max` байт.
+pub fn read_capped(path: &std::path::Path, max: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut data = Vec::new();
+    std::fs::File::open(path)?
+        .take(max + 1)
+        .read_to_end(&mut data)?;
+    if data.len() as u64 > max {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "file is too large",
+        ));
+    }
+    Ok(data)
+}
+
+/// Служебный файл хранилища (`masterkey.cryptomator`, `dir.c9r`, `name.c9s` и другие).
+pub fn read_meta(path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    read_capped(path, META_FILE_MAX)
+}
+
+/// Служебный файл хранилища как текст UTF-8.
+pub fn read_meta_text(path: &std::path::Path) -> std::io::Result<String> {
+    String::from_utf8(read_meta(path)?)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "not UTF-8"))
+}
 
 /// Заполнить буфер случайными байтами от операционной системы.
 pub(crate) fn random_bytes(buf: &mut [u8]) -> Result<()> {

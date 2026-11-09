@@ -82,7 +82,7 @@ impl Journal {
         };
         rd.filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
-            .filter_map(|e| serde_json::from_slice(&std::fs::read(e.path()).ok()?).ok())
+            .filter_map(|e| serde_json::from_slice(&zamok_crypto::read_meta(&e.path()).ok()?).ok())
             .collect()
     }
 

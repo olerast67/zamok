@@ -477,18 +477,18 @@ impl Core {
             .join(format!("{}.key", e.cfg().id))
     }
 
-    fn wrap_key(b64: &str) -> Result<zeroize::Zeroizing<[u8; 32]>, ErrorCode> {
+    /// Ключ обёртки из подписи Windows Hello: сразу в запертую страницу, без копии в куче.
+    fn wrap_key(b64: &str) -> Result<zamok_crypto::Locked<32>, ErrorCode> {
         use base64::Engine;
-        let raw = zeroize::Zeroizing::new(
-            base64::engine::general_purpose::STANDARD
-                .decode(b64.trim())
-                .map_err(|_| ErrorCode::BadRequest)?,
-        );
-        let mut k = zeroize::Zeroizing::new([0u8; 32]);
-        if raw.len() != 32 {
+        let mut raw = zamok_crypto::Locked::<48>::new();
+        let n = base64::engine::general_purpose::STANDARD
+            .decode_slice(b64.trim(), &mut raw[..])
+            .map_err(|_| ErrorCode::BadRequest)?;
+        if n != 32 {
             return Err(ErrorCode::BadRequest);
         }
-        k.copy_from_slice(&raw);
+        let mut k = zamok_crypto::Locked::<32>::new();
+        k.copy_from_slice(&raw[..32]);
         Ok(k)
     }
 
@@ -532,7 +532,8 @@ impl Core {
             return Err(ErrorCode::JobRunning);
         }
         let epoch = e.lock_epoch.load(Ordering::SeqCst);
-        let blob = std::fs::read(self.hello_path(&e)).map_err(|_| ErrorCode::HelloFailed)?;
+        let blob =
+            zamok_crypto::read_meta(&self.hello_path(&e)).map_err(|_| ErrorCode::HelloFailed)?;
         let key = zamok_crypto::masterkey::unwrap_with(&blob, &kek)
             .map_err(|_| ErrorCode::HelloFailed)?;
         let control = e.ensure_mounted()?;
@@ -606,7 +607,7 @@ impl Core {
     ) -> Result<(Arc<Entry>, zamok_crypto::MasterKey), ErrorCode> {
         let e = self.find(path)?;
         let file = e.cfg().vault.join("masterkey.cryptomator");
-        let json = std::fs::read_to_string(&file).map_err(|_| ErrorCode::BadVault)?;
+        let json = zamok_crypto::read_meta_text(&file).map_err(|_| ErrorCode::BadVault)?;
         let mk = zamok_crypto::masterkey::MasterkeyFile::from_json(&json)
             .map_err(|_| ErrorCode::BadVault)?;
         match mk.unlock(password) {

@@ -35,6 +35,9 @@ pub struct FolderConfig {
     pub vault_file_id: Option<i64>,
 }
 
+/// Предел размера файла со списком папок.
+const MAX_FILE: u64 = 16 * 1024 * 1024;
+
 fn default_idle() -> u64 {
     DEFAULT_IDLE_LOCK_SECS
 }
@@ -96,7 +99,7 @@ impl Config {
     /// список, чтобы следующая запись не стёрла папки, о которых core просто не смог прочитать.
     pub fn load(data_dir: &Path) -> anyhow::Result<Self> {
         let file = Self::file(data_dir);
-        match std::fs::read(&file) {
+        match zamok_crypto::read_capped(&file, MAX_FILE) {
             Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
             Err(e) => Err(e.into()),

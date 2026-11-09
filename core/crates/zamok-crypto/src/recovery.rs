@@ -14,6 +14,7 @@ use std::sync::OnceLock;
 
 use zeroize::Zeroizing;
 
+use crate::locked::Locked;
 use crate::{Error, MasterKey, Result};
 
 const WORDS_FILE: &str = include_str!("words-en.txt");
@@ -52,8 +53,8 @@ fn checksum(raw: &[u8; 64]) -> [u8; 2] {
 /// Записать мастер-ключ словами.
 pub fn encode(key: &MasterKey) -> Zeroizing<String> {
     let raw = key.to_raw();
-    let mut padded = Zeroizing::new([0u8; 66]);
-    padded[..64].copy_from_slice(raw.as_ref());
+    let mut padded = Locked::<66>::new();
+    padded[..64].copy_from_slice(&raw[..]);
     padded[64..].copy_from_slice(&checksum(&raw));
     let list = &words().0;
     let mut out = Zeroizing::new(String::with_capacity(KEY_WORDS * 8));
@@ -79,7 +80,7 @@ pub fn decode(text: &str) -> Result<MasterKey> {
     if parts.len() != KEY_WORDS {
         return Err(Error::BadRecoveryKey);
     }
-    let mut padded = Zeroizing::new([0u8; 66]);
+    let mut padded = Locked::<66>::new();
     for (i, pair) in parts.chunks(2).enumerate() {
         let a = *idx.get(pair[0]).ok_or(Error::BadRecoveryKey)? as usize;
         let b = *idx.get(pair[1]).ok_or(Error::BadRecoveryKey)? as usize;
@@ -87,7 +88,7 @@ pub fn decode(text: &str) -> Result<MasterKey> {
         padded[i * 3 + 1] = (((a & 0x0F) << 4) | (b >> 8)) as u8;
         padded[i * 3 + 2] = (b & 0xFF) as u8;
     }
-    let mut raw = Zeroizing::new([0u8; 64]);
+    let mut raw = Locked::<64>::new();
     raw.copy_from_slice(&padded[..64]);
     if checksum(&raw) != [padded[64], padded[65]] {
         return Err(Error::BadRecoveryKey);

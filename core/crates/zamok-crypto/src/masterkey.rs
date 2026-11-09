@@ -10,8 +10,9 @@ use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use unicode_normalization::UnicodeNormalization;
-use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
+use zeroize::{ZeroizeOnDrop, Zeroizing};
 
+use crate::locked::Locked;
 use crate::{random_bytes, Error, Result};
 
 /// Номер версии, который Cryptomator пишет в masterkey.cryptomator с формата 8.
@@ -24,71 +25,70 @@ const SCRYPT_SALT_LEN: usize = 8;
 /// Верхняя граница памяти для scrypt из чужого файла (как в cryptolib): 256 МиБ.
 const SCRYPT_MAX_MEMORY: u64 = 256 * 1024 * 1024;
 
-/// Мастер-ключ. Стирается из памяти при удалении.
-#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+/// Мастер-ключ. Лежит в запертой странице, при удалении стирается.
+///
+/// Внутри 128 байт: ключ шифрования, ключ MAC, затем те же ключи в порядке AES-SIV. Так ключ
+/// для имён файлов не нужно собирать во временной копии при каждой операции.
+#[derive(Clone)]
 pub struct MasterKey {
-    enc: [u8; 32],
-    mac: [u8; 32],
+    keys: Locked<128>,
 }
+
+impl ZeroizeOnDrop for MasterKey {}
 
 impl MasterKey {
     /// Новый случайный мастер-ключ.
     pub fn generate() -> Result<Self> {
-        let mut k = MasterKey {
-            enc: [0; 32],
-            mac: [0; 32],
-        };
-        random_bytes(&mut k.enc)?;
-        random_bytes(&mut k.mac)?;
-        Ok(k)
+        let mut raw = Locked::<64>::new();
+        random_bytes(&mut raw[..])?;
+        Ok(Self::from_raw(&raw))
     }
 
     /// Из 64 байт: ключ шифрования, затем ключ MAC (так Cryptomator хранит
     /// сырой мастер-ключ, в том числе в ключе восстановления).
     pub fn from_raw(raw: &[u8; 64]) -> Self {
-        let mut k = MasterKey {
-            enc: [0; 32],
-            mac: [0; 32],
-        };
-        k.enc.copy_from_slice(&raw[..32]);
-        k.mac.copy_from_slice(&raw[32..]);
-        k
+        let mut keys = Locked::<128>::new();
+        keys[..64].copy_from_slice(raw);
+        keys[64..96].copy_from_slice(&raw[32..]);
+        keys[96..].copy_from_slice(&raw[..32]);
+        MasterKey { keys }
     }
 
-    pub fn to_raw(&self) -> Zeroizing<[u8; 64]> {
-        let mut raw = Zeroizing::new([0u8; 64]);
-        raw[..32].copy_from_slice(&self.enc);
-        raw[32..].copy_from_slice(&self.mac);
+    pub fn to_raw(&self) -> Locked<64> {
+        let mut raw = Locked::<64>::new();
+        *raw = *self.jwt_key();
         raw
     }
 
     pub(crate) fn enc_key(&self) -> &[u8; 32] {
-        &self.enc
+        self.keys.first_chunk().expect("32 < 128")
     }
 
     pub(crate) fn mac_key(&self) -> &[u8; 32] {
-        &self.mac
+        self.keys[32..].first_chunk().expect("32 < 96")
     }
 
     /// Ключ для AES-SIV по RFC 5297: сначала ключ MAC (для S2V), затем ключ шифрования (для CTR).
-    pub(crate) fn siv_key(&self) -> Zeroizing<[u8; 64]> {
-        let mut k = Zeroizing::new([0u8; 64]);
-        k[..32].copy_from_slice(&self.mac);
-        k[32..].copy_from_slice(&self.enc);
-        k
+    pub(crate) fn siv_key(&self) -> &[u8; 64] {
+        self.keys[64..].first_chunk().expect("64 == 64")
     }
 
     /// Ключ подписи vault.cryptomator: ключ шифрования, затем ключ MAC.
-    pub(crate) fn jwt_key(&self) -> Zeroizing<[u8; 64]> {
-        self.to_raw()
+    pub(crate) fn jwt_key(&self) -> &[u8; 64] {
+        self.keys.first_chunk().expect("64 < 128")
     }
+}
+
+/// AES-KW из ключа обёртки по ссылке: лишней копии ключа на стеке не остаётся.
+fn key_wrap(kek: &[u8; 32]) -> aes_kw::KekAes256 {
+    aes_kw::KekAes256::new(kek.into())
 }
 
 /// Завернуть мастер-ключ 32-байтовым ключом обёртки (AES-KW, RFC 3394), как в файле
 /// `masterkey.cryptomator`, только без scrypt: ключ обёртки уже случайный (вход по Windows Hello).
 pub fn wrap_with(key: &MasterKey, kek: &[u8; 32]) -> Result<Vec<u8>> {
-    let kw = aes_kw::KekAes256::from(*kek);
-    kw.wrap_vec(&key.to_raw()[..])
+    key_wrap(kek)
+        .wrap_vec(key.jwt_key())
         .map_err(|_| Error::MalformedMasterkey)
 }
 
@@ -97,11 +97,11 @@ pub fn unwrap_with(blob: &[u8], kek: &[u8; 32]) -> Result<MasterKey> {
     if blob.len() != 72 {
         return Err(Error::MalformedMasterkey);
     }
-    let kw = aes_kw::KekAes256::from(*kek);
-    let raw = Zeroizing::new(kw.unwrap_vec(blob).map_err(|_| Error::WrongPassword)?);
-    let mut arr = Zeroizing::new([0u8; 64]);
-    arr.copy_from_slice(&raw);
-    Ok(MasterKey::from_raw(&arr))
+    let mut raw = Locked::<64>::new();
+    key_wrap(kek)
+        .unwrap(blob, &mut raw[..])
+        .map_err(|_| Error::WrongPassword)?;
+    Ok(MasterKey::from_raw(&raw))
 }
 
 impl std::fmt::Debug for MasterKey {
@@ -145,18 +145,23 @@ fn normalize(passphrase: &str) -> Zeroizing<String> {
     Zeroizing::new(passphrase.nfc().collect())
 }
 
-fn derive_kek(passphrase: &str, salt: &[u8], cost: u32, block: u32) -> Result<Zeroizing<[u8; 32]>> {
+fn derive_kek(passphrase: &str, salt: &[u8], cost: u32, block: u32) -> Result<Locked<32>> {
     if cost < 2 || !cost.is_power_of_two() || block == 0 {
         return Err(Error::UnsupportedScrypt);
     }
-    if 128u64 * block as u64 * cost as u64 > SCRYPT_MAX_MEMORY {
+    // Оба числа из файла: насыщение, чтобы произведение не перевернулось и не обошло предел
+    if (block as u64)
+        .saturating_mul(cost as u64)
+        .saturating_mul(128)
+        > SCRYPT_MAX_MEMORY
+    {
         return Err(Error::UnsupportedScrypt);
     }
     let log_n = cost.trailing_zeros() as u8;
     let params = scrypt::Params::new(log_n, block, 1, 32).map_err(|_| Error::UnsupportedScrypt)?;
     let pass = normalize(passphrase);
-    let mut kek = Zeroizing::new([0u8; 32]);
-    scrypt::scrypt(pass.as_bytes(), salt, &params, kek.as_mut())
+    let mut kek = Locked::<32>::new();
+    scrypt::scrypt(pass.as_bytes(), salt, &params, &mut kek[..])
         .map_err(|_| Error::UnsupportedScrypt)?;
     Ok(kek)
 }
@@ -177,7 +182,7 @@ impl MasterkeyFile {
         let mut salt = vec![0u8; SCRYPT_SALT_LEN];
         random_bytes(&mut salt)?;
         let kek = derive_kek(passphrase, &salt, scrypt_cost, SCRYPT_BLOCK_SIZE)?;
-        let kw = aes_kw::KekAes256::from(*kek);
+        let kw = key_wrap(&kek);
         let primary = kw
             .wrap_vec(key.enc_key())
             .map_err(|_| Error::MalformedMasterkey)?;
@@ -206,18 +211,12 @@ impl MasterkeyFile {
             self.scrypt_cost_param,
             self.scrypt_block_size,
         )?;
-        let kw = aes_kw::KekAes256::from(*kek);
-        let enc = Zeroizing::new(
-            kw.unwrap_vec(&self.primary_master_key)
-                .map_err(|_| Error::WrongPassword)?,
-        );
-        let mac = Zeroizing::new(
-            kw.unwrap_vec(&self.hmac_master_key)
-                .map_err(|_| Error::WrongPassword)?,
-        );
-        let mut raw = Zeroizing::new([0u8; 64]);
-        raw[..32].copy_from_slice(&enc);
-        raw[32..].copy_from_slice(&mac);
+        let kw = key_wrap(&kek);
+        let mut raw = Locked::<64>::new();
+        kw.unwrap(&self.primary_master_key, &mut raw[..32])
+            .map_err(|_| Error::WrongPassword)?;
+        kw.unwrap(&self.hmac_master_key, &mut raw[32..])
+            .map_err(|_| Error::WrongPassword)?;
         let key = MasterKey::from_raw(&raw);
         let expected = version_mac(&key, self.version);
         if !bool::from(subtle::ConstantTimeEq::ct_eq(

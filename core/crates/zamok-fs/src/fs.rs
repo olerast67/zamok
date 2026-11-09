@@ -250,8 +250,8 @@ impl Control {
         still_wanted: &dyn Fn() -> bool,
     ) -> Result<(), UnlockError> {
         let started = self.generation.load(Ordering::SeqCst);
-        let mk = MasterkeyFile::from_json(&fs::read_to_string(
-            self.root.join("masterkey.cryptomator"),
+        let mk = MasterkeyFile::from_json(&zamok_crypto::read_meta_text(
+            &self.root.join("masterkey.cryptomator"),
         )?)?;
         let key = mk.unlock(password)?;
         self.commit_unlock(key, started, still_wanted)
@@ -278,7 +278,7 @@ impl Control {
         started: u64,
         still_wanted: &dyn Fn() -> bool,
     ) -> Result<(), UnlockError> {
-        let jwt = fs::read_to_string(self.root.join("vault.cryptomator"))?;
+        let jwt = zamok_crypto::read_meta_text(&self.root.join("vault.cryptomator"))?;
         let config = VaultConfig::from_jwt(&jwt, &key)?;
         let mut st = self.state.write().unwrap();
         // lock меняет поколение под этим же замком
@@ -479,7 +479,7 @@ impl ZamokFs {
             let enc = if let Some(stem) = fname.strip_suffix(C9R) {
                 stem.to_string()
             } else if fname.ends_with(C9S) {
-                match fs::read_to_string(entry.path().join(NAME_FILE)) {
+                match zamok_crypto::read_meta_text(&entry.path().join(NAME_FILE)) {
                     Ok(full) => match full.trim().strip_suffix(C9R) {
                         Some(s) => s.to_string(),
                         None => continue,
@@ -500,7 +500,7 @@ impl ZamokFs {
 
     fn kind_of(node: &Path) -> FsResult<Kind> {
         if node.is_dir() {
-            if let Ok(id) = fs::read_to_string(node.join(DIR_FILE)) {
+            if let Ok(id) = zamok_crypto::read_meta_text(&node.join(DIR_FILE)) {
                 return Ok(Kind::Dir {
                     id: id.trim().to_string(),
                 });
@@ -777,6 +777,71 @@ impl ZamokFs {
             }
         }
         len as u64
+    }
+
+    /// Все записи каталога контекста вместе с `.` и `..`.
+    fn dir_entries(&self, context: &ZFile) -> FsResult<Vec<(String, FileInfo)>> {
+        let mut entries: Vec<(String, FileInfo)> = Vec::new();
+        let path = context.path.lock().unwrap().clone();
+        let is_root = split(&path).is_empty();
+        if self.is_locked() {
+            if is_root {
+                for v in [Virtual::OpenItem, Virtual::DesktopIni] {
+                    let mut fi = FileInfo::default();
+                    self.fill_virtual(&v, &mut fi);
+                    let name = if v == Virtual::OpenItem {
+                        self.open_item_name()
+                    } else {
+                        "desktop.ini".into()
+                    };
+                    entries.push((name, fi));
+                }
+            }
+        } else {
+            self.with_key(|u| {
+                let r = self.resolve(u, &path)?;
+                let Kind::Dir { id } = &r.kind else {
+                    return Err(STATUS_NOT_A_DIRECTORY.into());
+                };
+                if !is_root {
+                    let mut fi = FileInfo::default();
+                    self.fill_info(&r, &mut fi)?;
+                    entries.push((".".into(), fi.clone()));
+                    entries.push(("..".into(), fi));
+                }
+                let children: Vec<(String, PathBuf)> =
+                    self.with_listing(u, id, |l| l.values().cloned().collect())?;
+                for (clear, node) in children {
+                    let Ok(kind) = Self::kind_of(&node) else {
+                        continue;
+                    };
+                    let child = Resolved {
+                        clear: join(&r.clear, &clear),
+                        parent_id: id.clone(),
+                        node: Some(node),
+                        kind,
+                    };
+                    let mut fi = FileInfo::default();
+                    self.ctl.remember(&child.clear);
+                    if self.fill_info(&child, &mut fi).is_ok() {
+                        entries.push((clear, fi));
+                    }
+                }
+                Ok(())
+            })?;
+            // Своего desktop.ini нет: служебный со значком открытой папки
+            if is_root
+                && FOLDER_ICON_OPEN.get().is_some()
+                && !entries
+                    .iter()
+                    .any(|(n, _)| n.eq_ignore_ascii_case("desktop.ini"))
+            {
+                let mut fi = FileInfo::default();
+                self.fill_virtual(&Virtual::DesktopIni, &mut fi);
+                entries.push(("desktop.ini".into(), fi));
+            }
+        }
+        Ok(entries)
     }
 
     /// Создать узел (файл или каталог) с именем `name` в каталоге `dir_id`.
@@ -1095,69 +1160,11 @@ impl FileSystemContext for ZamokFs {
     ) -> FsResult<u32> {
         self.ctl.touch();
         self.check(context)?;
-        let mut entries: Vec<(String, FileInfo)> = Vec::new();
-        let path = context.path.lock().unwrap().clone();
-        let is_root = split(&path).is_empty();
-        if self.is_locked() {
-            if is_root {
-                for v in [Virtual::OpenItem, Virtual::DesktopIni] {
-                    let mut fi = FileInfo::default();
-                    self.fill_virtual(&v, &mut fi);
-                    let name = if v == Virtual::OpenItem {
-                        self.open_item_name()
-                    } else {
-                        "desktop.ini".into()
-                    };
-                    entries.push((name, fi));
-                }
-            }
-        } else {
-            self.with_key(|u| {
-                let r = self.resolve(u, &path)?;
-                let Kind::Dir { id } = &r.kind else {
-                    return Err(STATUS_NOT_A_DIRECTORY.into());
-                };
-                if !is_root {
-                    let mut fi = FileInfo::default();
-                    self.fill_info(&r, &mut fi)?;
-                    entries.push((".".into(), fi.clone()));
-                    entries.push(("..".into(), fi));
-                }
-                let children: Vec<(String, PathBuf)> =
-                    self.with_listing(u, id, |l| l.values().cloned().collect())?;
-                for (clear, node) in children {
-                    let Ok(kind) = Self::kind_of(&node) else {
-                        continue;
-                    };
-                    let child = Resolved {
-                        clear: join(&r.clear, &clear),
-                        parent_id: id.clone(),
-                        node: Some(node),
-                        kind,
-                    };
-                    let mut fi = FileInfo::default();
-                    self.ctl.remember(&child.clear);
-                    if self.fill_info(&child, &mut fi).is_ok() {
-                        entries.push((clear, fi));
-                    }
-                }
-                Ok(())
-            })?;
-            // Своего desktop.ini нет: служебный со значком открытой папки
-            if is_root
-                && FOLDER_ICON_OPEN.get().is_some()
-                && !entries
-                    .iter()
-                    .any(|(n, _)| n.eq_ignore_ascii_case("desktop.ini"))
-            {
-                let mut fi = FileInfo::default();
-                self.fill_virtual(&Virtual::DesktopIni, &mut fi);
-                entries.push(("desktop.ini".into(), fi));
-            }
-        }
+        // Буфер заполняется один раз за проход: следующие порции читают уже готовый. Собирать
+        // список заново на каждую порцию значит квадратичное время на больших каталогах.
         if let Ok(lock) = context.dir_buffer.acquire(marker.is_none(), None) {
             let mut di: DirInfo = DirInfo::new();
-            for (name, fi) in entries {
+            for (name, fi) in self.dir_entries(context)? {
                 di.reset();
                 *di.file_info_mut() = fi;
                 di.set_name(&name)?;
@@ -1460,7 +1467,12 @@ impl winfsp::notify::NotifyingFileSystemContext<Vec<String>> for ZamokFs {
 }
 
 #[cfg(test)]
+#[path = "../../zamok-crypto/tests/common/mutate.rs"]
+mod mutate;
+
+#[cfg(test)]
 mod tests {
+    use super::mutate::{iters, mutate as spoil, Rng};
     use super::*;
     use std::os::windows::fs::OpenOptionsExt;
     use widestring::U16CString;
@@ -1562,6 +1574,38 @@ mod tests {
             assert!(!valid_new_name(bad), "{bad}");
         }
         assert!(valid_new_name("Отчёт.docx"));
+    }
+
+    /// Испорченные `dir.c9r` и `name.c9s` при поиске и показе каталога: без паники.
+    #[test]
+    fn damaged_node_files_do_not_panic_the_lookup() {
+        let d = tempfile::tempdir().unwrap();
+        let z = open_fs(&d.path().join("v"));
+        let long = "L".repeat(200);
+        let (dir_node, name_file) = z
+            .with_key(|u| {
+                z.make_node(u, "", "folder", true)?;
+                if let Kind::File { content } = z.make_node(u, "", &long, false)? {
+                    fs::write(content, b"").map_err(ioerr)?;
+                }
+                let dir = z.resolve(u, "\\folder")?.node.unwrap();
+                let file = z.resolve(u, &format!("\\{long}"))?.node.unwrap();
+                Ok((dir.join(DIR_FILE), file.join(NAME_FILE)))
+            })
+            .unwrap();
+        let targets = [dir_node, name_file];
+        let originals = targets.clone().map(|p| fs::read(p).unwrap());
+        let mut rng = Rng::new(31);
+        for _ in 0..iters(500) {
+            let i = rng.below(targets.len());
+            fs::write(&targets[i], spoil(&mut rng, &originals[i])).unwrap();
+            z.ctl.dir_cache.lock().unwrap().clear();
+            z.ctl.listings.lock().unwrap().clear();
+            let _ = z.with_key(|u| z.resolve(u, "\\folder\\inner"));
+            let _ = z.with_key(|u| z.resolve(u, &format!("\\{long}")));
+            let _ = z.with_key(|u| z.list_physical(u, ""));
+            fs::write(&targets[i], &originals[i]).unwrap();
+        }
     }
 
     #[test]

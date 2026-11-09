@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use crate::masterkey::MasterkeyFile;
 use crate::names::{self, C9R, C9S, CONTENTS_FILE, DIR_FILE, NAME_FILE, SYMLINK_FILE};
 use crate::vault::VaultConfig;
-use crate::{content, Error, MasterKey, Result};
+use crate::{content, read_meta_text, Error, MasterKey, Result};
 
 pub struct Vault {
     root: PathBuf,
@@ -92,14 +92,13 @@ const MAX_NODES: usize = 10_000_000;
 
 impl Vault {
     pub fn open_with_password(root: &Path, password: &str) -> Result<Self> {
-        let mk =
-            MasterkeyFile::from_json(&fs::read_to_string(root.join("masterkey.cryptomator"))?)?;
+        let mk = MasterkeyFile::from_json(&read_meta_text(&root.join("masterkey.cryptomator"))?)?;
         let key = mk.unlock(password)?;
         Self::open_with_key(root, key)
     }
 
     pub fn open_with_key(root: &Path, key: MasterKey) -> Result<Self> {
-        let jwt = fs::read_to_string(root.join("vault.cryptomator"))?;
+        let jwt = read_meta_text(&root.join("vault.cryptomator"))?;
         let config = VaultConfig::from_jwt(&jwt, &key)?;
         Ok(Vault {
             root: root.to_path_buf(),
@@ -259,7 +258,7 @@ impl Vault {
         let (enc_name, node_dir) = if let Some(stem) = fname.strip_suffix(C9R) {
             (stem.to_string(), entry.path())
         } else if fname.ends_with(C9S) {
-            let full = fs::read_to_string(entry.path().join(NAME_FILE))?;
+            let full = read_meta_text(&entry.path().join(NAME_FILE))?;
             let stem = full
                 .trim()
                 .strip_suffix(C9R)
@@ -273,9 +272,7 @@ impl Vault {
         safe_name(&name)?;
         let is_dir_node = entry.file_type()?.is_dir();
         let classified = if is_dir_node && node_dir.join(DIR_FILE).is_file() {
-            let child_id = fs::read_to_string(node_dir.join(DIR_FILE))?
-                .trim()
-                .to_string();
+            let child_id = read_meta_text(&node_dir.join(DIR_FILE))?.trim().to_string();
             Classified::Dir(child_id)
         } else if is_dir_node && node_dir.join(SYMLINK_FILE).is_file() {
             Classified::Symlink
@@ -334,14 +331,18 @@ impl Vault {
                 if let Some(parent) = target.parent() {
                     fs::create_dir_all(parent)?;
                 }
-                let data = content::decrypt_file(&self.key, &fs::read(ciphertext)?)?;
+                let mut input = fs::File::open(ciphertext)?;
                 // create_new: два одинаковых имени (или разный регистр) не перезапишут друг друга
-                use std::io::Write;
                 let mut f = fs::OpenOptions::new()
                     .write(true)
                     .create_new(true)
                     .open(&target)?;
-                f.write_all(&data)?;
+                // Кусками: файл хранилища может быть любого размера, в память он не читается
+                if let Err(e) = content::decrypt_stream(&self.key, &mut input, &mut f) {
+                    drop(f);
+                    let _ = fs::remove_file(&target);
+                    return Err(e);
+                }
                 return Ok(true);
             }
             Node::Symlink { .. } => {}
