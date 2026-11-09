@@ -38,3 +38,6 @@ desktop.ini
 # Сборка инструмента эталонов
 tests/fixtures-tool/out/
 tests/fixtures-tool/cp.txt
+
+# Рабочие файлы сайта
+.web/
