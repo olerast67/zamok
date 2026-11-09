@@ -649,6 +649,12 @@ impl ZamokFs {
             (Kind::File { content }, _) => (content.clone(), false),
         };
         let m = fs::metadata(&meta_path).map_err(ioerr)?;
+        Self::fill_meta(&m, is_dir, info);
+        Ok(())
+    }
+
+    /// Сведения о файле из уже полученных метаданных шифротекста.
+    fn fill_meta(m: &fs::Metadata, is_dir: bool, info: &mut FileInfo) {
         let mut attrs = m.file_attributes() & KEEP_ATTRIBUTES;
         if is_dir {
             attrs |= FILE_ATTRIBUTE_DIRECTORY;
@@ -671,7 +677,6 @@ impl ZamokFs {
         info.hard_links = 0;
         info.reparse_tag = 0;
         info.ea_size = 0;
-        Ok(())
     }
 
     fn cipher_for(
@@ -754,6 +759,17 @@ impl ZamokFs {
                 });
             }
             self.fill_virtual(v, info);
+            return Ok(());
+        }
+        // Открытый файл: сведения с дескриптора, без открытия шифротекста по пути.
+        if let Some(c) = ctx.cipher.lock().unwrap().clone() {
+            let m = c.lock().unwrap().file().metadata().map_err(ioerr)?;
+            Self::fill_meta(&m, false, info);
+            return Ok(());
+        }
+        if let Some(Kind::File { content }) = ctx.kind.lock().unwrap().clone() {
+            let m = fs::metadata(&content).map_err(ioerr)?;
+            Self::fill_meta(&m, false, info);
             return Ok(());
         }
         let path = ctx.path.lock().unwrap().clone();
@@ -845,16 +861,30 @@ impl ZamokFs {
     }
 
     /// Создать узел (файл или каталог) с именем `name` в каталоге `dir_id`.
-    fn make_node(&self, u: &Unlocked, dir_id: &str, name: &str, is_dir: bool) -> FsResult<Kind> {
+    fn make_node(
+        &self,
+        u: &Unlocked,
+        dir_id: &str,
+        name: &str,
+        is_dir: bool,
+    ) -> FsResult<(Kind, PathBuf)> {
         let dir = self.dir_physical(u, dir_id);
-        fs::create_dir_all(&dir).map_err(ioerr)?;
         let (node, full) = names::node_name(&u.key, name, dir_id, u.config.shortening_threshold);
         let node_path = dir.join(&node);
-        if node_path.exists() {
-            return Err(STATUS_OBJECT_NAME_COLLISION.into());
-        }
+        // Без предварительных проверок: занятое имя и отсутствие папки родителя сообщит сама
+        // ОС. Файл без длинного имени создаёт `CipherFile::create` с `create_new`.
         if is_dir || full.is_some() {
-            fs::create_dir(&node_path).map_err(ioerr)?;
+            match fs::create_dir(&node_path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    return Err(STATUS_OBJECT_NAME_COLLISION.into());
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    fs::create_dir_all(&dir).map_err(ioerr)?;
+                    fs::create_dir(&node_path).map_err(ioerr)?;
+                }
+                Err(e) => return Err(ioerr(e)),
+            }
         }
         if let Some(full) = &full {
             fs::write(node_path.join(NAME_FILE), full).map_err(ioerr)?;
@@ -872,14 +902,14 @@ impl ZamokFs {
                     _ => FspError::from(STATUS_ACCESS_DENIED),
                 },
             )?;
-            Ok(Kind::Dir { id })
+            Ok((Kind::Dir { id }, node_path))
         } else {
             let content = if full.is_some() {
                 node_path.join(CONTENTS_FILE)
             } else {
-                node_path
+                node_path.clone()
             };
-            Ok(Kind::File { content })
+            Ok((Kind::File { content }, node_path))
         }
     }
 
@@ -1042,22 +1072,36 @@ impl FileSystemContext for ZamokFs {
                 return Err(STATUS_OBJECT_NAME_COLLISION.into());
             }
             let is_dir = create_options & FILE_DIRECTORY_FILE != 0;
-            let kind = self.make_node(u, id, &name, is_dir)?;
+            let (kind, node) = self.make_node(u, id, &name, is_dir)?;
             let cipher = match &kind {
                 Kind::File { content } => Some(self.cipher_for(u, content, true)?),
                 Kind::Dir { .. } => None,
             };
             let clear = join(&pr.clear, &name);
+            self.ctl.remember(&clear);
             let attrs = file_attributes & KEEP_ATTRIBUTES;
-            let r = self.resolve(u, &clear)?;
             if attrs != 0 {
-                let target = match &r.kind {
+                let target = match &kind {
                     Kind::File { content } => content.clone(),
-                    Kind::Dir { .. } => r.node.clone().unwrap_or_default(),
+                    Kind::Dir { .. } => node.clone(),
                 };
                 let _ = crate::attrs::set_attributes(&target, attrs);
             }
-            self.fill_info(&r, file_info.as_mut())?;
+            match &cipher {
+                Some(c) => {
+                    let m = c.lock().unwrap().file().metadata().map_err(ioerr)?;
+                    Self::fill_meta(&m, false, file_info.as_mut());
+                }
+                None => {
+                    let r = Resolved {
+                        clear: clear.clone(),
+                        parent_id: id.clone(),
+                        node: Some(node),
+                        kind: kind.clone(),
+                    };
+                    self.fill_info(&r, file_info.as_mut())?;
+                }
+            }
             Ok(self.new_context(clear, Some(kind), None, cipher))
         })
     }
@@ -1408,7 +1452,7 @@ impl FileSystemContext for ZamokFs {
         self.ctl.touch();
         self.check(context)?;
         let c = self.cipher_of(context)?;
-        let written = {
+        let (written, meta) = {
             let mut f = c.lock().unwrap();
             let len = f.len().map_err(cerr)?;
             let offset = if write_to_eof { len } else { offset };
@@ -1422,9 +1466,10 @@ impl FileSystemContext for ZamokFs {
                 buffer
             };
             f.write_at(offset, data).map_err(cerr)?;
-            data.len()
+            let meta = f.file().metadata().map_err(ioerr)?;
+            (data.len(), meta)
         };
-        self.info_for_ctx(context, file_info)?;
+        Self::fill_meta(&meta, false, file_info);
         Ok(written as u32)
     }
 
@@ -1491,7 +1536,7 @@ mod tests {
     fn make_file(z: &ZamokFs, path: &str, body: &[u8]) -> ZFile {
         z.with_key(|u| {
             let (_, name) = parent_and_name(path)?;
-            let Kind::File { content } = z.make_node(u, "", &name, false)? else {
+            let (Kind::File { content }, _) = z.make_node(u, "", &name, false)? else {
                 unreachable!()
             };
             {
@@ -1585,7 +1630,7 @@ mod tests {
         let (dir_node, name_file) = z
             .with_key(|u| {
                 z.make_node(u, "", "folder", true)?;
-                if let Kind::File { content } = z.make_node(u, "", &long, false)? {
+                if let (Kind::File { content }, _) = z.make_node(u, "", &long, false)? {
                     fs::write(content, b"").map_err(ioerr)?;
                 }
                 let dir = z.resolve(u, "\\folder")?.node.unwrap();

@@ -66,7 +66,16 @@ fn write_all_at(file: &File, buf: &[u8], mut pos: u64) -> io::Result<()> {
 impl CipherFile {
     /// Создать новый пустой зашифрованный файл (только заголовок).
     pub fn create(path: &Path, key: &MasterKey) -> Result<Self> {
-        let file = open_options().create_new(true).open(path)?;
+        // Папка родителя есть почти всегда: создаётся только после отказа, без лишних обращений
+        let file = match open_options().create_new(true).open(path) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                open_options().create_new(true).open(path)?
+            }
+            r => r?,
+        };
         let header = FileHeader::generate()?;
         write_all_at(&file, &header.encrypt(key)?, 0)?;
         Ok(CipherFile {
