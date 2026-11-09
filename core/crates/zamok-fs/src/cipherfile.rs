@@ -26,6 +26,10 @@ pub enum CipherError {
 
 pub type Result<T> = std::result::Result<T, CipherError>;
 
+/// С какого числа кусков в одном запросе чтение идёт в нескольких потоках.
+const PARALLEL_FROM_CHUNKS: u64 = 8;
+const MAX_CRYPTO_THREADS: usize = 4;
+
 pub struct CipherFile {
     file: File,
     header: Option<FileHeader>,
@@ -169,6 +173,11 @@ impl CipherFile {
             return Ok(0);
         }
         let end = len.min(offset + buf.len() as u64);
+        let (first, last) = (offset / PAYLOAD_LEN as u64, (end - 1) / PAYLOAD_LEN as u64);
+        if last - first + 1 >= PARALLEL_FROM_CHUNKS {
+            self.read_parallel(offset, end, len, buf)?;
+            return Ok((end - offset) as usize);
+        }
         let mut pos = offset;
         while pos < end {
             let chunk = pos / PAYLOAD_LEN as u64;
@@ -180,6 +189,54 @@ impl CipherFile {
             pos += take as u64;
         }
         Ok((end - offset) as usize)
+    }
+
+    /// Чтение большого запроса: шифротекст одним обращением к диску, куски расшифровываются
+    /// в нескольких потоках. Запрос в 1 МиБ это 32 куска.
+    fn read_parallel(&self, offset: u64, end: u64, len: u64, buf: &mut [u8]) -> Result<()> {
+        let header = self.header()?;
+        let payload = PAYLOAD_LEN as u64;
+        let (first, last) = (offset / payload, (end - 1) / payload);
+        let last_pt = (len - last * payload).min(payload) as usize;
+        let total = (last - first) as usize * CHUNK_LEN + NONCE_LEN + last_pt + TAG_LEN;
+        let mut ct = vec![0u8; total];
+        read_exact_at(&self.file, &mut ct, Self::chunk_pos(first))?;
+
+        // Для каждого куска: номер, шифротекст, место в ответе и смещение внутри куска
+        type Part<'a> = (u64, &'a [u8], &'a mut [u8], usize);
+        let mut parts: Vec<Part> = Vec::with_capacity((last - first + 1) as usize);
+        let mut rest = &mut buf[..(end - offset) as usize];
+        for (i, piece) in ct.chunks(CHUNK_LEN).enumerate() {
+            let chunk = first + i as u64;
+            let start = chunk * payload;
+            let skip = offset.saturating_sub(start) as usize;
+            let take = (end.min(start + payload) - start) as usize - skip;
+            let (dst, tail) = std::mem::take(&mut rest).split_at_mut(take);
+            rest = tail;
+            parts.push((chunk, piece, dst, skip));
+        }
+        let threads = std::thread::available_parallelism()
+            .map_or(1, |n| n.get())
+            .clamp(1, MAX_CRYPTO_THREADS);
+        let per_thread = parts.len().div_ceil(threads);
+        std::thread::scope(|scope| {
+            let workers: Vec<_> = parts
+                .chunks_mut(per_thread)
+                .map(|group| {
+                    scope.spawn(move || -> Result<()> {
+                        for (chunk, piece, dst, skip) in group.iter_mut() {
+                            let pt = header.decrypt_chunk(*chunk, piece)?;
+                            dst.copy_from_slice(&pt[*skip..*skip + dst.len()]);
+                        }
+                        Ok(())
+                    })
+                })
+                .collect();
+            for w in workers {
+                w.join().expect("decrypt worker panicked")?;
+            }
+            Ok(())
+        })
     }
 
     /// Записать `data` с позиции `offset`. Дыра между концом файла и `offset` заполняется нулями.
@@ -339,6 +396,39 @@ mod tests {
         }
         let mut buf = [0u8; 4];
         assert_eq!(f.read_at(data.len() as u64 + 5, &mut buf).unwrap(), 0);
+        drop(f);
+        std::fs::remove_file(&p).unwrap();
+    }
+
+    #[test]
+    fn large_reads_match_and_reject_damage() {
+        let k = MasterKey::generate().unwrap();
+        let p = tmp("parallel");
+        let mut f = CipherFile::create(&p, &k).unwrap();
+        let data: Vec<u8> = (0..PAYLOAD_LEN * 20 + 77)
+            .map(|i| (i % 253) as u8)
+            .collect();
+        f.write_at(0, &data).unwrap();
+        for (off, n) in [
+            (0, data.len()),
+            (10, PAYLOAD_LEN * 19),
+            (PAYLOAD_LEN - 1, PAYLOAD_LEN * 8 + 2),
+            (PAYLOAD_LEN * 3, data.len()),
+        ] {
+            let mut buf = vec![0u8; n];
+            let got = f.read_at(off as u64, &mut buf).unwrap();
+            let want = &data[off..(off + n).min(data.len())];
+            assert_eq!(got, want.len());
+            assert_eq!(&buf[..got], want);
+        }
+        // Испорченный кусок в середине: чтение возвращает ошибку
+        let mut raw = std::fs::read(&p).unwrap();
+        raw[HEADER_LEN + CHUNK_LEN * 5 + 40] ^= 1;
+        drop(f);
+        std::fs::write(&p, &raw).unwrap();
+        let f = CipherFile::open(&p, &k).unwrap();
+        let mut buf = vec![0u8; PAYLOAD_LEN * 10];
+        assert!(f.read_at(0, &mut buf).is_err());
         drop(f);
         std::fs::remove_file(&p).unwrap();
     }
