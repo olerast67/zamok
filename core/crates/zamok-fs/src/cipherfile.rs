@@ -195,9 +195,15 @@ impl CipherFile {
         while pos < end {
             let chunk = pos / PAYLOAD_LEN as u64;
             let chunk_start = chunk * PAYLOAD_LEN as u64;
-            let mut pt = self.read_chunk(chunk, len)?;
             let in_chunk = (pos - chunk_start) as usize;
             let take = ((end - pos) as usize).min(PAYLOAD_LEN - in_chunk);
+            // Кусок перезаписан целиком: старое содержимое читать незачем
+            let whole = in_chunk == 0 && (take == PAYLOAD_LEN || chunk_start + take as u64 >= len);
+            let mut pt = if whole {
+                Vec::new()
+            } else {
+                self.read_chunk(chunk, len)?
+            };
             if pt.len() < in_chunk + take {
                 pt.resize(in_chunk + take, 0);
             }
