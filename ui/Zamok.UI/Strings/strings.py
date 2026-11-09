@@ -116,6 +116,7 @@ S = {
                                 "Anyone who knows the Windows PIN can open the folder too. It works only on this computer; the password and the recovery key stay the main way in."),
     "Settings_HelloTitle": ("Включить Windows Hello", "Turn on Windows Hello"),
     "Settings_HelloEnable": ("Включить", "Turn on"),
+    "Settings_HelloPassword": ("Пароль этой папки (не пароль Windows)", "Password of this folder (not your Windows password)"),
     "Unlock_HelloText.Text": ("Открыть через Windows Hello", "Open with Windows Hello"),
     "Error_hello_failed": ("Windows Hello не подтвердил вход. Введите пароль.", "Windows Hello did not confirm. Enter the password."),
     "Settings_StateOpen": ("открыта", "open"),

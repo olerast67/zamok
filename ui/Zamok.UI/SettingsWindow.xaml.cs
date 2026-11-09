@@ -238,7 +238,7 @@ public sealed partial class SettingsWindow : Window
             else
             {
                 // Включить: пароль папки, затем подтверждение Windows Hello
-                var box = new PasswordBox { Header = Strings.Get("Manage_Password/Header") };
+                var box = new PasswordBox { Header = Strings.Get("Settings_HelloPassword") };
                 var dialog = new ContentDialog
                 {
                     XamlRoot = Root.XamlRoot,
