@@ -133,6 +133,8 @@ Get-FileHash .\Zamok-Setup-0.1.0.exe -Algorithm SHA256
 
 ## Лицензия
 
-GPL-3.0, текст в [LICENSE](LICENSE).
+GPL-3.0, текст в [LICENSE](LICENSE), с дополнительным разрешением для Windows App SDK: [LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md).
+
+**Как это сделано:** автор придумал программу, руководил работой и проверял её на настоящем компьютере. Большую часть кода написал ИИ-ассистент (Claude от Anthropic). Независимого аудита не было.
 
 Zamok использует WinFsp: WinFsp - Windows File System Proxy, Copyright (C) Bill Zissimopoulos, https://github.com/winfsp/winfsp
