@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zamok, folder encryption for Windows from File Explorer</title>
+<meta name="description" content="Zamok encrypts a folder on Windows 10 and 11 from File Explorer. The folder stays at its path. Free, open source, GPL-3.0, alpha, not audited by a third party.">
+<link rel="icon" href="favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="alternate" hreflang="ru" href="https://olerast67.github.io/zamok/ru/">
+<link rel="alternate" hreflang="en" href="https://olerast67.github.io/zamok/">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <a class="brand" href="./"><img src="icon-256.png" alt="" width="32" height="32">Zamok</a>
+  <nav><a href="ru/" lang="ru" hreflang="ru">Русский</a><a href="https://github.com/olerast67/zamok">GitHub</a></nav>
+</header>
+
+<main>
+<div class="hero">
+  <div>
+    <h1>Encrypt a folder from File Explorer and keep it at its path</h1>
+    <p class="lead">Right-click a folder on Windows 10 or 11 and choose "Encrypt with password". To open it, double-click the lock icon inside and enter the password or use Windows Hello. When you lock the screen, the folder locks.</p>
+    <p class="status">Free, GPL-3.0. Version 0.1.0-alpha, not audited by a third party. Keep a backup of important data outside Zamok.</p>
+    <a class="button" data-cta href="https://github.com/olerast67/zamok/releases">Download Zamok for Windows</a>
+  </div>
+  <img class="window" src="images/screens/en/unlock.png" alt="Zamok password window for the folder Documents" width="527" height="411">
+</div>
+
+<div class="warning prose">
+  <h2>Do not drag an open folder with the mouse</h2>
+  <p>Explorer copies the files to the new place unencrypted and deletes them from the vault. Lock the folder first: a locked folder has nothing to copy and stays where it is. Zamok cancels "Cut" on an encrypted folder and moving a parent folder to another drive. Windows offers no way to intercept dragging the folder itself.</p>
+</div>
+
+<section>
+  <h2>What it protects against</h2>
+  <div class="columns">
+    <div>
+      <h3>Protects against</h3>
+      <ul>
+        <li>a stolen or lost laptop that is turned off</li>
+        <li>copies of the folder, USB drives, cloud storage</li>
+        <li>another user of the same computer (the check with a second account is still on the roadmap)</li>
+        <li>someone at your computer while the folder is locked</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Does not protect against</h3>
+      <ul>
+        <li>malware on your computer while the folder is open</li>
+        <li>someone who knows the password or your Windows Hello PIN</li>
+        <li>deletion: an encrypted folder cannot be read, but it can be deleted</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Traces Windows leaves</h2>
+  <p class="prose">Zamok writes no decrypted data to disk itself. Encrypting the system drive with BitLocker or Device Encryption covers almost all of these traces if the laptop is stolen.</p>
+  <div class="table"><table>
+    <tr><th>Where</th><th>What happens</th></tr>
+    <tr><td>Windows Search index</td><td>Files are marked "do not index"</td></tr>
+    <tr><td>Thumbnail cache</td><td>Explorer may store small copies of pictures on the system drive; this cannot be turned off for a single folder</td></tr>
+    <tr><td>Recent files</td><td>Shortcuts to the folder's files are removed on lock; taskbar jump lists stay for now</td></tr>
+    <tr><td>Autosave and temporary files</td><td>Word, Photoshop and others write them to their own folders outside Zamok</td></tr>
+    <tr><td>Page file and hibernation file</td><td>Contents of memory may end up there, including keys</td></tr>
+    <tr><td>Recycle Bin</td><td>There is none: a file deleted from an open folder is gone at once</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>The windows</h2>
+  <div class="shots">
+    <figure><img class="window" src="images/screens/en/encrypt-password.png" alt="Encrypt wizard, password step" width="577" height="559" loading="lazy"><figcaption>Choosing a password</figcaption></figure>
+    <figure><img class="window" src="images/screens/en/encrypt-recovery-key.png" alt="Recovery key of 44 words" width="652" height="693" loading="lazy"><figcaption>Recovery key of a test folder</figcaption></figure>
+    <figure><img class="window" src="images/screens/en/settings.png" alt="Settings with the folder list" width="852" height="747" loading="lazy"><figcaption>Settings</figcaption></figure>
+  </div>
+</section>
+
+<section class="prose">
+  <h2>How it works</h2>
+  <p>Zamok writes an encrypted copy to a hidden folder next to the original, checks the copy and then deletes the original. The WinFsp driver presents a virtual folder at the same path, so shortcuts and program projects keep working.</p>
+  <p>The folder locks on Win+L, on sleep and hibernation, on sign-out and after 30 minutes without work in it. Ctrl+Alt+Shift+L locks all folders. The programs make no network calls and have no telemetry or accounts.</p>
+</section>
+
+<section class="prose">
+  <h2>Install</h2>
+  <p>Download <code>Zamok-Setup-&lt;version&gt;.exe</code>. It contains the WinFsp driver and asks for administrator rights only to install it. You need Windows 10 or 11, x64, and a folder on an NTFS drive. Zamok refuses folders inside OneDrive, Dropbox and Yandex Disk for now.</p>
+  <p>The installer is not signed yet, so SmartScreen shows "Windows protected your PC". Compare the SHA-256 from the release page with the file, then choose More info and Run anyway. Smart App Control on Windows 11 blocks unsigned programs, so Zamok cannot be installed while it is on.</p>
+</section>
+
+<section class="prose">
+  <h2>If Zamok stops working</h2>
+  <p>An encrypted folder is a standard vault of Cryptomator format 8, in a hidden <code>.Name.zamok</code> folder. Open <code>vault.cryptomator</code> in <a href="https://cryptomator.org">Cryptomator</a> on Windows, macOS, Linux, iOS or Android with your password or the recovery key. Compatibility is tested in both directions with Cryptomator 1.19.6.</p>
+</section>
+
+<section>
+  <h2>Zamok, VeraCrypt and Cryptomator</h2>
+  <div class="table"><table>
+    <tr><th></th><th>Zamok</th><th>VeraCrypt</th><th>Cryptomator</th></tr>
+    <tr><td>Where you work with files</td><td>The folder at its own path</td><td>A container or partition mounted as a drive</td><td>A vault mounted as a virtual drive</td></tr>
+    <tr><td>Encrypts the system drive</td><td>No</td><td>Yes</td><td>No</td></tr>
+    <tr><td>Platforms</td><td>Windows</td><td>Windows, macOS, Linux</td><td>Windows, macOS, Linux, iOS, Android</td></tr>
+    <tr><td>Folders in cloud sync</td><td>Refused for now</td><td>A container syncs as one file</td><td>Made for this case</td></tr>
+    <tr><td>Independent audit</td><td>None</td><td>Yes, of earlier versions</td><td>Yes, of earlier versions</td></tr>
+    <tr><td>Maturity</td><td>Alpha</td><td>Years of releases</td><td>Years of releases</td></tr>
+  </table></div>
+  <p class="prose" style="margin-top:20px">If you need an audited tool today, use VeraCrypt or Cryptomator.</p>
+</section>
+</main>
+
+<footer>
+  <p>Source, roadmap and documents are on <a href="https://github.com/olerast67/zamok">GitHub</a>. <a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">Privacy</a>, <a href="https://github.com/olerast67/zamok/blob/main/SECURITY.md">reporting a vulnerability</a>.</p>
+  <p>GPL-3.0. WinFsp - Windows File System Proxy, Copyright (C) Bill Zissimopoulos, <a href="https://github.com/winfsp/winfsp">github.com/winfsp/winfsp</a></p>
+</footer>
+</div>
+</body>
+</html>
