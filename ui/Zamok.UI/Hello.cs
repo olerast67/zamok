@@ -23,6 +23,7 @@ internal static class Hello
     /// <summary>Ключ обёртки для папки (base64) или null, если человек отменил или Hello не подтвердил.</summary>
     public static async Task<string?> WrapKeyAsync(string folderId, bool create)
     {
+        using var focus = new HelloFocus();
         try
         {
             var r = create
