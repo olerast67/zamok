@@ -133,7 +133,7 @@ impl Journal {
         rd.filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
             .filter_map(|e| {
-                let parsed = std::fs::read(e.path())
+                let parsed = zamok_crypto::read_meta(&e.path())
                     .ok()
                     .and_then(|b| serde_json::from_slice::<Journal>(&b).ok());
                 if parsed.is_none() {
@@ -294,7 +294,7 @@ fn hex(bytes: &[u8]) -> String {
 
 fn file_digest(path: &Path) -> Option<String> {
     use sha2::{Digest, Sha256};
-    Some(hex(&Sha256::digest(std::fs::read(path).ok()?)))
+    Some(hex(&Sha256::digest(zamok_crypto::read_meta(path).ok()?)))
 }
 
 /// SHA-256 файла `masterkey.cryptomator` в папке хранилища.

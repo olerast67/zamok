@@ -1416,8 +1416,11 @@ dependencies = [
  "sha1",
  "sha2",
  "subtle",
+ "tempfile",
  "thiserror",
+ "tracing",
  "unicode-normalization",
+ "windows 0.62.2",
  "zeroize",
 ]
 
