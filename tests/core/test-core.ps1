@@ -24,7 +24,8 @@ function Check([string]$name, [scriptblock]$body) {
 }
 function WaitFor([scriptblock]$cond, [int]$ms = 10000) {
     $deadline = (Get-Date).AddMilliseconds($ms)
-    while (-not (& $cond)) { if ((Get-Date) -gt $deadline) { return $false }; Start-Sleep -Milliseconds 100 }
+    # Poka tochka podklyucheniya peresozdaetsya, obrashchenie k puti mozhet dat "otkazano v dostupe"
+    while (-not $(try { & $cond } catch { $false })) { if ((Get-Date) -gt $deadline) { return $false }; Start-Sleep -Milliseconds 100 }
     $true
 }
 
@@ -46,6 +47,22 @@ public static class ZT {
   [DllImport("kernel32.dll", SetLastError = true)]
   static extern bool DeviceIoControl(IntPtr h, uint code, byte[] inb, int inl, byte[] outb, int outl, out int ret, IntPtr ov);
   [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool SetFileInformationByHandle(IntPtr h, int cls, byte[] info, int size);
+  // Udalit tochku podklyucheniya, kak Provodnik: u nee atribut "tolko chtenie" (koren zapertoy
+  // papki), poetomu rmdir otkazyvaet. Snimaem atribut s samoy tochki (OPEN_REPARSE_POINT),
+  // potom pometka na udalenie. Soderzhimoe toma ne trogaetsya.
+  public static void DeleteMountPoint(string dir) {
+    var h = CreateFileW(dir, 0x00010000 | 0x100, 7, IntPtr.Zero, 3, 0x02000000 | 0x00200000, IntPtr.Zero);
+    if (h == new IntPtr(-1)) throw new IOException("open failed " + Marshal.GetLastWin32Error());
+    try {
+      var basic = new byte[40];
+      BitConverter.GetBytes(0x4u).CopyTo(basic, 32);
+      if (!SetFileInformationByHandle(h, 0, basic, basic.Length)) throw new IOException("attributes failed " + Marshal.GetLastWin32Error());
+      if (!SetFileInformationByHandle(h, 4, new byte[] { 1, 0, 0, 0 }, 4)) throw new IOException("delete failed " + Marshal.GetLastWin32Error());
+    }
+    finally { CloseHandle(h); }
+  }
   // Mertvaya tochka podklyucheniya, kak posle vyklyucheniya pitaniya: tom WinFsp, kotorogo net
   public static void SetMountPoint(string dir, string target) {
     byte[] t = Encoding.Unicode.GetBytes(target);
@@ -68,14 +85,17 @@ public static class ZT {
 '@
 
 $script:proc = $null
-function StartCore([string]$crash = '') {
+function StartCore([string]$crash = '', [string]$ui = '') {
     $psi = New-Object Diagnostics.ProcessStartInfo $coreExe
     if ($crash) { $psi.EnvironmentVariables['ZAMOK_TEST_CRASH'] = $crash }
+    # Vmesto okna Zamok.exe: zapisyvaet svoi argumenty i zhdet, poka ego ne ub'yut
+    if ($ui) { $psi.EnvironmentVariables['ZAMOK_UI_EXE'] = $ui; $psi.EnvironmentVariables['ZAMOK_ASKER_LOG'] = "$root\asker-args.txt" }
     $psi.UseShellExecute = $false
     $psi.RedirectStandardError = $true
     $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
     $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipeName"
     $psi.EnvironmentVariables['ZAMOK_NO_TRAY'] = '1'
+    $psi.EnvironmentVariables['ZAMOK_SEARCH_DRY_RUN'] = '1'
     $psi.EnvironmentVariables['ZAMOK_RECENT_DIR'] = "$root\recent"
     $p = [Diagnostics.Process]::Start($psi)
     [void](WaitFor { (Test-Path "\\.\pipe\$pipeName") -or $p.HasExited } 15000)
@@ -103,6 +123,16 @@ Get-Process zamok-core -ErrorAction SilentlyContinue | Where-Object { $_.Path -e
 Start-Sleep -Milliseconds 500
 Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $root | Out-Null
+$asker = "$root\asker.exe"
+Add-Type -OutputAssembly $asker -OutputType WindowsApplication -TypeDefinition @'
+public static class Asker {
+  public static void Main(string[] args) {
+    System.IO.File.WriteAllText(System.Environment.GetEnvironmentVariable("ZAMOK_ASKER_LOG"), string.Join("|", args), new System.Text.UTF8Encoding(false));
+    System.Threading.Thread.Sleep(120000);
+  }
+}
+'@
+function Askers { @(Get-Process asker -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $asker }) }
 Push-Location "$repo\core"
 & "$env:USERPROFILE\.cargo\bin\cargo.exe" build -q --release -p zamok-core 2>&1 | Out-Null
 & "$env:USERPROFILE\.cargo\bin\cargo.exe" run -q --release --example create_vault -- "$repo\tests\fixtures-src\vault1" $vault $pw | Out-Null
@@ -269,8 +299,14 @@ try {
 
     # Chelovek udalil papku v Provodnike (DESIGN.md, razdel 5.1)
     [void](Send "{`"cmd`":`"add`",`"path`":`"$(J $mnt)`",`"vault`":`"$(J $vault)`"}")
+    # Skolko raz core zapisal v zhurnal eto sobytie (bez imen i putey)
+    function LogCount([string]$text) { @(Get-Content "$data\core.log" -Encoding UTF8 | Where-Object { $_.Contains($text) }).Count }
     Check 'mount point deleted, vault intact: folder comes back locked' {
-        cmd /c rmdir "$mnt" | Out-Null
+        # Udalenie zavershaetsya, kogda zakryty vse deskriptory tochki: zhdem, poka core ego uvidit
+        Start-Sleep -Seconds 1
+        $before = LogCount 'mount point was deleted, folder restored locked'
+        [ZT]::DeleteMountPoint($mnt)
+        (WaitFor { (LogCount 'mount point was deleted, folder restored locked') -gt $before } 10000) -and
         (WaitFor { Test-Path "$mnt\$openWord $ruName.zamok" } 10000) -and (State) -eq 'locked' -and (Test-Path "$vault\masterkey.cryptomator")
     }
     Check 'folder renamed in Explorer: core keeps it at the new path' {
@@ -369,6 +405,47 @@ try {
         PostToCore 0x0312 1
         $u.ok -and (WaitFor { (State) -eq 'locked' } 8000)
     }
+    # Udalili papku v Provodnike, okno sprashivaet: vernut ili ubrat iz Zamok (DESIGN.md, razdel 5.1)
+    [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(15000)
+    $script:proc = StartCore '' $asker
+    function Asking { @((Send '{"cmd":"status"}').folders | Where-Object { $_.path -eq $mnt -and $_.asking }).Count -eq 1 }
+    Check 'mount point deleted: core asks in a window with --deleted and the path, the folder waits' {
+        Remove-Item "$root\asker-args.txt" -ErrorAction SilentlyContinue
+        [ZT]::DeleteMountPoint($mnt)
+        (WaitFor { Asking } 10000) -and (WaitFor { Test-Path "$root\asker-args.txt" } 5000) -and
+            ((Get-Content "$root\asker-args.txt" -Raw -Encoding UTF8) -eq "--deleted|$mnt") -and -not (Test-Path $mnt) -and
+            (Askers).Count -eq 1 -and (Test-Path "$vault\masterkey.cryptomator")
+    }
+    Check 'answer bring back: folder returns locked, the question is gone' {
+        $r = Send "{`"cmd`":`"answer_deleted`",`"path`":`"$(J $mnt)`",`"remove`":false}"
+        $r.ok -and (WaitFor { Test-Path "$mnt\$openWord $ruName.zamok" } 5000) -and (State) -eq 'locked' -and -not (Asking)
+    }
+    Askers | Stop-Process -Force
+    Check 'window closed without an answer: folder returns locked as before' {
+        [ZT]::DeleteMountPoint($mnt)
+        if (-not (WaitFor { Asking } 10000)) { throw 'no question' }
+        Askers | Stop-Process -Force
+        (WaitFor { Test-Path "$mnt\$openWord $ruName.zamok" } 10000) -and (State) -eq 'locked' -and -not (Asking)
+    }
+    $notes = { @(Get-ChildItem -LiteralPath $root -Filter "*$ruName.txt" -File) }
+    Check 'answer remove: folder leaves the list, the vault stays, the HOW TO OPEN note appears' {
+        [ZT]::DeleteMountPoint($mnt)
+        if (-not (WaitFor { Asking } 10000)) { throw 'no question' }
+        $r = Send "{`"cmd`":`"answer_deleted`",`"path`":`"$(J $mnt)`",`"remove`":true}"
+        Start-Sleep -Seconds 3
+        $note = & $notes
+        $r.ok -and -not (State) -and -not (Test-Path $mnt) -and (Test-Path "$vault\masterkey.cryptomator") -and
+            (Test-Path "$vault\vault.cryptomator") -and $note.Count -eq 1 -and
+            (Get-Content -LiteralPath $note[0].FullName -Raw -Encoding UTF8).Contains($vault) -and
+            @((Get-Content "$data\folders.json" -Raw -Encoding UTF8 | ConvertFrom-Json).folders).Count -eq 0
+    }
+    Askers | Stop-Process -Force
+    & $notes | Remove-Item
+    Check 'removed folder can be added back and opens with the password' {
+        [void](Send "{`"cmd`":`"add`",`"path`":`"$(J $mnt)`",`"vault`":`"$(J $vault)`"}")
+        (Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}").ok -and (Get-Content "$mnt\new.txt") -eq 'written through core'
+    }
+    [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $mnt)`"}")
     Check 'vault deleted: folder leaves the list, the name is free again' {
         Remove-Item $vault -Recurse -Force
         (WaitFor { -not (State) } 10000) -and (WaitFor { -not (Test-Path $mnt) } 5000) -and
@@ -388,6 +465,7 @@ try {
     $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
     $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipeName"
     $psi.EnvironmentVariables['ZAMOK_NO_TRAY'] = '1'
+    $psi.EnvironmentVariables['ZAMOK_SEARCH_DRY_RUN'] = '1'
     $psi.EnvironmentVariables['ZAMOK_RECENT_DIR'] = "$root\recent"
     $watch = [Diagnostics.Process]::Start($psi)
     function Child { Get-CimInstance Win32_Process -Filter "ParentProcessId=$($watch.Id)" | Where-Object Name -eq 'zamok-core.exe' | Select-Object -First 1 }
@@ -404,6 +482,7 @@ try {
     if (-not $watch.HasExited) { $watch.Kill() }
 }
 finally {
+    Askers | Stop-Process -Force
     if ($script:proc -and -not $script:proc.HasExited) {
         try { [void](Send '{"cmd":"quit"}') } catch {}
         if (-not $script:proc.WaitForExit(15000)) { $script:proc.Kill() }

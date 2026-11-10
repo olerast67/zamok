@@ -2,7 +2,9 @@
 //!
 //! Переменные для разработки и тестов:
 //! - `ZAMOK_DATA_DIR`: папка со списком и журналом вместо `%LOCALAPPDATA%\Zamok`;
-//! - `ZAMOK_PIPE`: имя канала вместо `\\.\pipe\zamok-<SID>`.
+//! - `ZAMOK_PIPE`: имя канала вместо `\\.\pipe\zamok-<SID>`;
+//! - `ZAMOK_UI_EXE`: окна Zamok вместо `Zamok.exe` рядом с core;
+//! - `ZAMOK_SEARCH_DRY_RUN`: только проверять область индексирования поиска, не менять её.
 //!
 //! `zamok-core --watch`: сторож для автозапуска. Запускает core и перезапускает его, если тот
 //! упал. Обычный выход (из трея, по команде `quit`) и «уже запущен» сторож уважает.
@@ -103,10 +105,8 @@ fn main() {
         Some("--watch") => watch(),
         Some("--quit") => quit_running(),
         Some("--uninstall-notes") => {
-            use windows::Win32::Globalization::GetUserDefaultUILanguage;
-            let russian = (unsafe { GetUserDefaultUILanguage() } & 0x3FF) == 0x19;
             if let Ok(dir) = data_dir() {
-                zamok_core::howto::write_notes(&dir, russian);
+                zamok_core::howto::write_notes(&dir, zamok_core::howto::user_is_russian());
             }
             std::process::exit(0);
         }

@@ -161,6 +161,9 @@ struct Unlocked {
 /// Состояние, общее для файловой системы и программы, которая её запирает и открывает.
 pub struct Control {
     root: PathBuf,
+    /// Имена запертого вида в корне (`\Открыть <Имя>.zamok`, `\desktop.ini`): после открытия
+    /// по ним сбрасывается кэш ядра, иначе Проводник мог бы перечитать старый листинг корня.
+    locked_items: Vec<String>,
     state: RwLock<Option<Unlocked>>,
     generation: AtomicU64,
     /// Открытые зашифрованные файлы по пути содержимого на диске: один объект на файл,
@@ -198,6 +201,11 @@ pub struct ZamokFs {
     display_name: String,
     ctl: Arc<Control>,
     security: Vec<u8>,
+}
+
+/// Значок запертой папки: `Открыть <Имя>.zamok`.
+fn open_item_name(display_name: &str) -> String {
+    format!("Открыть {display_name}.zamok")
 }
 
 fn split(path: &str) -> Vec<&str> {
@@ -294,6 +302,16 @@ impl Control {
         Ok(())
     }
 
+    /// Открытый вид сменил запертый: сбросить кэш ядра по именам запертого вида. Уведомление
+    /// об удалении имени сбрасывает и закэшированный листинг корня, поэтому Проводник после
+    /// своего уведомления читает уже открытую папку. Ждать сброса: [`crate::mount::settle_unlock`].
+    pub fn invalidate_locked_view(&self) {
+        self.pending_invalidate
+            .lock()
+            .unwrap()
+            .extend(self.locked_items.iter().cloned());
+    }
+
     /// Запереть: стереть мастер-ключ и ключи всех открытых файлов. Поколение меняется
     /// всегда, и у запертой папки тоже: так отменяются открытия, которые сейчас проверяют
     /// пароль. Проверка состояния и запирание идут под одним замком.
@@ -372,6 +390,10 @@ impl ZamokFs {
     pub fn new(root: &Path, display_name: &str) -> anyhow::Result<Self> {
         let ctl = Arc::new(Control {
             root: root.to_path_buf(),
+            locked_items: vec![
+                format!("\\{}", open_item_name(display_name)),
+                "\\desktop.ini".to_string(),
+            ],
             state: RwLock::new(None),
             generation: AtomicU64::new(1),
             open_files: Mutex::new(HashMap::new()),
@@ -404,7 +426,7 @@ impl ZamokFs {
     }
 
     fn open_item_name(&self) -> String {
-        format!("Открыть {}.zamok", self.display_name)
+        open_item_name(&self.display_name)
     }
 
     fn with_key<T>(&self, f: impl FnOnce(&Unlocked) -> FsResult<T>) -> FsResult<T> {

@@ -24,7 +24,8 @@ function Check([string]$name, [scriptblock]$body) {
 }
 function WaitFor([scriptblock]$cond, [int]$ms = 10000) {
     $deadline = (Get-Date).AddMilliseconds($ms)
-    while (-not (& $cond)) { if ((Get-Date) -gt $deadline) { return $false }; Start-Sleep -Milliseconds 100 }
+    # Poka tochka podklyucheniya peresozdaetsya, obrashchenie k puti mozhet dat "otkazano v dostupe"
+    while (-not $(try { & $cond } catch { $false })) { if ((Get-Date) -gt $deadline) { return $false }; Start-Sleep -Milliseconds 100 }
     $true
 }
 
@@ -37,6 +38,30 @@ foreach ($lang in 'ru-RU', 'en-US') {
 function IsText([string]$key, [string]$shown) { $strings[$key] -contains $shown }
 
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+Add-Type -TypeDefinition @'
+using System; using System.IO; using System.Runtime.InteropServices;
+public static class ZT {
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  static extern IntPtr CreateFileW(string n, uint a, uint s, IntPtr sa, uint c, uint f, IntPtr t);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool SetFileInformationByHandle(IntPtr h, int cls, byte[] info, int size);
+  // Udalit tochku podklyucheniya, kak Provodnik: u nee atribut "tolko chtenie" (koren zapertoy
+  // papki), poetomu rmdir otkazyvaet. Snimaem atribut s samoy tochki (OPEN_REPARSE_POINT),
+  // potom pometka na udalenie. Soderzhimoe toma ne trogaetsya.
+  public static void DeleteMountPoint(string dir) {
+    var h = CreateFileW(dir, 0x00010000 | 0x100, 7, IntPtr.Zero, 3, 0x02000000 | 0x00200000, IntPtr.Zero);
+    if (h == new IntPtr(-1)) throw new IOException("open failed " + Marshal.GetLastWin32Error());
+    try {
+      var basic = new byte[40];
+      BitConverter.GetBytes(0x4u).CopyTo(basic, 32);
+      if (!SetFileInformationByHandle(h, 0, basic, basic.Length)) throw new IOException("attributes failed " + Marshal.GetLastWin32Error());
+      if (!SetFileInformationByHandle(h, 4, new byte[] { 1, 0, 0, 0 }, 4)) throw new IOException("delete failed " + Marshal.GetLastWin32Error());
+    }
+    finally { CloseHandle(h); }
+  }
+}
+'@
 $AE = [Windows.Automation.AutomationElement]
 function Window([int]$procId, [int]$ms = 15000) {
     $cond = New-Object Windows.Automation.PropertyCondition ($AE::ProcessIdProperty), $procId
@@ -65,9 +90,24 @@ function StartCore {
     $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
     $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipeName"
     $psi.EnvironmentVariables['ZAMOK_NO_TRAY'] = '1'
+    $psi.EnvironmentVariables['ZAMOK_SEARCH_DRY_RUN'] = '1'
+    # Okno "papku udalili" core zapuskaet iz proveryaemoy sborki
+    $psi.EnvironmentVariables['ZAMOK_UI_EXE'] = $uiExe
     $p = [Diagnostics.Process]::Start($psi)
     [void](WaitFor { (Test-Path "\\.\pipe\$pipeName") -or $p.HasExited } 15000)
     $p
+}
+# Okno Provodnika na papke: skolko elementov ono pokazyvaet (UI Automation, bez F5)
+function ExplorerWindow([string]$path) {
+    $sh = New-Object -ComObject Shell.Application
+    foreach ($w in @($sh.Windows())) { $here = $null; try { $here = $w.Document.Folder.Self.Path } catch {}; if ($here -eq $path) { return $w } }
+    $null
+}
+function ShownItems([string]$path) {
+    $w = ExplorerWindow $path
+    if (-not $w) { return -1 }
+    $cond = New-Object Windows.Automation.PropertyCondition ($AE::ControlTypeProperty), ([Windows.Automation.ControlType]::ListItem)
+    @($AE::FromHandle([IntPtr]$w.HWND).FindAll('Descendants', $cond)).Count
 }
 function Send([string]$json) {
     $c = New-Object IO.Pipes.NamedPipeClientStream '.', $pipeName, 'InOut'
@@ -284,6 +324,26 @@ try {
         $sw.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Toggle()
         $off -and (WaitFor { (Send '{"cmd":"status"}').settings.lock_on_screen_lock -eq $true } 5000)
     }
+    Check 'settings: Defender offer is shown with the vaults, Copy puts the command on the clipboard' {
+        # Svernutyy element v dereve UI Automation ne viden: nalichie teksta i est pokaz kartochki
+        if (-not (WaitFor { El $w 'DefenderText' } 10000)) { throw 'no card' }
+        if (-not (IsText 'Defender_Text.Text' (Text $w 'DefenderText'))) { throw 'text is not a string' }
+        $offer = @((Send '{"cmd":"status"}').settings.defender_offer)
+        $saved = Get-Clipboard -Raw -ErrorAction SilentlyContinue
+        Press $w 'DefenderCopy'
+        $copied = $null; [void](WaitFor { $script:copied = Get-Clipboard -Raw; $script:copied -like 'Add-MpPreference*' } 5000)
+        if ($saved) { Set-Clipboard -Value $saved }
+        $env:ZT_CMD = $script:copied
+        $env:ZT_WANT = $offer -join '|'
+        $got = & powershell -NoProfile -Command 'function Add-MpPreference { param([string[]]$ExclusionPath) $ExclusionPath }; if (((Invoke-Expression $env:ZT_CMD) -join ''|'') -eq $env:ZT_WANT) { ''same'' } else { ''diff'' }'
+        if ($got -ne 'same') { throw "command gives other paths: $got" }
+        $offer.Count -ge 1 -and $offer -contains "$root\.$ruName.zamok" -and -not $script:copied.Contains($root) -and
+            (WaitFor { @((Send '{"cmd":"status"}').settings.defender_offer).Count -eq 0 } 5000) -and
+            (IsText 'Defender_Copied' (Text $w 'StatusText'))
+    }
+    Check 'settings: Defender offer is gone after the answer' {
+        WaitFor { -not (El $w 'DefenderText') } 5000
+    }
     Check 'settings: Lock button locks the open folder' {
         $list = El $w 'FolderList'
         $item = $list.FindAll('Children', [Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -like "*$ruName*" -or $_.FindFirst('Descendants', (New-Object Windows.Automation.PropertyCondition ($AE::NameProperty), $ruName)) } | Select-Object -First 1
@@ -316,7 +376,61 @@ try {
         Press $w 'NextButton'
         (WaitFor { (Text $w 'ErrorText') -like '*note.txt*' } 15000) -and (Get-Content "$busyDir\note.txt") -eq 'hello from ui test' -and -not (Test-Path "$root\.busy.zamok.tmp")
     }
-    $held.Dispose(); $ui.Kill()
+    $held.Dispose(); $ui.Kill(); [void]$ui.WaitForExit(5000)
+
+    # 5. Papku udalili v Provodnike: core sprashivaet v okne
+    function DeletedWindow {
+        # Tolko okno, kotoroe zapustil core: okna proshlyh proverok mogut eshche zavershatsya
+        $c = Get-CimInstance Win32_Process -Filter "Name='Zamok.exe'" | Where-Object { $_.ExecutablePath -eq $uiExe -and $_.CommandLine -like '*--deleted*' } | Select-Object -First 1
+        if ($c) { Get-Process -Id $c.ProcessId -ErrorAction SilentlyContinue } else { $null }
+    }
+    [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $dir)`"}")
+    Check 'deleted folder: window asks, Bring back returns the folder locked' {
+        [ZT]::DeleteMountPoint($dir)
+        if (-not (WaitFor { DeletedWindow } 10000)) { throw 'no window' }
+        $p = DeletedWindow; $w = Window $p.Id
+        if ((Text $w 'FolderName') -ne $ruName) { throw "name: $(Text $w 'FolderName')" }
+        if (-not (IsText 'Deleted_Message.Text' (Text $w 'Message'))) { throw 'message is not a string' }
+        Press $w 'RestoreButton'
+        $p.WaitForExit(10000) -and (WaitFor { (Folder $dir).state -eq 'locked' -and (Test-Path "$dir\$openWord $ruName.zamok") } 10000)
+    }
+    Check 'deleted folder: window closed without an answer, the folder comes back by itself' {
+        [ZT]::DeleteMountPoint($dir)
+        if (-not (WaitFor { DeletedWindow } 10000)) { throw 'no window' }
+        $p = DeletedWindow; $w = Window $p.Id
+        Start-Sleep -Milliseconds 500
+        $p.CloseMainWindow() | Out-Null
+        $p.WaitForExit(10000) -and (WaitFor { (Folder $dir).state -eq 'locked' } 10000)
+    }
+    Check 'deleted folder: Remove from Zamok keeps the encrypted data and writes the note' {
+        [ZT]::DeleteMountPoint($dir)
+        if (-not (WaitFor { DeletedWindow } 10000)) { throw 'no window' }
+        $p = DeletedWindow; $w = Window $p.Id
+        if ((Text $w 'RemoveNote') -notlike "*.$ruName.zamok*") { throw "note text: $(Text $w 'RemoveNote')" }
+        Press $w 'RemoveButton'
+        $gone = $p.WaitForExit(10000) -and (WaitFor { -not (Folder $dir) } 10000)
+        $note = @(Get-ChildItem -LiteralPath $root -Filter "*$ruName.txt" -File)
+        $gone -and -not (Test-Path $dir) -and (Test-Path "$root\.$ruName.zamok\masterkey.cryptomator") -and $note.Count -eq 1
+    }
+
+    # 6. Okno Provodnika na papke posle parolya pokazyvaet fayly bez F5. Poslednim: Provodnik
+    # zabiraet aktivnost, i okna, zapushchennye testom posle nego, aktivnymi ne stanovyatsya
+    $dir = "$root\refresh"; MakeSample $dir
+    [void](Send "{`"cmd`":`"encrypt`",`"path`":`"$(J $dir)`",`"password`":`"$pw`"}")
+    [void](WaitFor { (Folder $dir).state -eq 'unlocked' } 60000)
+    $item = "$dir\$openWord refresh.zamok"
+    Check 'unlock: Explorer window on the folder shows the files without F5' {
+        [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $dir)`"}")
+        Start-Process explorer.exe "`"$dir`""
+        if (-not (WaitFor { (ShownItems $dir) -eq 1 } 15000)) { throw "locked view: $(ShownItems $dir)" }
+        $ui = StartUi '--unlock', $item
+        $w = Window $ui.Id
+        SetValue $w 'Password' $pw; Press $w 'OpenButton'
+        $ok = $ui.WaitForExit(10000) -and (WaitFor { (ShownItems $dir) -ge 2 } 5000)
+        $n = ShownItems $dir
+        (ExplorerWindow $dir).Quit()
+        $ok -or "shown=$n" -eq ''
+    }
 }
 finally {
     Get-Process Zamok -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $uiExe } | Stop-Process -Force

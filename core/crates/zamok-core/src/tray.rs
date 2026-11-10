@@ -341,11 +341,7 @@ fn confirm(text: &str) -> bool {
 
 /// Окно настроек: Zamok.exe рядом с core.
 fn open_settings() {
-    if let Some(exe) = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(|d| d.join("Zamok.exe")))
-        .filter(|p| p.is_file())
-    {
+    if let Some(exe) = crate::core::ui_exe() {
         let _ = std::process::Command::new(exe).arg("--settings").spawn();
     }
 }

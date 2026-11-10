@@ -11,6 +11,8 @@
 //! - [`shellverbs`]: пункты «Запереть» и «Открыть паролем» только на папках Zamok.
 //! - [`shellhook`]: список папок в общей памяти для `zamok-shell.dll` и её установка.
 //! - [`tray`]: значок в трее со списком папок и «Запереть всё».
+//! - [`search`]: путь папки вне индекса поиска Windows.
+//! - [`howto`]: памятка «КАК ОТКРЫТЬ» рядом с хранилищем.
 
 pub mod autolock;
 pub mod clipguard;
@@ -24,6 +26,7 @@ pub mod pipe;
 pub mod preflight;
 pub mod protocol;
 pub mod recent;
+pub mod search;
 pub mod shellhook;
 pub mod shellverbs;
 pub mod tray;

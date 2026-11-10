@@ -105,6 +105,18 @@
   <data name="A11y_Progress" xml:space="preserve"><value>Ход работы</value></data>
   <data name="A11y_Busy" xml:space="preserve"><value>Идёт проверка</value></data>
   <data name="Settings_Open" xml:space="preserve"><value>Открыть</value></data>
+  <data name="Deleted_Message.Text" xml:space="preserve"><value>Эту папку удалили в Проводнике. Зашифрованные файлы целы. Вернуть папку на место?</value></data>
+  <data name="Deleted_RemoveNote" xml:space="preserve"><value>Если убрать папку из Zamok, зашифрованные файлы останутся в скрытой папке «.{0}.zamok», а рядом появится файл «КАК ОТКРЫТЬ {0}.txt» с объяснением, как их открыть.</value></data>
+  <data name="Deleted_Restore.Content" xml:space="preserve"><value>Вернуть</value></data>
+  <data name="Deleted_Remove.Content" xml:space="preserve"><value>Убрать из Zamok</value></data>
+  <data name="Defender_Title.Text" xml:space="preserve"><value>Исключить зашифрованные данные из проверки Defender?</value></data>
+  <data name="Defender_Text.Text" xml:space="preserve"><value>Defender проверяет каждый файл дважды: открытым и в зашифрованном виде в скрытой папке рядом. Если исключить скрытые папки, работа с файлами станет быстрее. Открытые файлы Defender проверяет как прежде, а зашифрованные копии проверять не будет: вирус в них всё равно не распознать. Нужны права администратора.</value></data>
+  <data name="Defender_ExcludeText.Text" xml:space="preserve"><value>Исключить</value></data>
+  <data name="Defender_Copy.Content" xml:space="preserve"><value>Скопировать команду</value></data>
+  <data name="Defender_No.Content" xml:space="preserve"><value>Не нужно</value></data>
+  <data name="Defender_Done" xml:space="preserve"><value>Готово: Defender больше не проверяет зашифрованные данные Zamok.</value></data>
+  <data name="Defender_Copied" xml:space="preserve"><value>Команда скопирована. Вставьте её в PowerShell, запущенный от имени администратора.</value></data>
+  <data name="Defender_Failed" xml:space="preserve"><value>Не получилось изменить настройки Defender. Скопируйте команду и выполните её в PowerShell от имени администратора.</value></data>
   <data name="Error_core_not_running" xml:space="preserve"><value>Не удалось запустить фоновую программу Zamok. Перезагрузите компьютер.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>На связи не программа Zamok этого пользователя. Пароль не отправлен.</value></data>
   <data name="Error_vault_damaged" xml:space="preserve"><value>Часть зашифрованных файлов отрезана от дерева папок. Папка осталась зашифрованной, ничего не удалено.</value></data>

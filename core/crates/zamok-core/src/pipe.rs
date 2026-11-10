@@ -351,6 +351,11 @@ pub fn dispatch(line: &[u8], core: &Arc<Core>) -> Response {
         } => one(core.hello_enable(&path, &password, &wrap_key)),
         Request::HelloDisable { path } => one(core.hello_disable(&path)),
         Request::UnlockHello { path, wrap_key } => one(core.unlock_hello(&path, &wrap_key)),
+        Request::AnswerDeleted { path, remove } => one(core.answer_deleted(&path, remove)),
+        Request::DefenderOfferDone { vaults } => match core.defender_offer_done(&vaults) {
+            Ok(()) => Response::ok(),
+            Err(code) => Response::err(code),
+        },
         Request::Quit => {
             core.request_quit();
             Response::ok()

@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use zamok_fs::fs::{Control, UnlockError};
-use zamok_fs::mount::{notify_shell, settle_lock, Mounted};
+use zamok_fs::mount::{settle_lock, settle_unlock, Mounted};
 
 use crate::config::{self, Config, FolderConfig, DEFAULT_IDLE_LOCK_SECS};
 use crate::encrypt::Progress;
@@ -41,6 +41,30 @@ pub struct Entry {
     missing_ticks: AtomicU32,
     /// Хранилище пропало, папка отключена; когда появится, подключится снова сама.
     offline: AtomicBool,
+    /// Точку подключения удалили в Проводнике, окно спрашивает «вернуть или убрать».
+    asking: Mutex<Option<Asking>>,
+}
+
+/// Открытый вопрос о папке, удалённой в Проводнике.
+struct Asking {
+    since: std::time::Instant,
+    window: std::process::Child,
+}
+
+/// Сколько ждать ответа окна «папку удалили». Окно закрыли без ответа или оно не отвечает:
+/// папка возвращается на место запертой, как без вопроса.
+const ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// Окна Zamok: `Zamok.exe` рядом с core или `ZAMOK_UI_EXE` (тесты).
+pub fn ui_exe() -> Option<PathBuf> {
+    std::env::var_os("ZAMOK_UI_EXE")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|e| e.parent().map(|d| d.join("Zamok.exe")))
+        })
+        .filter(|p| p.is_file())
 }
 
 /// Что произошло при запирании по бездействию (для уведомления в трее).
@@ -64,6 +88,7 @@ impl Entry {
             hello_file: Mutex::new(None),
             missing_ticks: AtomicU32::new(0),
             offline: AtomicBool::new(false),
+            asking: Mutex::new(None),
         })
     }
 
@@ -95,6 +120,7 @@ impl Entry {
                 .unwrap()
                 .as_ref()
                 .is_some_and(|p| p.is_file()),
+            asking: self.asking.lock().unwrap().is_some(),
             error: *self.error.lock().unwrap(),
         }
     }
@@ -115,7 +141,25 @@ impl Entry {
         *self.target.lock().unwrap() = mountpoint::mount_target(&cfg.path);
         *self.file_id.lock().unwrap() = mountpoint::file_id(&cfg.path);
         tracing::info!(folder = %cfg.id, "mounted (locked)");
+        crate::search::exclude_later(cfg.id.clone(), cfg.path.clone());
         Ok(control)
+    }
+
+    /// Окно с вопросом закрылось без ответа или ответа нет слишком долго: вопрос снят.
+    fn ask_expired(&self) -> bool {
+        let mut asking = self.asking.lock().unwrap();
+        let Some(a) = asking.as_mut() else {
+            return false;
+        };
+        let closed = a.window.try_wait().map_or(true, |s| s.is_some());
+        if !closed && a.since.elapsed() < ASK_TIMEOUT {
+            return false;
+        }
+        if !closed {
+            let _ = a.window.kill();
+        }
+        *asking = None;
+        true
     }
 
     /// Запереть и отменить идущие открытия. `true`, если папка была открыта.
@@ -424,7 +468,7 @@ impl Core {
         let still_wanted = || e.lock_epoch.load(Ordering::SeqCst) == epoch && also_wanted();
         match control.unlock_with_password_if(password, &still_wanted) {
             Ok(()) => {
-                notify_shell(&e.cfg().path);
+                settle_unlock(&control, &e.cfg().path);
                 tracing::info!(folder = %id, "unlocked with password");
                 Ok(e.info())
             }
@@ -455,7 +499,7 @@ impl Core {
         let still_wanted = || e.lock_epoch.load(Ordering::SeqCst) == epoch;
         match control.unlock_with_key_if(key, &still_wanted) {
             Ok(()) => {
-                notify_shell(&e.cfg().path);
+                settle_unlock(&control, &e.cfg().path);
                 tracing::info!(folder = %id, "unlocked with recovery key");
                 Ok(e.info())
             }
@@ -540,7 +584,7 @@ impl Core {
         let still_wanted = || e.lock_epoch.load(Ordering::SeqCst) == epoch;
         match control.unlock_with_key_if(key, &still_wanted) {
             Ok(()) => {
-                notify_shell(&e.cfg().path);
+                settle_unlock(&control, &e.cfg().path);
                 tracing::info!(folder = %e.cfg().id, "unlocked with windows hello");
                 Ok(e.info())
             }
@@ -889,12 +933,23 @@ impl Core {
                     e.cfg.lock().unwrap().path = new_path.clone();
                     moved_any = true;
                     zamok_fs::mount::notify_shell(&new_path);
+                    if new_path != cfg.path {
+                        crate::search::exclude_later(cfg.id.clone(), new_path);
+                    }
                     tracing::info!(folder = %cfg.id, "folder was moved or renamed, new path saved");
                     continue;
                 }
                 e.unmount();
+                if self.ask_deleted(&e, &cfg) {
+                    tracing::info!(folder = %cfg.id, "mount point was deleted, asking what to do");
+                    continue;
+                }
                 let restored = e.ensure_mounted().is_ok();
                 tracing::info!(folder = %cfg.id, restored, "mount point was deleted, folder restored locked");
+            }
+            if e.ask_expired() {
+                let restored = e.ensure_mounted().is_ok();
+                tracing::info!(folder = %cfg.id, restored, "no answer about the deleted folder, restored locked");
             }
             if let Some(c) = e.control() {
                 if !c.is_locked() {
@@ -921,6 +976,55 @@ impl Core {
             e.unmount();
             tracing::info!(folder = %e.cfg().id, "vault was deleted, folder removed from the list");
         }
+    }
+
+    /// Спросить в окне, вернуть ли удалённую в Проводнике папку или убрать её из Zamok. Окно
+    /// отвечает по каналу ([`Core::answer_deleted`]). `false`: окна нет или оно не запустилось,
+    /// тогда папка сразу возвращается, как без вопроса.
+    fn ask_deleted(&self, e: &Entry, cfg: &FolderConfig) -> bool {
+        let Some(exe) = ui_exe() else {
+            return false;
+        };
+        match std::process::Command::new(exe)
+            .arg("--deleted")
+            .arg(&cfg.path)
+            .spawn()
+        {
+            Ok(window) => {
+                *e.asking.lock().unwrap() = Some(Asking {
+                    since: std::time::Instant::now(),
+                    window,
+                });
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Ответ окна «папку удалили». Вернуть: папка снова на месте запертой. Убрать: папка уходит
+    /// из списка, хранилище остаётся на месте, рядом появляется памятка «КАК ОТКРЫТЬ».
+    /// Зашифрованные данные не удаляются ни в каком случае.
+    pub fn answer_deleted(&self, path: &str, remove: bool) -> Result<FolderInfo, ErrorCode> {
+        let e = self.find(path)?;
+        let cfg = e.cfg();
+        // Окно закроется само, как только получит ответ
+        drop(e.asking.lock().unwrap().take());
+        if remove {
+            let info = e.info();
+            self.remove(path)?;
+            let note = crate::howto::write_note(
+                &cfg,
+                crate::howto::user_is_russian(),
+                crate::howto::Why::Removed,
+            );
+            zamok_fs::mount::notify_parent(&cfg.path);
+            tracing::info!(folder = %cfg.id, note, "deleted folder removed from the list, vault kept");
+            return Ok(info);
+        }
+        e.ensure_mounted()?;
+        zamok_fs::mount::notify_parent(&cfg.path);
+        tracing::info!(folder = %cfg.id, "deleted folder brought back locked");
+        Ok(e.info())
     }
 
     /// Запереть папки, с которыми долго ничего не делали. Возвращает события для уведомлений:
@@ -965,9 +1069,53 @@ impl Core {
 
     /// Общие настройки для окна настроек.
     pub fn settings(&self) -> crate::protocol::Settings {
+        let offered: Vec<String> = self
+            .settings
+            .lock()
+            .unwrap()
+            .defender_offered
+            .iter()
+            .map(|p| config::normalize(p))
+            .collect();
+        let defender_offer = self
+            .entries
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| e.cfg().vault)
+            .filter(|v| !offered.contains(&config::normalize(v)))
+            .map(|v| v.to_string_lossy().into_owned())
+            .collect();
         crate::protocol::Settings {
             lock_on_screen_lock: self.lock_on_screen_lock(),
+            defender_offer,
         }
+    }
+
+    /// Предложение исключить эти хранилища из проверки Defender показано: человек исключил их,
+    /// скопировал команду или отказался. Больше о них не спрашиваем.
+    pub fn defender_offer_done(&self, vaults: &[String]) -> Result<(), ErrorCode> {
+        let entries = self.entries.lock().unwrap();
+        let old = {
+            let mut s = self.settings.lock().unwrap();
+            let old = s.defender_offered.clone();
+            for v in vaults {
+                let p = PathBuf::from(v);
+                let known = s
+                    .defender_offered
+                    .iter()
+                    .any(|o| config::normalize(o) == config::normalize(&p));
+                if !known {
+                    s.defender_offered.push(p);
+                }
+            }
+            old
+        };
+        if let Err(code) = self.save(&entries) {
+            self.settings.lock().unwrap().defender_offered = old;
+            return Err(code);
+        }
+        Ok(())
     }
 
     pub fn set_lock_on_screen_lock(&self, on: bool) -> Result<(), ErrorCode> {
@@ -1043,8 +1191,13 @@ impl Core {
         }
         drop(entries);
         target.unmount();
+        if let Some(mut a) = target.asking.lock().unwrap().take() {
+            let _ = a.window.kill();
+        }
         let _ = std::fs::remove_file(self.hello_path(&target));
-        tracing::info!(folder = %target.cfg().id, "folder removed from the list");
+        let cfg = target.cfg();
+        crate::search::forget_later(cfg.id.clone(), cfg.path);
+        tracing::info!(folder = %cfg.id, "folder removed from the list");
         Ok(())
     }
 

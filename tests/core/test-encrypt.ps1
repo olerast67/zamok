@@ -34,6 +34,7 @@ function StartCore([string]$crash = '', [string]$pause = '') {
     $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $data
     $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipeName"
     $psi.EnvironmentVariables['ZAMOK_NO_TRAY'] = '1'
+    $psi.EnvironmentVariables['ZAMOK_SEARCH_DRY_RUN'] = '1'
     if ($crash) { $psi.EnvironmentVariables['ZAMOK_TEST_CRASH'] = $crash }
     if ($pause) { $psi.EnvironmentVariables['ZAMOK_TEST_PAUSE'] = $pause }
     $p = [Diagnostics.Process]::Start($psi)

@@ -97,6 +97,16 @@ pub enum Request {
         path: String,
         wrap_key: Zeroizing<String>,
     },
+    /// Ответ окна «папку удалили в Проводнике»: `remove = false` вернуть папку на место,
+    /// `true` убрать из списка (хранилище остаётся, рядом памятка «КАК ОТКРЫТЬ»).
+    AnswerDeleted {
+        path: String,
+        remove: bool,
+    },
+    /// Предложение исключить эти хранилища из проверки Defender показано, больше не спрашивать.
+    DefenderOfferDone {
+        vaults: Vec<String>,
+    },
     /// Запереть всё, отключить папки и завершиться.
     Quit,
 }
@@ -176,6 +186,9 @@ pub struct FolderInfo {
     pub open_files: usize,
     /// Включён вход по Windows Hello.
     pub hello: bool,
+    /// Папку удалили в Проводнике, окно спрашивает «вернуть или убрать».
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub asking: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorCode>,
 }
@@ -206,6 +219,8 @@ pub struct JobInfo {
 #[derive(Serialize, Debug, Clone)]
 pub struct Settings {
     pub lock_on_screen_lock: bool,
+    /// Хранилища, которые ещё не предлагали исключить из проверки Defender.
+    pub defender_offer: Vec<String>,
 }
 
 #[derive(Serialize, Debug, Default)]
@@ -282,6 +297,10 @@ mod tests {
             }
             _ => panic!(),
         }
+        assert!(matches!(
+            parse(br#"{"cmd":"answer_deleted","path":"C:\\a","remove":true}"#),
+            Ok(Request::AnswerDeleted { remove: true, .. })
+        ));
         match parse(br#"{"cmd":"add","path":"C:\\a","vault":"C:\\.a.zamok"}"#) {
             Ok(Request::Add { idle_lock_secs, .. }) => assert_eq!(idle_lock_secs, None),
             _ => panic!(),

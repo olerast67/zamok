@@ -140,14 +140,14 @@ impl Mounted {
     /// Открыть паролем и попросить Проводник обновить окно.
     pub fn unlock_with_password(&self, password: &str) -> Result<(), UnlockError> {
         self.control.unlock_with_password(password)?;
-        notify_shell(&self.path);
+        settle_unlock(&self.control, &self.path);
         Ok(())
     }
 
     /// Открыть ключом (ключ восстановления) и попросить Проводник обновить окно.
     pub fn unlock_with_key(&self, key: zamok_crypto::MasterKey) -> Result<(), UnlockError> {
         self.control.unlock_with_key(key)?;
-        notify_shell(&self.path);
+        settle_unlock(&self.control, &self.path);
         Ok(())
     }
 
@@ -184,6 +184,32 @@ impl Drop for Mounted {
         self.control.lock();
         self.host.stop();
         self.host.unmount();
+    }
+}
+
+/// Вторая половина открытия: сбросить кэш ядра по именам запертого вида и попросить
+/// Проводник перечитать и саму папку (окно, в котором дважды щёлкнули по замку), и её
+/// родителя (значок папки сменился на открытый). Через 1,5 секунды, когда кэш ядра истёк
+/// бы и сам, уведомление повторяется: окно, которое прочитало папку в промежутке, тоже обновится.
+pub fn settle_unlock(control: &Control, path: &Path) {
+    control.invalidate_locked_view();
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while control.invalidation_pending() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    notify_shell(path);
+    notify_parent(path);
+    let path = path.to_path_buf();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(1500));
+        notify_shell(&path);
+    });
+}
+
+/// Родительская папка перечитывает значок этой папки.
+pub fn notify_parent(path: &Path) {
+    if let Some(parent) = path.parent() {
+        notify_shell(parent);
     }
 }
 
