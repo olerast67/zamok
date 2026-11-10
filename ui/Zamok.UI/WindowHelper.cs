@@ -241,6 +241,11 @@ internal static class Strings
     public static string Format(string key, params object[] args) =>
         string.Format(Get(key), args);
 
+    /// <summary>Вопрос перед запиранием папки с открытыми файлами; с именами программ, если core их знает.</summary>
+    public static string LockOpenFiles(Zamok.Client.FolderInfo f) => f.OpenIn is { Length: > 0 }
+        ? Format("Lock_OpenFilesIn", f.Name, f.OpenFiles, string.Join(", ", f.OpenIn))
+        : Format("Lock_OpenFiles", f.Name, f.OpenFiles);
+
     /// <summary>Человеческий текст для кода ошибки core (Error_&lt;код&gt;).</summary>
     public static string Error(string? code) =>
         Get("Error_" + (code ?? "internal"));

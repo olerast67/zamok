@@ -104,6 +104,7 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Settings_StateUnavailable" xml:space="preserve"><value>unavailable</value></data>
   <data name="Settings_Lock" xml:space="preserve"><value>Lock</value></data>
   <data name="Lock_OpenFiles" xml:space="preserve"><value>Files are open in the folder “{0}”, count: {1}. Unsaved changes will be lost: the program will not be able to save them. Lock anyway?</value></data>
+  <data name="Lock_OpenFilesIn" xml:space="preserve"><value>Files are open in the folder “{0}”, count: {1}. Open in: {2}. Unsaved changes will be lost: the program will not be able to save them. Lock anyway?</value></data>
   <data name="App_Unexpected" xml:space="preserve"><value>Internal Zamok error. Try again. The files in the folder are not affected by this error.</value></data>
   <data name="A11y_Strength" xml:space="preserve"><value>Password strength</value></data>
   <data name="A11y_Progress" xml:space="preserve"><value>Progress</value></data>
@@ -132,6 +133,13 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Deleted_RemoveNote" xml:space="preserve"><value>If you remove the folder from Zamok, the encrypted files stay in the hidden folder “.{0}.zamok”, and the file “HOW TO OPEN {0}.txt” next to it explains how to open them.</value></data>
   <data name="Deleted_Restore.Content" xml:space="preserve"><value>Bring back</value></data>
   <data name="Deleted_Remove.Content" xml:space="preserve"><value>Remove from Zamok</value></data>
+  <data name="Idle_Message" xml:space="preserve"><value>The folder was not used for {0} min and is due to lock. But files in it are open: if you lock it now, unsaved changes will be lost because the program will not be able to save them.</value></data>
+  <data name="Idle_OpenIn" xml:space="preserve"><value>Open in: {0}</value></data>
+  <data name="Idle_OpenCount" xml:space="preserve"><value>Open files: {0}</value></data>
+  <data name="Idle_Later.Text" xml:space="preserve"><value>If you close this window, Zamok locks the folder once the files are closed.</value></data>
+  <data name="Idle_Postpone.Content" xml:space="preserve"><value>Postpone for 10 minutes</value></data>
+  <data name="Idle_LockNow.Content" xml:space="preserve"><value>Lock now</value></data>
+  <data name="Idle_LockNow.AccessKey" xml:space="preserve"><value>L</value></data>
   <data name="Defender_Title.Text" xml:space="preserve"><value>Exclude the encrypted data from Defender scans?</value></data>
   <data name="Defender_Text.Text" xml:space="preserve"><value>Defender scans every file twice: as you open it and in encrypted form in the hidden folder next to it. Excluding the hidden folders makes working with files faster. Files you open are still scanned as before; the encrypted copies will not be, but a virus cannot be recognised in them anyway. Administrator rights are needed.</value></data>
   <data name="Defender_ExcludeText.Text" xml:space="preserve"><value>Exclude</value></data>

@@ -8,6 +8,7 @@ namespace Zamok.UI;
 /// <c>--encrypt &lt;путь&gt;</c> («Зашифровать паролем»). Без аргументов ничего не показывает.
 /// <c>--traces</c>: «Проверка следов» (её же открывает кнопка в настройках).
 /// <c>--deleted &lt;путь&gt;</c> запускает сам core: папку удалили в Проводнике, вернуть или убрать.
+/// <c>--idle-lock &lt;путь&gt;</c> тоже запускает core: папку пора запереть, но в ней открыты файлы.
 /// </summary>
 public partial class App : Application
 {
@@ -54,6 +55,7 @@ public partial class App : Application
             "--show-key" => new ManageWindow(ManageWindow.Mode.ShowKey, path!),
             "--decrypt" => new ManageWindow(ManageWindow.Mode.Decrypt, path!),
             "--deleted" => new DeletedWindow(path!),
+            "--idle-lock" => new IdleWindow(path!),
             "--settings" => new SettingsWindow(),
             "--traces" => new TracesWindow(),
             _ => null,
@@ -79,7 +81,7 @@ public partial class App : Application
             var client = new Zamok.Client.CoreClient();
             var folder = UnlockWindow.FindFolder((await client.StatusAsync()).Folders, path);
             if (folder is { OpenFiles: > 0 } &&
-                !WindowHelper.Confirm(Strings.Format("Lock_OpenFiles", folder.Name, folder.OpenFiles)))
+                !WindowHelper.Confirm(Strings.LockOpenFiles(folder)))
             {
                 Exit();
                 return;
@@ -95,7 +97,7 @@ public partial class App : Application
     internal static (string? Action, string? Path) ParseArgs(string[] args)
     {
         if (args.Length == 1 && args[0] is "--settings" or "--traces") return (args[0], null);
-        if (args.Length == 2 && args[0] is "--unlock" or "--encrypt" or "--lock" or "--change-password" or "--show-key" or "--decrypt" or "--make-icons" or "--deleted" && args[1].Length > 0)
+        if (args.Length == 2 && args[0] is "--unlock" or "--encrypt" or "--lock" or "--change-password" or "--show-key" or "--decrypt" or "--make-icons" or "--deleted" or "--idle-lock" && args[1].Length > 0)
             return (args[0], args[1]);
         return (null, null);
     }
