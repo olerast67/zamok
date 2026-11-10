@@ -198,18 +198,37 @@ pub fn free_space(dir: &Path) -> Option<u64> {
     Some(free)
 }
 
-/// Число жёстких ссылок на файл. Больше одной: открытый текст остался бы по другой
-/// ссылке после удаления оригинала.
-fn link_count(path: &Path) -> Option<u32> {
+fn file_info(f: &std::fs::File) -> Option<BY_HANDLE_FILE_INFORMATION> {
     use std::os::windows::io::AsRawHandle;
-    let f = std::fs::OpenOptions::new()
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    unsafe { GetFileInformationByHandle(HANDLE(f.as_raw_handle()), &mut info) }.ok()?;
+    Some(info)
+}
+
+fn open_attrs(path: &Path) -> Option<std::fs::File> {
+    std::fs::OpenOptions::new()
         .access_mode(0x80) // FILE_READ_ATTRIBUTES
         .share_mode(0x7)
         .open(path)
-        .ok()?;
-    let mut info = BY_HANDLE_FILE_INFORMATION::default();
-    unsafe { GetFileInformationByHandle(HANDLE(f.as_raw_handle()), &mut info) }.ok()?;
-    Some(info.nNumberOfLinks)
+        .ok()
+}
+
+/// Число жёстких ссылок на файл. Больше одной: открытый текст остался бы по другой
+/// ссылке после удаления оригинала.
+fn link_count(path: &Path) -> Option<u32> {
+    Some(file_info(&open_attrs(path)?)?.nNumberOfLinks)
+}
+
+/// Номер файла NTFS по открытому файлу: другой файл с тем же именем, размером и временем
+/// (подмена копированием с сохранением даты) получит другой номер.
+pub fn file_id_of(f: &std::fs::File) -> Option<u64> {
+    let info = file_info(f)?;
+    Some(((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64)
+}
+
+/// Номер файла NTFS по пути.
+pub fn file_id(path: &Path) -> Option<u64> {
+    file_id_of(&open_attrs(path)?)
 }
 
 /// Есть ли у файла альтернативные потоки NTFS с данными (кроме пометок «скачано из
@@ -370,6 +389,27 @@ pub fn siblings(path: &Path) -> Option<Siblings> {
 
 /// Все проверки. `taken`: пути уже зашифрованных папок и их хранилищ.
 pub fn check(path: &Path, taken: &[PathBuf], data_dir: &Path) -> Result<Plan, Refusal> {
+    check_inner(path, taken, data_dir, None)
+}
+
+/// Проверки перед продолжением прерванного шифрования: рядом может лежать наша
+/// `.Имя.zamok.tmp` (что она наша, проверяет вызывающий), а `kept` байт уже в ней и второй
+/// раз места не займут.
+pub fn check_resume(
+    path: &Path,
+    taken: &[PathBuf],
+    data_dir: &Path,
+    kept: u64,
+) -> Result<Plan, Refusal> {
+    check_inner(path, taken, data_dir, Some(kept))
+}
+
+fn check_inner(
+    path: &Path,
+    taken: &[PathBuf],
+    data_dir: &Path,
+    resume: Option<u64>,
+) -> Result<Plan, Refusal> {
     if !path.is_absolute() || path.parent().is_none() || path.file_name().is_none() {
         return Err(Refusal::new(ErrorCode::BadRequest));
     }
@@ -399,8 +439,10 @@ pub fn check(path: &Path, taken: &[PathBuf], data_dir: &Path) -> Result<Plan, Re
         return Err(Refusal::new(ErrorCode::NotNtfs));
     }
     let sib = siblings(path).ok_or_else(|| Refusal::new(ErrorCode::BadRequest))?;
+    // При продолжении своя `.zamok.tmp` не мешает
     let existing: Vec<String> = [&sib.tmp, &sib.vault, &sib.aside]
         .iter()
+        .skip(usize::from(resume.is_some()))
         .filter(|p| std::fs::symlink_metadata(p).is_ok())
         .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
         .collect();
@@ -434,7 +476,8 @@ pub fn check(path: &Path, taken: &[PathBuf], data_dir: &Path) -> Result<Plan, Re
         });
     }
     // Вторая копия плюс 10%, по кластеру на файл и 64 МБ запаса
-    let need = plan.bytes + plan.bytes / 10 + plan.items.len() as u64 * 4096 + 64 * 1024 * 1024;
+    let copy = plan.bytes.saturating_sub(resume.unwrap_or(0));
+    let need = copy + copy / 10 + plan.items.len() as u64 * 4096 + 64 * 1024 * 1024;
     match free_space(path.parent().unwrap()) {
         Some(free) if free >= need => {}
         _ => return Err(Refusal::new(ErrorCode::NotEnoughSpace)),

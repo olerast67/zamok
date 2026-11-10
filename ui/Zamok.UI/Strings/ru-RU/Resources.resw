@@ -220,9 +220,9 @@
   <data name="Error_not_enough_space" xml:space="preserve"><value>На диске не хватает места на вторую копию папки.</value></data>
   <data name="Error_job_running" xml:space="preserve"><value>Идёт шифрование или расшифровка папки. Дождитесь окончания.</value></data>
   <data name="Error_recovery_pending" xml:space="preserve"><value>Прошлое шифрование не завершено. Перезапустите компьютер или фоновую программу Zamok.</value></data>
-  <data name="Error_changed_during_copy" xml:space="preserve"><value>Пока шла работа, в папке что-то изменилось. Всё отменено, файлы на месте. Закройте программы, которые пишут в папку, и попробуйте снова.</value></data>
+  <data name="Error_changed_during_copy" xml:space="preserve"><value>Пока шла работа, в папке что-то изменилось. Файлы на месте. Закройте программы, которые пишут в папку, и зашифруйте её снова: Zamok по возможности продолжит с места остановки.</value></data>
   <data name="Error_verify_failed" xml:space="preserve"><value>Проверка зашифрованной копии не прошла. Всё отменено, файлы на месте.</value></data>
-  <data name="Error_copy_failed" xml:space="preserve"><value>Не удалось записать зашифрованную копию. Всё отменено, файлы на месте.</value></data>
+  <data name="Error_copy_failed" xml:space="preserve"><value>Не удалось записать зашифрованную копию. Файлы на месте. Проверьте свободное место на диске и зашифруйте папку снова: Zamok по возможности продолжит с места остановки.</value></data>
   <data name="Error_folder_in_use" xml:space="preserve"><value>Папку держит другая программа (например, открытое в ней окно консоли). Всё отменено, файлы на месте.</value></data>
   <data name="Error_cancelled" xml:space="preserve"><value>Отменено. Файлы на месте.</value></data>
 </root>

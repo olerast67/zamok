@@ -14,16 +14,23 @@
 //! Сбой на любом шаге оставляет либо нетронутый оригинал, либо полную проверенную копию.
 //! Рекурсивно удаляются только две папки: `.Имя.zamok.tmp` (наша копия, при откате) и
 //! `.Имя.zamok-original` (оригинал, только после шага `registered`).
+//!
+//! Сбой на шаге `copying` (авария, перезапуск, нехватка места, файл менялся) не выбрасывает
+//! сделанное: журнал помнит сверенные файлы (`done`), а следующее шифрование той же папки с
+//! тем же паролем продолжает с места остановки. Папка обходится заново, в копии остаются
+//! только файлы, у которых оригинал не менялся (размер, время, номер файла NTFS) и шифротекст
+//! снова сверен расшифровкой с SHA-256 из журнала; всё остальное в копии убирается и пишется
+//! заново. Другой пароль, повреждённая копия или шифрование другой папки: откат и начало с нуля.
 
 use std::collections::HashMap;
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use zamok_crypto::tree::Vault;
+use zamok_crypto::tree::{Entry, Vault};
 use zeroize::Zeroizing;
 
 use crate::core::Core;
@@ -81,7 +88,28 @@ pub struct Journal {
     /// может отличаться от описи: по этой отметке видно, что это и есть оригинал.
     #[serde(default)]
     pub rolling_back: bool,
+    /// Файлы, уже записанные в копию и сверенные (шаг `copying`). Пишутся пачками, после
+    /// сброса этих файлов на диск. По ним прерванное копирование продолжается с места
+    /// остановки; при продолжении каждый файл сверяется ещё раз, поэтому список только
+    /// подсказка, что можно не копировать заново.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub done: Vec<DoneFile>,
 }
+
+/// Файл, записанный в копию и сверенный. По размеру, времени и номеру файла видно, что
+/// оригинал с тех пор не менялся; по SHA-256 открытого текста сверяется шифротекст.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct DoneFile {
+    pub rel: String,
+    pub size: u64,
+    pub mtime: u64,
+    pub file_id: u64,
+    pub sha256: String,
+}
+
+/// Сколько хранится прерванное копирование, к которому никто не вернулся: потом core при
+/// старте его откатывает, чтобы скрытая копия не занимала место вечно.
+const PAUSED_KEEP: Duration = Duration::from_secs(7 * 24 * 3600);
 
 fn jobs_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("jobs")
@@ -116,14 +144,20 @@ impl Journal {
         let _ = std::fs::remove_file(self.file(data_dir));
     }
 
-    /// Остались ли журналы (в том числе нечитаемые).
-    pub fn any_left(data_dir: &Path) -> bool {
+    /// Сколько файлов журналов лежит (в том числе нечитаемых).
+    fn count(data_dir: &Path) -> usize {
         std::fs::read_dir(jobs_dir(data_dir))
             .map(|rd| {
                 rd.filter_map(|e| e.ok())
-                    .any(|e| e.file_name().to_string_lossy().ends_with(".json"))
+                    .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
+                    .count()
             })
-            .unwrap_or(false)
+            .unwrap_or(0)
+    }
+
+    /// Журнал ещё лежит на диске.
+    fn exists(&self, data_dir: &Path) -> bool {
+        self.file(data_dir).exists()
     }
 
     pub fn load_all(data_dir: &Path) -> Vec<Journal> {
@@ -392,8 +426,170 @@ pub(crate) fn file_mtime(m: &std::fs::Metadata) -> u64 {
     m.last_write_time()
 }
 
+/// Что оставить из уже записанной части копии при продолжении. Пути как в описи.
+#[derive(Debug, Default)]
+struct Resume {
+    /// Каталоги копии, которые есть и в папке: путь → ID и узел.
+    dirs: HashMap<String, (String, PathBuf)>,
+    /// Файлы-кандидаты: оригинал не менялся с отметки в журнале. Перед тем как оставить,
+    /// шифротекст ещё раз сверяется расшифровкой.
+    files: HashMap<String, KeptFile>,
+    /// Всё остальное в копии: убрать до начала копирования, глубокие узлы первыми.
+    remove: Vec<Entry>,
+}
+
+#[derive(Debug, Clone)]
+struct KeptFile {
+    entry: Entry,
+    ciphertext: PathBuf,
+    done: DoneFile,
+}
+
+/// Разобрать, что из уже записанного в копию годится для новой описи папки. Файл остаётся,
+/// только если в журнале он отмечен сверенным, а размер, время и номер файла оригинала те
+/// же. Записи без содержимого, ссылки, файлы без отметки (недописанные в момент сбоя),
+/// исчезнувшие и изменившиеся в папке убираются.
+fn plan_resume(
+    plan: &Plan,
+    entries: Vec<Entry>,
+    done: &[DoneFile],
+    file_id: impl Fn(&str) -> Option<u64>,
+) -> Resume {
+    let items: HashMap<&str, &Kind> = plan
+        .items
+        .iter()
+        .map(|i| (i.rel.as_str(), &i.kind))
+        .collect();
+    let done: HashMap<&str, &DoneFile> = done.iter().map(|d| (d.rel.as_str(), d)).collect();
+    let mut r = Resume::default();
+    for e in entries {
+        let rel = e.path().replace('/', "\\");
+        let keep = match (&e, items.get(rel.as_str())) {
+            (Entry::Dir { id, node, .. }, Some(Kind::Dir)) => {
+                r.dirs.insert(rel, (id.clone(), node.clone()));
+                true
+            }
+            (Entry::File { ciphertext, .. }, Some(Kind::File { size, mtime })) => {
+                match done.get(rel.as_str()) {
+                    Some(d)
+                        if d.size == *size
+                            && d.mtime == *mtime
+                            && file_id(&rel) == Some(d.file_id) =>
+                    {
+                        let kept = KeptFile {
+                            entry: e.clone(),
+                            ciphertext: ciphertext.clone(),
+                            done: (*d).clone(),
+                        };
+                        r.files.insert(rel, kept);
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        };
+        if !keep {
+            r.remove.push(e);
+        }
+    }
+    r.remove
+        .sort_by_key(|e| std::cmp::Reverse(e.path().matches('/').count()));
+    r
+}
+
+/// Оставшийся в копии файл всё ещё годится: оригинал тот же, шифротекст расшифровывается
+/// в тот же SHA-256, что был у оригинала при записи.
+fn kept_still_good(vault: &Vault, src: &Path, k: &KeptFile) -> bool {
+    let path = src.join(&k.done.rel);
+    let Ok(m) = std::fs::metadata(&path) else {
+        return false;
+    };
+    if m.len() != k.done.size
+        || file_mtime(&m) != k.done.mtime
+        || preflight::file_id(&path) != Some(k.done.file_id)
+    {
+        return false;
+    }
+    let Ok(f) = std::fs::File::open(&k.ciphertext) else {
+        return false;
+    };
+    let mut r = std::io::BufReader::with_capacity(256 * 1024, f);
+    zamok_crypto::content::decrypt_stream_digest(vault.key(), &mut r)
+        .is_ok_and(|(len, sha)| len == k.done.size && hex(&sha) == k.done.sha256)
+}
+
+/// Отметки о сверенных файлах пишутся в журнал не чаще, чем раз в столько.
+const CHECKPOINT_GAP: Duration = Duration::from_secs(2);
+
+/// Отметки о сверенных файлах: копятся и пишутся в журнал пачкой, после сброса этих файлов на
+/// диск (иначе после выключения питания журнал говорил бы о файле, которого на диске нет).
+/// Пауза между записями растёт вместе с журналом: не меньше десяти длительностей прошлой
+/// записи, чтобы перезапись журнала не съедала больше десятой доли времени.
+struct Checkpoint<'a> {
+    j: &'a mut Journal,
+    data_dir: &'a Path,
+    pending: Vec<(PathBuf, DoneFile)>,
+    last: Instant,
+    gap: Duration,
+}
+
+impl<'a> Checkpoint<'a> {
+    fn new(j: &'a mut Journal, data_dir: &'a Path) -> Self {
+        Checkpoint {
+            j,
+            data_dir,
+            pending: Vec::new(),
+            last: Instant::now(),
+            gap: CHECKPOINT_GAP,
+        }
+    }
+
+    fn add(&mut self, ciphertext: PathBuf, done: DoneFile) -> Result<(), ErrorCode> {
+        self.pending.push((ciphertext, done));
+        if self.last.elapsed() >= self.gap {
+            self.save()?;
+        }
+        Ok(())
+    }
+
+    /// Файл пишется заново: старая отметка о нём больше не верна.
+    fn forget(&mut self, rel: &str) {
+        self.j.done.retain(|d| d.rel != rel);
+    }
+
+    fn save(&mut self) -> Result<(), ErrorCode> {
+        if self.pending.is_empty() {
+            return Ok(());
+        }
+        let started = Instant::now();
+        for (ct, _) in &self.pending {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(ct)
+                .and_then(|f| f.sync_all())
+                .map_err(|_| ErrorCode::CopyFailed)?;
+        }
+        self.j.done.extend(self.pending.drain(..).map(|(_, d)| d));
+        self.j
+            .save(self.data_dir)
+            .map_err(|_| ErrorCode::CopyFailed)?;
+        self.last = Instant::now();
+        self.gap = CHECKPOINT_GAP.max(started.elapsed() * 10);
+        Ok(())
+    }
+}
+
+/// Номер точки аварии `ZAMOK_TEST_CRASH=<prefix>N`.
+fn crash_number(prefix: &str) -> Option<u64> {
+    std::env::var("ZAMOK_TEST_CRASH")
+        .ok()
+        .and_then(|v| v.strip_prefix(prefix).and_then(|n| n.parse().ok()))
+}
+
 /// Скопировать всё в хранилище, сверяя каждый файл расшифровкой с отпечатком оригинала.
-/// В конце убедиться, что в папке за это время ничего не изменилось.
+/// Из `resume` берутся каталоги и файлы, уже записанные прошлым запуском. В конце убедиться,
+/// что в папке за это время ничего не изменилось.
 /// Возвращает узлы с атрибутами, которые надо поставить после сброса на диск
 /// («только чтение» не дал бы открыть файл для сброса).
 fn copy_and_verify(
@@ -401,13 +597,16 @@ fn copy_and_verify(
     src: &Path,
     plan: &Plan,
     progress: &Progress,
+    resume: &Resume,
+    ck: &mut Checkpoint,
 ) -> Result<Vec<(PathBuf, u32)>, ErrorCode> {
     let mut attrs_later = Vec::new();
     let mut dir_ids: HashMap<String, String> = HashMap::new();
     dir_ids.insert(String::new(), String::new());
-    let crash_after: Option<u64> = std::env::var("ZAMOK_TEST_CRASH")
-        .ok()
-        .and_then(|v| v.strip_prefix("copy:").and_then(|n| n.parse().ok()));
+    // copy:N: авария сразу после того, как N-й файл сверен и отмечен в журнале;
+    // copy_written:N: после записи N-го файла, до его сверки (его надо будет переписать)
+    let crash_after = crash_number("copy:");
+    let crash_written = crash_number("copy_written:");
     for item in &plan.items {
         if progress.cancel.load(Ordering::SeqCst) {
             return Err(ErrorCode::Cancelled);
@@ -416,13 +615,32 @@ fn copy_and_verify(
         let parent_id = dir_ids.get(parent).cloned().ok_or(ErrorCode::CopyFailed)?;
         match &item.kind {
             Kind::Dir => {
-                let (id, node) = vault
-                    .add_dir(&parent_id, name)
-                    .map_err(|_| ErrorCode::CopyFailed)?;
+                let (id, node) = match resume.dirs.get(&item.rel) {
+                    Some((id, node)) => {
+                        vault.ensure_dir(id).map_err(|_| ErrorCode::CopyFailed)?;
+                        (id.clone(), node.clone())
+                    }
+                    None => vault
+                        .add_dir(&parent_id, name)
+                        .map_err(|_| ErrorCode::CopyFailed)?,
+                };
                 keep_meta(&node, &item.meta, &mut attrs_later)?;
                 dir_ids.insert(item.rel.clone(), id);
             }
             Kind::File { size, mtime } => {
+                if let Some(k) = resume.files.get(&item.rel) {
+                    if kept_still_good(vault, src, k) {
+                        keep_meta(&k.ciphertext, &item.meta, &mut attrs_later)?;
+                        progress.bytes_done.fetch_add(*size, Ordering::Relaxed);
+                        progress.files_done.fetch_add(1, Ordering::Relaxed);
+                        continue;
+                    }
+                    // Шифротекст испорчен или оригинал только что изменился: записать заново
+                    vault
+                        .remove_entry(&k.entry)
+                        .map_err(|_| ErrorCode::CopyFailed)?;
+                    ck.forget(&item.rel);
+                }
                 let path = src.join(&item.rel);
                 // Читаем, разрешая другим только чтение: писать в файл, пока мы его
                 // копируем, никто не сможет
@@ -435,11 +653,17 @@ fn copy_and_verify(
                 if before.len() != *size || file_mtime(&before) != *mtime {
                     return Err(ErrorCode::ChangedDuringCopy);
                 }
+                let file_id = preflight::file_id_of(&f).ok_or(ErrorCode::CopyFailed)?;
                 let mut reader = std::io::BufReader::with_capacity(256 * 1024, &mut f);
                 let (ct, digest) = vault
                     .add_file(&parent_id, name, &mut reader)
                     .map_err(|_| ErrorCode::CopyFailed)?;
                 drop(reader);
+                let number = progress.files_done.load(Ordering::Relaxed) + 1;
+                if crash_written == Some(number) {
+                    ck.save()?;
+                    crash_point(&format!("copy_written:{number}"));
+                }
                 if digest.0 != *size {
                     return Err(ErrorCode::ChangedDuringCopy);
                 }
@@ -450,6 +674,7 @@ fn copy_and_verify(
                 );
                 let back = zamok_crypto::content::decrypt_stream_digest(vault.key(), &mut ctf)
                     .map_err(|_| ErrorCode::VerifyFailed)?;
+                drop(ctf);
                 if back != digest {
                     return Err(ErrorCode::VerifyFailed);
                 }
@@ -458,11 +683,24 @@ fn copy_and_verify(
                     return Err(ErrorCode::ChangedDuringCopy);
                 }
                 keep_meta(&ct, &item.meta, &mut attrs_later)?;
+                ck.add(
+                    ct,
+                    DoneFile {
+                        rel: item.rel.clone(),
+                        size: *size,
+                        mtime: *mtime,
+                        file_id,
+                        sha256: hex(&digest.1),
+                    },
+                )?;
                 progress.bytes_done.fetch_add(*size, Ordering::Relaxed);
                 let done = progress.files_done.fetch_add(1, Ordering::Relaxed) + 1;
                 if crash_after == Some(done) {
+                    ck.save()?;
                     crash_point(&format!("copy:{done}"));
                 }
+                // Тест «файл изменился посреди копирования»
+                pause_point(&format!("copy:{done}"));
             }
         }
     }
@@ -691,7 +929,8 @@ pub fn originals_left(data_dir: &Path) -> usize {
 }
 
 /// Начать шифрование: проверки, журнал, пустое хранилище. Возвращает ход работы и ключ
-/// восстановления; копирование идёт в отдельном потоке.
+/// восстановления; копирование идёт в отдельном потоке. Если копирование этой папки было
+/// прервано, а пароль тот же, работа продолжается с места остановки (ключ тот же).
 pub fn start(
     core: Arc<Core>,
     data_dir: &Path,
@@ -708,11 +947,34 @@ pub fn start(
     }
     // До любой подготовки: если с этого момента экран заблокировали, в конце папка не откроется
     let locks_at_start = core.lock_all_count();
-    // Пока не разобран журнал прошлой работы, новую не начинаем
-    if Journal::any_left(data_dir) {
-        return Err(refuse(ErrorCode::RecoveryPending));
+    // Пока не разобран журнал прошлой работы, новую не начинаем. Прерванное копирование
+    // этой же папки продолжаем; других папок откатываем, но только когда новая работа прошла
+    // проверки: ошибочный выбор папки не должен стоить чужой готовой части копии
+    let (mine, others) =
+        paused_copies(data_dir, path).ok_or_else(|| refuse(ErrorCode::RecoveryPending))?;
+    if let Some(j) = mine {
+        if let Some((j, vault, plan, resume)) =
+            resume_copy(&core, data_dir, j, path, &password, idle_lock_secs)?
+        {
+            if !drop_paused(&others, data_dir) {
+                return Err(refuse(ErrorCode::RecoveryPending));
+            }
+            return Ok(launch(
+                core,
+                data_dir,
+                j,
+                vault,
+                plan,
+                resume,
+                password,
+                locks_at_start,
+            ));
+        }
     }
     let plan = preflight::check(path, &core.taken_paths(), data_dir)?;
+    if !drop_paused(&others, data_dir) {
+        return Err(refuse(ErrorCode::RecoveryPending));
+    }
     let sib = preflight::siblings(path).ok_or_else(|| refuse(ErrorCode::BadRequest))?;
     let id = crate::config::new_id().map_err(|_| refuse(ErrorCode::Internal))?;
     let mut journal = Journal {
@@ -728,6 +990,7 @@ pub fn start(
         vault_config_sha256: None,
         plan_sha256: Some(plan_digest(&plan)),
         rolling_back: false,
+        done: Vec::new(),
     };
     // Журнал раньше копии: сбой во время создания хранилища откатится при старте
     journal
@@ -760,10 +1023,33 @@ pub fn start(
         rollback_copy(&journal, data_dir);
         return Err(refuse(ErrorCode::CopyFailed));
     }
-    let words = zamok_crypto::recovery::encode(vault.key());
-    let progress = Progress::new(&id, path, &plan);
     tracing::info!(job = %id, files = plan.files, bytes = plan.bytes, "encryption started");
+    Ok(launch(
+        core,
+        data_dir,
+        journal,
+        vault,
+        plan,
+        Resume::default(),
+        password,
+        locks_at_start,
+    ))
+}
 
+/// Запустить копирование и всё дальнейшее в отдельном потоке.
+#[allow(clippy::too_many_arguments)]
+fn launch(
+    core: Arc<Core>,
+    data_dir: &Path,
+    mut journal: Journal,
+    vault: Vault,
+    plan: Plan,
+    resume: Resume,
+    password: Zeroizing<String>,
+    locks_at_start: u64,
+) -> (Arc<Progress>, Zeroizing<String>) {
+    let words = zamok_crypto::recovery::encode(vault.key());
+    let progress = Progress::new(&journal.id, &journal.path, &plan);
     let pr = progress.clone();
     let dir = data_dir.to_path_buf();
     std::thread::spawn(move || {
@@ -773,6 +1059,7 @@ pub fn start(
             &dir,
             &vault,
             &plan,
+            &resume,
             &pr,
             &password,
             locks_at_start,
@@ -782,7 +1069,128 @@ pub fn start(
         }
         pr.finish(result);
     });
-    Ok((progress, words))
+    (progress, words)
+}
+
+/// Журналы перед новой работой: прерванное копирование этой папки и прерванные копирования
+/// других папок. `None`: есть незаконченная работа дальше копирования или нечитаемый журнал,
+/// новую начинать нельзя.
+fn paused_copies(data_dir: &Path, path: &Path) -> Option<(Option<Journal>, Vec<Journal>)> {
+    let all = Journal::load_all(data_dir);
+    if all.len() != Journal::count(data_dir) || all.iter().any(|j| j.phase != Phase::Copying) {
+        return None;
+    }
+    let want = crate::config::normalize(path);
+    let mut mine = None;
+    let mut others = Vec::new();
+    for j in all {
+        if mine.is_none() && crate::config::normalize(&j.path) == want {
+            mine = Some(j);
+        } else {
+            others.push(j);
+        }
+    }
+    Some((mine, others))
+}
+
+/// Откатить прерванные копирования других папок: оригиналы не тронуты, удаляются только
+/// наши копии. `false`: какой-то журнал остался (копию не удалось удалить или она чужая).
+fn drop_paused(others: &[Journal], data_dir: &Path) -> bool {
+    others.iter().all(|j| {
+        tracing::info!(job = %j.id, "another folder is being encrypted, dropping this interrupted copy");
+        rollback_copy(j, data_dir);
+        !j.exists(data_dir)
+    })
+}
+
+type Resumed = (Journal, Vault, Plan, Resume);
+
+/// Продолжить прерванное копирование: проверки, ключ по паролю, разбор уже записанного.
+/// `Ok(None)`: продолжать нечего (другой пароль, копия повреждена или пропала), копия
+/// откатана, можно начинать с нуля. Отказ проверок оставляет копию и журнал как есть.
+fn resume_copy(
+    core: &Core,
+    data_dir: &Path,
+    mut j: Journal,
+    path: &Path,
+    password: &str,
+    idle_lock_secs: u64,
+) -> Result<Option<Resumed>, preflight::Refusal> {
+    let refuse = |code| preflight::Refusal {
+        code,
+        examples: Vec::new(),
+    };
+    let start_over = |j: &Journal| {
+        rollback_copy(j, data_dir);
+        if j.exists(data_dir) {
+            Err(refuse(ErrorCode::RecoveryPending))
+        } else {
+            Ok(None)
+        }
+    };
+    if !is_ours(&j, &j.tmp) {
+        return start_over(&j);
+    }
+    let kept: u64 = j.done.iter().map(|d| d.size).sum();
+    let plan = preflight::check_resume(path, &core.taken_paths(), data_dir, kept)?;
+    let Ok(vault) = Vault::open_with_password(&j.tmp, password) else {
+        tracing::info!(job = %j.id, "interrupted copy does not open with this password, starting over");
+        return start_over(&j);
+    };
+    let Ok(entries) = vault.entries() else {
+        tracing::warn!(job = %j.id, "interrupted copy is damaged, starting over");
+        return start_over(&j);
+    };
+    // «Только чтение» мог остаться после сбоя на последних шагах копирования: снять, иначе
+    // файл нельзя ни удалить, ни сбросить на диск. Нужные атрибуты поставятся в конце заново
+    for e in &entries {
+        clear_attrs(e.node());
+        if let Entry::File { ciphertext, .. } = e {
+            clear_attrs(ciphertext);
+        }
+    }
+    let resume = plan_resume(&plan, entries, &j.done, |rel| {
+        preflight::file_id(&path.join(rel))
+    });
+    for e in &resume.remove {
+        if vault.remove_entry(e).is_err() {
+            tracing::warn!(job = %j.id, "cannot clean the interrupted copy, starting over");
+            return start_over(&j);
+        }
+    }
+    j.done
+        .retain(|d| resume.files.get(&d.rel).is_some_and(|k| k.done == *d));
+    j.plan_sha256 = Some(plan_digest(&plan));
+    j.idle_lock_secs = idle_lock_secs;
+    j.save(data_dir).map_err(|_| refuse(ErrorCode::Internal))?;
+    tracing::info!(
+        job = %j.id,
+        kept = resume.files.len(),
+        files = plan.files,
+        "resuming interrupted encryption"
+    );
+    Ok(Some((j, vault, plan, resume)))
+}
+
+/// Снять «только чтение», «скрытый» и «системный».
+fn clear_attrs(p: &Path) {
+    use std::os::windows::fs::MetadataExt;
+    if let Ok(m) = std::fs::symlink_metadata(p) {
+        if m.file_attributes() & 0x7 != 0 {
+            let _ = zamok_fs::attrs::set_attributes(p, 0);
+        }
+    }
+}
+
+/// Копирование остановилось. Если причину можно убрать (в папке что-то менялось, не хватило
+/// места), копия и журнал остаются: следующий запуск продолжит с места остановки. Иначе откат.
+fn stop_copy(j: &Journal, data_dir: &Path, code: ErrorCode) -> ErrorCode {
+    if matches!(code, ErrorCode::ChangedDuringCopy | ErrorCode::CopyFailed) {
+        tracing::info!(job = %j.id, ?code, "copy paused, the next encryption of this folder continues it");
+    } else {
+        rollback_copy(j, data_dir);
+    }
+    code
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -792,26 +1200,32 @@ fn run(
     data_dir: &Path,
     vault: &Vault,
     plan: &Plan,
+    resume: &Resume,
     progress: &Progress,
     password: &str,
     locks_at_start: u64,
 ) -> Result<(), ErrorCode> {
     crash_point("copying");
-    let attrs_later = match copy_and_verify(vault, &j.path, plan, progress) {
-        Ok(a) => a,
-        Err(code) => {
-            rollback_copy(j, data_dir);
-            return Err(code);
+    let src = j.path.clone();
+    let copied = {
+        let mut ck = Checkpoint::new(j, data_dir);
+        let r = copy_and_verify(vault, &src, plan, progress, resume, &mut ck);
+        if r.is_err() {
+            // Сделанное до ошибки пригодится при продолжении
+            let _ = ck.save();
         }
+        r
+    };
+    let attrs_later = match copied {
+        Ok(a) => a,
+        Err(code) => return Err(stop_copy(j, data_dir, code)),
     };
     if flush_tree(&j.tmp).is_err() {
-        rollback_copy(j, data_dir);
-        return Err(ErrorCode::CopyFailed);
+        return Err(stop_copy(j, data_dir, ErrorCode::CopyFailed));
     }
     for (node, attrs) in &attrs_later {
         if zamok_fs::attrs::set_attributes(node, *attrs).is_err() {
-            rollback_copy(j, data_dir);
-            return Err(ErrorCode::CopyFailed);
+            return Err(stop_copy(j, data_dir, ErrorCode::CopyFailed));
         }
     }
     pause_point("flush_window");
@@ -829,6 +1243,8 @@ fn run(
     crash_point("verified_before_journal");
     // Дальше отмены нет: с этого шага работа только доводится до конца
     *progress.phase.lock().unwrap() = Phase::Verified;
+    // Список сверенных файлов больше не нужен: копия сверена целиком
+    j.done.clear();
     if j.set(Phase::Verified, data_dir).is_err() {
         rollback_copy(j, data_dir);
         return Err(ErrorCode::Internal);
@@ -851,11 +1267,26 @@ fn opens_from_disk(tmp: &Path, password: &str, key: &zamok_crypto::MasterKey) ->
     Vault::open_with_password(tmp, password).is_ok_and(|v| v.key().to_raw() == key.to_raw())
 }
 
-/// При старте core: довести до конца или откатить работы, прерванные сбоем.
+/// Прерванное копирование можно оставить до следующего запуска: копия наша, оригинал на
+/// месте, журнал не залежался.
+fn can_resume_later(j: &Journal, data_dir: &Path) -> bool {
+    let fresh = std::fs::metadata(j.file(data_dir))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age < PAUSED_KEEP);
+    fresh && is_ours(j, &j.tmp) && std::fs::symlink_metadata(&j.path).is_ok_and(|m| m.is_dir())
+}
+
+/// При старте core: довести до конца или откатить работы, прерванные сбоем. Прерванное
+/// копирование остаётся ждать, пока эту папку снова зашифруют (см. [`start`]).
 pub fn recover(core: &Core, data_dir: &Path) {
     for mut j in Journal::load_all(data_dir) {
         tracing::info!(job = %j.id, phase = j.phase.name(), "recovering interrupted encryption");
         match j.phase {
+            Phase::Copying if can_resume_later(&j, data_dir) => {
+                tracing::info!(job = %j.id, "interrupted copy kept to continue later");
+            }
             Phase::Copying => rollback_copy(&j, data_dir),
             _ => {
                 if finish_from(core, &mut j, data_dir, None).is_ok() {
@@ -895,6 +1326,34 @@ mod tests {
         Progress::new("t", Path::new("x"), plan)
     }
 
+    /// Копирование с журналом: в конце отметки о сверенных файлах записываются.
+    fn copy_with(
+        v: &Vault,
+        src: &Path,
+        plan: &Plan,
+        resume: &Resume,
+        j: &mut Journal,
+        data: &Path,
+    ) -> Result<Vec<(PathBuf, u32)>, ErrorCode> {
+        let pr = progress_for(plan);
+        let mut ck = Checkpoint::new(j, data);
+        let r = copy_and_verify(v, src, plan, &pr, resume, &mut ck);
+        ck.save().unwrap();
+        r
+    }
+
+    fn copy_fresh(
+        v: &Vault,
+        src: &Path,
+        plan: &Plan,
+        pr: &Progress,
+    ) -> Result<Vec<(PathBuf, u32)>, ErrorCode> {
+        let mut j = journal_for(src, plan, Phase::Copying);
+        let data = src.parent().unwrap().join("data-fresh");
+        let mut ck = Checkpoint::new(&mut j, &data);
+        copy_and_verify(v, src, plan, pr, &Resume::default(), &mut ck)
+    }
+
     #[test]
     fn copy_and_verify_makes_an_exact_vault() {
         let d = tempdir();
@@ -904,7 +1363,7 @@ mod tests {
         let plan = preflight::walk(&src, &mut bad).unwrap();
         let v = Vault::create_empty(&d.path().join("v"), "pw", 1 << 10).unwrap();
         let pr = progress_for(&plan);
-        copy_and_verify(&v, &src, &plan, &pr).unwrap();
+        copy_fresh(&v, &src, &plan, &pr).unwrap();
         assert_eq!(pr.info().files_done, 4);
         // Время изменения оригинала перенесено на шифротекст
         for n in v.walk().unwrap() {
@@ -939,7 +1398,7 @@ mod tests {
         std::fs::write(src.join("а.txt"), "другое содержимое").unwrap();
         let v = Vault::create_empty(&d.path().join("v"), "pw", 1 << 10).unwrap();
         assert_eq!(
-            copy_and_verify(&v, &src, &plan, &progress_for(&plan)),
+            copy_fresh(&v, &src, &plan, &progress_for(&plan)),
             Err(ErrorCode::ChangedDuringCopy)
         );
     }
@@ -954,7 +1413,7 @@ mod tests {
         std::fs::write(src.join("я-новый.txt"), "x").unwrap();
         let v = Vault::create_empty(&d.path().join("v"), "pw", 1 << 10).unwrap();
         assert_eq!(
-            copy_and_verify(&v, &src, &plan, &progress_for(&plan)),
+            copy_fresh(&v, &src, &plan, &progress_for(&plan)),
             Err(ErrorCode::ChangedDuringCopy)
         );
     }
@@ -980,6 +1439,7 @@ mod tests {
             vault_config_sha256: None,
             plan_sha256: None,
             rolling_back: false,
+            done: Vec::new(),
         };
         let data = d.path().join("data");
         j.save(&data).unwrap();
@@ -1015,6 +1475,7 @@ mod tests {
             vault_config_sha256: None,
             plan_sha256: None,
             rolling_back: false,
+            done: Vec::new(),
         };
         assert!(delete_aside(&j).is_err());
         assert!(src.join("а.txt").exists());
@@ -1036,6 +1497,7 @@ mod tests {
             vault_config_sha256: None,
             plan_sha256: Some(plan_digest(plan)),
             rolling_back: false,
+            done: Vec::new(),
         }
     }
 
@@ -1143,6 +1605,7 @@ mod tests {
             vault_config_sha256: vault_config_digest(v.root()),
             plan_sha256: None,
             rolling_back: false,
+            done: Vec::new(),
         };
         // Смена пароля меняет masterkey.cryptomator, настройки хранилища остаются
         let json = zamok_crypto::masterkey::MasterkeyFile::lock_with(v.key(), "new", 1 << 10)
@@ -1190,6 +1653,7 @@ mod tests {
             vault_config_sha256: None,
             plan_sha256: None,
             rolling_back: false,
+            done: Vec::new(),
         };
         j.save(&data).unwrap();
         rollback_copy(&j, &data);
@@ -1206,5 +1670,285 @@ mod tests {
         };
         assert!(delete_aside(&j2).is_err());
         assert!(sib.aside.exists());
+    }
+
+    fn rels(entries: &[Entry]) -> Vec<String> {
+        let mut v: Vec<String> = entries
+            .iter()
+            .map(|e| e.path().replace('/', "\\"))
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// Содержимое выгрузки хранилища совпадает с папкой побайтно.
+    fn assert_same(v: &Vault, src: &Path, out: &Path) {
+        v.export(out).unwrap();
+        let mut bad = Vec::new();
+        let a = preflight::walk(src, &mut bad).unwrap();
+        let b = preflight::walk(out, &mut bad).unwrap();
+        let shape = |p: &Plan| -> Vec<String> { p.items.iter().map(|i| i.rel.clone()).collect() };
+        assert_eq!(shape(&a), shape(&b));
+        for i in &a.items {
+            if let Kind::File { .. } = i.kind {
+                assert_eq!(
+                    read_all(&src.join(&i.rel)),
+                    read_all(&out.join(&i.rel)),
+                    "{}",
+                    i.rel
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn resume_keeps_verified_files_and_redoes_the_rest() {
+        let d = tempdir();
+        let src = d.path().join("Клиенты");
+        sample(&src);
+        let data = d.path().join("data");
+        let mut bad = Vec::new();
+        let plan = preflight::walk(&src, &mut bad).unwrap();
+        let mut j = journal_for(&src, &plan, Phase::Copying);
+        let v = Vault::create_empty(&j.tmp, "pw", 1 << 10).unwrap();
+        copy_with(&v, &src, &plan, &Resume::default(), &mut j, &data).unwrap();
+        assert_eq!(j.done.len(), 4);
+        // Отметки в журнале на диске
+        assert_eq!(Journal::load_all(&data)[0].done, j.done);
+        let long = format!("Папка\\вложенная\\{}.txt", "д".repeat(120));
+        let ct_of = |v: &Vault, rel: &str| -> PathBuf {
+            v.entries()
+                .unwrap()
+                .into_iter()
+                .find_map(|e| match e {
+                    Entry::File {
+                        path, ciphertext, ..
+                    } if path.replace('/', "\\") == rel => Some(ciphertext),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let long_ct = read_all(&ct_of(&v, &long));
+        // Между запусками: файл изменён, файл и папка удалены, файл добавлен
+        std::fs::write(src.join("а.txt"), "другое содержимое").unwrap();
+        std::fs::remove_file(src.join("пусто.bin")).unwrap();
+        std::fs::remove_dir(src.join("пустая")).unwrap();
+        std::fs::write(src.join("новый.txt"), "новый").unwrap();
+        std::fs::write(src.join("недописан.txt"), "целиком").unwrap();
+        // В копии: файл, записанный без отметки (сбой до сверки), и лишний файл
+        v.add_file("", "недописан.txt", &mut "цел".as_bytes())
+            .unwrap();
+        v.add_file("", "лишний.txt", &mut &b"x"[..]).unwrap();
+        // Шифротекст отмеченного файла испорчен (сбой питания до сброса на диск)
+        let big_ct = ct_of(&v, "Папка\\big.bin");
+        let bytes = read_all(&big_ct);
+        std::fs::write(&big_ct, &bytes[..bytes.len() / 2]).unwrap();
+
+        let plan2 = preflight::walk(&src, &mut bad).unwrap();
+        let r = plan_resume(&plan2, v.entries().unwrap(), &j.done, |rel| {
+            preflight::file_id(&src.join(rel))
+        });
+        let mut kept: Vec<&String> = r.files.keys().collect();
+        kept.sort();
+        assert_eq!(kept, vec![&"Папка\\big.bin".to_string(), &long]);
+        assert_eq!(
+            rels(&r.remove),
+            vec![
+                "а.txt",
+                "лишний.txt",
+                "недописан.txt",
+                "пустая",
+                "пусто.bin"
+            ]
+        );
+        // Глубокие узлы первыми
+        let depth: Vec<usize> = r
+            .remove
+            .iter()
+            .map(|e| e.path().matches('/').count())
+            .collect();
+        assert!(depth.windows(2).all(|w| w[0] >= w[1]));
+        for e in &r.remove {
+            v.remove_entry(e).unwrap();
+        }
+        copy_with(&v, &src, &plan2, &r, &mut j, &data).unwrap();
+        // Целый файл остался как был, испорченный переписан
+        assert_eq!(read_all(&ct_of(&v, &long)), long_ct);
+        assert_ne!(
+            read_all(&ct_of(&v, "Папка\\big.bin")).len(),
+            bytes.len() / 2
+        );
+        assert_same(&v, &src, &d.path().join("out"));
+    }
+
+    #[test]
+    fn resume_does_not_keep_a_replaced_or_unmarked_file() {
+        let d = tempdir();
+        let src = d.path().join("src");
+        sample(&src);
+        let mut bad = Vec::new();
+        let plan = preflight::walk(&src, &mut bad).unwrap();
+        let mut j = journal_for(&src, &plan, Phase::Copying);
+        let data = d.path().join("data");
+        let v = Vault::create_empty(&j.tmp, "pw", 1 << 10).unwrap();
+        copy_with(&v, &src, &plan, &Resume::default(), &mut j, &data).unwrap();
+        let real = |rel: &str| preflight::file_id(&src.join(rel));
+        let all = plan_resume(&plan, v.entries().unwrap(), &j.done, real);
+        assert_eq!((all.files.len(), all.remove.len()), (4, 0));
+        // Другой номер файла: подменили файлом с тем же размером и временем
+        let other = plan_resume(&plan, v.entries().unwrap(), &j.done, |rel| {
+            real(rel).map(|id| if rel == "а.txt" { id + 1 } else { id })
+        });
+        assert!(!other.files.contains_key("а.txt"));
+        assert_eq!(rels(&other.remove), vec!["а.txt"]);
+        // Без отметок в журнале не остаётся ни одного файла, каталоги остаются
+        let none = plan_resume(&plan, v.entries().unwrap(), &[], real);
+        assert!(none.files.is_empty());
+        assert_eq!(none.dirs.len(), 3);
+        assert_eq!(none.remove.len(), 4);
+        // Файл стал каталогом с тем же именем: узел убирается
+        std::fs::remove_file(src.join("а.txt")).unwrap();
+        std::fs::create_dir(src.join("а.txt")).unwrap();
+        let plan2 = preflight::walk(&src, &mut bad).unwrap();
+        let changed = plan_resume(&plan2, v.entries().unwrap(), &j.done, real);
+        assert_eq!(rels(&changed.remove), vec!["а.txt"]);
+    }
+
+    #[test]
+    fn checkpoint_marks_files_only_when_saved() {
+        let d = tempdir();
+        let src = d.path().join("src");
+        sample(&src);
+        let mut bad = Vec::new();
+        let plan = preflight::walk(&src, &mut bad).unwrap();
+        let mut j = journal_for(&src, &plan, Phase::Copying);
+        let data = d.path().join("data");
+        j.save(&data).unwrap();
+        let ct = d.path().join("ct.bin");
+        std::fs::write(&ct, b"x").unwrap();
+        let mark = |rel: &str| DoneFile {
+            rel: rel.into(),
+            size: 1,
+            mtime: 2,
+            file_id: 3,
+            sha256: "ab".into(),
+        };
+        let mut ck = Checkpoint::new(&mut j, &data);
+        ck.gap = Duration::from_secs(3600);
+        ck.add(ct.clone(), mark("a")).unwrap();
+        ck.add(ct.clone(), mark("b")).unwrap();
+        assert!(Journal::load_all(&data)[0].done.is_empty());
+        ck.save().unwrap();
+        assert_eq!(Journal::load_all(&data)[0].done.len(), 2);
+        ck.forget("a");
+        ck.add(ct.clone(), mark("c")).unwrap();
+        ck.save().unwrap();
+        let on_disk: Vec<String> = Journal::load_all(&data)[0]
+            .done
+            .iter()
+            .map(|d| d.rel.clone())
+            .collect();
+        assert_eq!(on_disk, vec!["b", "c"]);
+        // Файл, который нельзя сбросить на диск, не отмечается
+        let mut ck = Checkpoint::new(&mut j, &data);
+        ck.gap = Duration::from_secs(3600);
+        ck.add(d.path().join("нет"), mark("d")).unwrap();
+        assert_eq!(ck.save(), Err(ErrorCode::CopyFailed));
+        assert_eq!(Journal::load_all(&data)[0].done.len(), 2);
+    }
+
+    /// Журнал прерванного копирования с настоящей копией.
+    fn paused_job(root: &Path, name: &str, data: &Path) -> Journal {
+        let src = root.join(name);
+        sample(&src);
+        let mut bad = Vec::new();
+        let plan = preflight::walk(&src, &mut bad).unwrap();
+        let mut j = journal_for(&src, &plan, Phase::Copying);
+        j.id = name.into();
+        let v = Vault::create_empty(&j.tmp, "pw", 1 << 10).unwrap();
+        j.masterkey_sha256 = masterkey_digest(v.root());
+        j.vault_config_sha256 = vault_config_digest(v.root());
+        j.save(data).unwrap();
+        j
+    }
+
+    #[test]
+    fn new_job_continues_this_folder_and_drops_other_paused_copies() {
+        let d = tempdir();
+        let data = d.path().join("data");
+        let a = paused_job(d.path(), "a", &data);
+        let b = paused_job(d.path(), "b", &data);
+        // Тот же путь в другом регистре и с косой чертой в конце
+        let asked = PathBuf::from(format!("{}\\", a.path.to_string_lossy().to_uppercase()));
+        let (mine, others) = paused_copies(&data, &asked).unwrap();
+        assert_eq!(mine.unwrap().id, "a");
+        assert_eq!(others.len(), 1);
+        // Пока не решено начинать, ничего не удалено
+        assert!(a.tmp.exists() && b.tmp.exists());
+        assert!(drop_paused(&others, &data));
+        assert!(a.tmp.exists() && a.path.join("а.txt").exists());
+        // Копия другой папки удалена, сама папка не тронута
+        assert!(!b.tmp.exists() && b.path.join("а.txt").exists());
+        assert_eq!(Journal::load_all(&data).len(), 1);
+        // Незаконченная работа дальше копирования: новую не начинаем
+        let mut later = a.clone();
+        later.phase = Phase::Verified;
+        later.save(&data).unwrap();
+        assert!(paused_copies(&data, &a.path).is_none());
+        assert!(a.tmp.exists());
+        // Нечитаемый журнал: тоже
+        later.phase = Phase::Copying;
+        later.save(&data).unwrap();
+        std::fs::write(jobs_dir(&data).join("bad.json"), b"{").unwrap();
+        assert!(paused_copies(&data, &a.path).is_none());
+    }
+
+    #[test]
+    fn paused_copy_waits_only_while_it_makes_sense() {
+        let d = tempdir();
+        let data = d.path().join("data");
+        let j = paused_job(d.path(), "Клиенты", &data);
+        assert!(can_resume_later(&j, &data));
+        // Журнал залежался: копия больше не ждёт
+        let old = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .saturating_sub(PAUSED_KEEP + Duration::from_secs(3600));
+        let ft = (old.as_secs() + 11_644_473_600) * 10_000_000;
+        zamok_fs::attrs::set_times(&j.file(&data), 0, 0, ft).unwrap();
+        assert!(!can_resume_later(&j, &data));
+        j.save(&data).unwrap();
+        assert!(can_resume_later(&j, &data));
+        // Копия чужая (другой ключ) или оригинала нет: не ждёт
+        let foreign = Journal {
+            masterkey_sha256: Some("00".into()),
+            vault_config_sha256: None,
+            ..j.clone()
+        };
+        assert!(!can_resume_later(&foreign, &data));
+        std::fs::rename(&j.path, d.path().join("moved")).unwrap();
+        assert!(!can_resume_later(&j, &data));
+    }
+
+    #[test]
+    fn journal_without_done_list_still_loads_and_done_round_trips() {
+        let d = tempdir();
+        let src = d.path().join("src");
+        sample(&src);
+        let mut bad = Vec::new();
+        let plan = preflight::walk(&src, &mut bad).unwrap();
+        let mut j = journal_for(&src, &plan, Phase::Copying);
+        j.save(d.path()).unwrap();
+        let text = std::fs::read_to_string(j.file(d.path())).unwrap();
+        assert!(!text.contains("\"done\""));
+        j.done.push(DoneFile {
+            rel: "а.txt".into(),
+            size: 12,
+            mtime: 34,
+            file_id: 56,
+            sha256: "ab".into(),
+        });
+        j.save(d.path()).unwrap();
+        assert_eq!(Journal::load_all(d.path())[0].done, j.done);
     }
 }
