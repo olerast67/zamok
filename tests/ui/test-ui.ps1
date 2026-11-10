@@ -634,6 +634,47 @@ try {
         $gone -and -not (Test-Path $dir) -and (Test-Path "$root\.$ruName.zamok\masterkey.cryptomator") -and $note.Count -eq 1
     }
 
+    # Pora zapirat po bezdeystviyu, a fayl otkryt: core sprashivaet v okne --idle-lock
+    function IdleWindow {
+        $c = Get-CimInstance Win32_Process -Filter "Name='Zamok.exe'" | Where-Object { $_.ExecutablePath -eq $uiExe -and $_.CommandLine -like '*--idle-lock*' } | Select-Object -First 1
+        if ($c) { Get-Process -Id $c.ProcessId -ErrorAction SilentlyContinue } else { $null }
+    }
+    $idleDir = "$root\idle"; MakeSample $idleDir
+    [void](Send "{`"cmd`":`"encrypt`",`"path`":`"$(J $idleDir)`",`"password`":`"$pw`"}")
+    [void](WaitFor { (Folder $idleDir).state -eq 'unlocked' } 60000)
+    $me = [IO.Path]::GetFileName((Get-Process -Id $PID).Path)
+    $script:idleHeld = [IO.File]::Open("$idleDir\note.txt", 'Open', 'Read', 'ReadWrite')
+    Check 'idle lock with a file open: window names the program, Postpone keeps the folder open' {
+        [void](Send "{`"cmd`":`"set_idle_lock`",`"path`":`"$(J $idleDir)`",`"secs`":3}")
+        if (-not (WaitFor { IdleWindow } 15000)) { throw 'no window' }
+        $p = IdleWindow; $w = Window $p.Id
+        if ((Text $w 'FolderName') -ne 'idle') { throw "name: $(Text $w 'FolderName')" }
+        $want = @($strings['Idle_OpenIn'] | ForEach-Object { $_ -f $me })
+        if (-not (WaitFor { $want -contains (Text $w 'OpenIn') } 5000)) { throw "open in: $(Text $w 'OpenIn')" }
+        if (-not (IsText 'Idle_Later.Text' (Text $w 'Later'))) { throw 'later text is not a string' }
+        A11y 'idle lock question' $w $p
+        Press $w 'PostponeButton'
+        $p.WaitForExit(10000) -and -not (Folder $idleDir).idle_asking -and (Start-Sleep -Seconds 5) -eq $null -and
+            (Folder $idleDir).state -eq 'unlocked'
+    }
+    Check 'idle lock with a file open: Lock now locks the folder' {
+        # Deskriptor, otkrytyy do zapiraniya, posle nego ne schitaetsya: otkryt zanovo
+        [void](Send "{`"cmd`":`"set_idle_lock`",`"path`":`"$(J $idleDir)`",`"secs`":0}")
+        [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $idleDir)`"}")
+        [void](Send "{`"cmd`":`"unlock`",`"path`":`"$(J $idleDir)`",`"password`":`"$pw`"}")
+        $script:idleHeld.Dispose(); $script:idleHeld = [IO.File]::Open("$idleDir\note.txt", 'Open', 'Read', 'ReadWrite')
+        [void](Send "{`"cmd`":`"set_idle_lock`",`"path`":`"$(J $idleDir)`",`"secs`":3}")
+        if (-not (WaitFor { IdleWindow } 15000)) { throw 'no window' }
+        $p = IdleWindow; $w = Window $p.Id
+        [void](WaitFor { Text $w 'OpenIn' } 5000)
+        Press $w 'LockButton'
+        $p.WaitForExit(10000) -and (WaitFor { (Folder $idleDir).state -eq 'locked' } 10000)
+    }
+    $script:idleHeld.Dispose()
+    # Ubrat papku iz spiska: lishnyaya stroka v nastroykah dala by polosu prokrutki (ee knopki
+    # WinUI nazyvaet na yazyke Windows, proverka yazyka nizhe ih ne zhdet)
+    [void](Send "{`"cmd`":`"remove`",`"path`":`"$(J $idleDir)`"}")
+
     # Yazyk: okna po yazyku Windows (ZAMOK_LANG zadaet ego dlya testa), tekst iz svoego fayla strok
     foreach ($l in @(@('ru', 'ru-RU'), @('en', 'en-US'))) {
         $ui = StartUi '--unlock', $item $pipeName $l[0]
@@ -649,7 +690,7 @@ try {
     $w = Window $ui.Id
     [void](WaitFor { Text $w 'DetailName' } 10000)
     # Ni odnogo russkogo slova, krome imen papok (podpisi pereklyuchateley WinUI inache berutsya iz
-    # yazyka Windows). Imya polosy prokrutki daet sama WinUI na yazyke Windows, ego ne zadat
+    # yazyka Windows). Imya polosy prokrutki i ee knopok daet sama WinUI na yazyke Windows, ego ne zadat
     function NoRussian($w) {
         # Knopki vnutri polosy prokrutki tozhe ot WinUI: propuskaem vse vnutri ScrollBar
         $walker = [Windows.Automation.TreeWalker]::ControlViewWalker
