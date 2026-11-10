@@ -1,0 +1,7 @@
+# Одна версия компилятора у всех: без неё воспроизвести сборку релиза нельзя (RELEASING.md).
+# rustup сам поставит эту версию при первом запуске cargo в папке core.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+targets = ["x86_64-pc-windows-msvc"]
+profile = "minimal"
