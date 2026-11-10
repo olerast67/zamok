@@ -28,8 +28,8 @@ public partial class StringUsageTests
     [GeneratedRegex(@"x:Uid=""([^""]+)""")]
     private static partial Regex XUid();
 
-    /// <summary>Строковые литералы вида Раздел_Имя или Раздел_Имя/Свойство в коде окон.</summary>
-    [GeneratedRegex(@"\$?""([A-Z][A-Za-z0-9]*_[A-Za-z0-9_]+(?:/[A-Za-z]+)?)(\{[a-z]+\})?""")]
+    /// <summary>Строковые литералы вида Раздел_Имя или Раздел_Имя/Свойство в коде окон (не ZAMOK_LANG).</summary>
+    [GeneratedRegex(@"\$?""([A-Z][a-z0-9][A-Za-z0-9]*_[A-Za-z0-9_]+(?:/[A-Za-z]+)?)(\{[a-z]+\})?""")]
     private static partial Regex KeyLiteral();
 
     [GeneratedRegex(@"[Ѐ-ӿ]")]
