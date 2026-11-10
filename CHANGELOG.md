@@ -18,6 +18,7 @@ Daily use
 - Windows Hello as a second way in, turned on per folder.
 - Auto-lock on screen lock, sleep, hibernation and sign-out, and after 30 minutes without work in the folder (set per folder). Ctrl+Alt+Shift+L locks all folders.
 - Tray icon, notifications, settings window. Interface in Russian and English.
+- "Check for updates" button in the settings: one request to GitHub, only when you press it. Nothing is downloaded; a newer version opens its release page.
 - Files are marked "do not index"; shortcuts in Recent files are removed on lock.
 
 Safety checks
@@ -31,4 +32,4 @@ Install
 
 Known limits
 - Dragging an open folder with the mouse in Explorer copies its files unencrypted and deletes them from the vault. See the warning in the README.
-- NTFS only. No signature, no update check. Tested on Windows 10; Windows 11 and cloud clients are not tested yet.
+- NTFS only. No signature, no automatic update install. Tested on Windows 10; Windows 11 and cloud clients are not tested yet.

@@ -214,6 +214,51 @@ function A11y([string]$label, $w, $proc) {
         "$why, Tab not pressed for real; every control usable through UI Automation: $($want -join ' > ')"
     }
 }
+# Lokalnyy server vmesto API GitHub dlya proverki obnovleniy: Zamok.exe poluchaet ego adres
+# v ZAMOK_UPDATE_URL (prinimaetsya tolko adres na etom kompyutere), i test nikogda ne hodit na GitHub.
+# Otvety zadaet test; server zapominaet User-Agent i byl li Cookie.
+Add-Type -TypeDefinition @'
+using System; using System.IO; using System.Net; using System.Net.Sockets; using System.Text; using System.Threading;
+public static class ZH {
+  static TcpListener listener;
+  public static volatile int LatestCode = 200;
+  public static volatile string Latest = "";
+  public static volatile string List = "[]";
+  public static volatile string LastAgent = "";
+  public static volatile bool SawCookie;
+  public static int Requests;
+  public static int Start() {
+    listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+    var t = new Thread(Loop); t.IsBackground = true; t.Start();
+    return ((IPEndPoint)listener.LocalEndpoint).Port;
+  }
+  public static void Stop() { try { if (listener != null) listener.Stop(); } catch { } }
+  static void Loop() {
+    while (true) {
+      TcpClient c;
+      try { c = listener.AcceptTcpClient(); } catch { return; }
+      try { Serve(c); } catch { } finally { c.Close(); }
+    }
+  }
+  static void Serve(TcpClient c) {
+    var s = c.GetStream(); s.ReadTimeout = 5000;
+    var r = new StreamReader(s, Encoding.ASCII);
+    var first = r.ReadLine(); string line; string agent = "";
+    while (!string.IsNullOrEmpty(line = r.ReadLine())) {
+      if (line.StartsWith("User-Agent:", StringComparison.OrdinalIgnoreCase)) agent = line.Substring(11).Trim();
+      if (line.StartsWith("Cookie:", StringComparison.OrdinalIgnoreCase)) SawCookie = true;
+    }
+    var path = first.Split(' ')[1];
+    int code = 404; string body = "{\"message\":\"Not Found\"}";
+    if (path.EndsWith("/releases/latest")) { code = LatestCode; body = Latest; }
+    else if (path.Contains("/releases?")) { code = 200; body = List; }
+    LastAgent = agent; Interlocked.Increment(ref Requests);
+    var bytes = Encoding.UTF8.GetBytes(body);
+    var head = Encoding.ASCII.GetBytes("HTTP/1.1 " + code + " X\r\nContent-Type: application/json\r\nContent-Length: " + bytes.Length + "\r\nConnection: close\r\n\r\n");
+    s.Write(head, 0, head.Length); s.Write(bytes, 0, bytes.Length); s.Flush();
+  }
+}
+'@
 # LiveSetting: 1 Polite, 2 Assertive (ekrannyy diktor chitaet stroku sam, bez perehoda k ney)
 function Live($w, [string]$id) { [ZLive]::Of([IntPtr]$w.Current.NativeWindowHandle, $id) }
 
@@ -302,6 +347,9 @@ Push-Location "$repo\core"; & "$env:USERPROFILE\.cargo\bin\cargo.exe" build -q -
 # kotoryh v publikacii mozhet ne okazatsya, tak uzhe bylo s Zamok.pri)
 & dotnet publish "$repo\ui\Zamok.UI\Zamok.UI.csproj" -c Release -o "$root-publish" -v q 2>&1 | Out-Null
 $uiExe = "$root-publish\Zamok.exe"
+# Vse okna testa (i core) nasleduyut etot adres: knopka "Proverit obnovleniya" idet na lokalnyy server
+$updPort = [ZH]::Start()
+$env:ZAMOK_UPDATE_URL = "http://127.0.0.1:$updPort/repos/olerast67/zamok"
 
 $script:core = $null
 $ui = $null
@@ -546,6 +594,55 @@ try {
     Check 'settings: Defender offer is gone after the answer' {
         WaitFor { -not (El $w 'DefenderText') } 5000
     }
+    # Proverka obnovleniy: tolko po knopke, otvety ot lokalnogo servera
+    Check 'update check: version is shown, nothing is requested before the button' {
+        $v = Text $w 'VersionText'
+        if ([ZH]::Requests -ne 0) { throw "requests before the button: $([ZH]::Requests)" }
+        if (-not (IsTextLike 'Settings_Version' $v) -or $v -notmatch '\d+\.\d+\.\d+') { throw "version: $v" }
+        $v
+    }
+    $updVer = (Text $w 'VersionText') -replace '^Zamok ', ''
+    function UpdateText([string]$key) { WaitFor { IsText $key (Text $w 'UpdateText') } 15000 }
+    Check 'update check: a newer release is offered with the GitHub button, one request, User-Agent Zamok/<version>, no cookie' {
+        [ZH]::LatestCode = 200
+        [ZH]::Latest = '{"tag_name":"v99.0.0","draft":false,"prerelease":false,"html_url":"https://github.com/olerast67/zamok/releases/tag/v99.0.0"}'
+        $before = [ZH]::Requests
+        Press $w 'UpdateButton'
+        if (-not (WaitFor { IsTextLike 'Update_New' (Text $w 'UpdateText') } 15000)) { throw "text: $(Text $w 'UpdateText')" }
+        if ((Text $w 'UpdateText') -notlike '*99.0.0*') { throw "no version in: $(Text $w 'UpdateText')" }
+        $rel = El $w 'ReleaseButton'
+        if (-not $rel -or $rel.Current.IsOffscreen) { throw 'no release button' }
+        if ([ZH]::LastAgent -ne "Zamok/$updVer") { throw "User-Agent: $([ZH]::LastAgent)" }
+        if ([ZH]::SawCookie) { throw 'a cookie was sent' }
+        if (([ZH]::Requests - $before) -ne 1) { throw "requests: $([ZH]::Requests - $before)" }
+        "User-Agent: $([ZH]::LastAgent)"
+    }
+    Check 'update check: the result line is read by Narrator (LiveSetting Polite)' { (Live $w 'UpdateText') -eq 1 }
+    A11y 'settings with a new version' $w $ui
+    Check 'update check: only prereleases, the list is used, drafts skipped, the same version is up to date' {
+        [ZH]::LatestCode = 404; [ZH]::Latest = '{"message":"Not Found"}'
+        [ZH]::List = '[{"tag_name":"v99.0.0","draft":true},{"tag_name":"v' + $updVer + '","draft":false,"prerelease":true}]'
+        $before = [ZH]::Requests
+        Press $w 'UpdateButton'
+        (UpdateText 'Update_UpToDate') -and -not (El $w 'ReleaseButton') -and ([ZH]::Requests - $before) -eq 2
+    }
+    Check 'update check: no releases yet' {
+        [ZH]::List = '[]'
+        Press $w 'UpdateButton'
+        UpdateText 'Update_None'
+    }
+    Check 'update check: garbage from the server is reported as a failure' {
+        [ZH]::LatestCode = 200; [ZH]::Latest = '<html>captive portal</html>'
+        Press $w 'UpdateButton'
+        UpdateText 'Update_Failed'
+    }
+    Check 'update check: no connection is reported as a failure' {
+        [ZH]::Stop()
+        [ZH]::LatestCode = 200; [ZH]::Latest = '{"tag_name":"v99.0.0"}'
+        Press $w 'UpdateButton'
+        # Sperva stroka "Proverka..." i obratno: zhdem, poka ona smenitsya
+        (WaitFor { -not (IsText 'Update_Checking' (Text $w 'UpdateText')) } 15000) -and (UpdateText 'Update_Failed')
+    }
     Check 'settings: Lock button locks the open folder' {
         $list = El $w 'FolderList'
         $item = $list.FindAll('Children', [Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -like "*$ruName*" -or $_.FindFirst('Descendants', (New-Object Windows.Automation.PropertyCondition ($AE::NameProperty), $ruName)) } | Select-Object -First 1
@@ -738,6 +835,7 @@ try {
     }
 }
 finally {
+    [ZH]::Stop()
     Get-Process Zamok -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $uiExe } | Stop-Process -Force
     if ($script:core -and -not $script:core.HasExited) {
         try { [void](Send '{"cmd":"quit"}') } catch {}

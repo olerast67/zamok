@@ -7,7 +7,8 @@ namespace Zamok.UI;
 
 /// <summary>
 /// Окно настроек (DESIGN.md, раздел 2.5): список зашифрованных папок, свойства шифрования
-/// выбранной, время автозапирания, «Запирать при блокировке экрана», «О программе».
+/// выбранной, время автозапирания, «Запирать при блокировке экрана», версия и проверка обновлений
+/// (только по кнопке, DESIGN.md, раздел 11).
 /// Состояние папок обновляется раз в 2 секунды, пока окно открыто.
 /// </summary>
 public sealed partial class SettingsWindow : Window
@@ -25,6 +26,10 @@ public sealed partial class SettingsWindow : Window
     private string? _fitKey;
     /// <summary>Хранилища из предложения про Defender, которое сейчас на экране.</summary>
     private string[] _defenderOffer = [];
+    /// <summary>Версия этой сборки Zamok.exe, например 0.1.0-alpha.</summary>
+    private static readonly string AppVersion = UpdateChecker.RunningVersion(typeof(SettingsWindow).Assembly);
+    private bool _checkingUpdate;
+    private string? _releaseUrl;
 
     public SettingsWindow()
     {
@@ -35,6 +40,7 @@ public sealed partial class SettingsWindow : Window
         // Кнопка со значком: имя для экранного диктора из её текста
         AutomationProperties.SetName(DefenderExclude, Strings.Get("Defender_ExcludeText/Text"));
         DefenderExclude.AccessKey = Strings.Get("Access_Exclude");
+        VersionText.Text = Strings.Format("Settings_Version", AppVersion);
         var icon = WindowHelper.FolderIcon(32);
         if (icon is not null) FolderIcon.Source = icon;
         foreach (var m in IdleMinutes)
@@ -160,7 +166,7 @@ public sealed partial class SettingsWindow : Window
     /// <summary>Подогнать высоту, только если состав окна поменялся: иначе таймер двигал бы окно.</summary>
     private void FitToContent()
     {
-        var key = $"{_folders.Length}|{_selectedId}|{Selected?.State}|{Selected?.Error}|{HelloPanel.Visibility}|{ErrorText.Text}|{DefenderCard.Visibility}|{StatusText.Text}";
+        var key = $"{_folders.Length}|{_selectedId}|{Selected?.State}|{Selected?.Error}|{HelloPanel.Visibility}|{ErrorText.Text}|{DefenderCard.Visibility}|{StatusText.Text}|{UpdateText.Text}|{ReleaseButton.Visibility}";
         if (key == _fitKey) return;
         _fitKey = key;
         WindowHelper.FitHeight(this, Root, 680);
@@ -374,6 +380,67 @@ public sealed partial class SettingsWindow : Window
         DefenderExclude.IsEnabled = !busy;
         DefenderCopy.IsEnabled = !busy;
         DefenderNo.IsEnabled = !busy;
+    }
+
+    /// <summary>
+    /// Проверка обновлений: только по нажатию, один запрос HTTPS к API GitHub из этого окна
+    /// (core к сети не обращается). Ничего не скачивает: при новой версии кнопка открывает её
+    /// страницу в браузере. <c>ZAMOK_UPDATE_URL</c> с адресом на этом компьютере нужен тестам.
+    /// </summary>
+    private async void OnUpdateClick(object sender, RoutedEventArgs e)
+    {
+        // Кнопку не выключаем: фокус клавиатуры остаётся на ней, повторное нажатие ничего не делает
+        if (_checkingUpdate) return;
+        _checkingUpdate = true;
+        _releaseUrl = null;
+        ReleaseButton.Visibility = Visibility.Collapsed;
+        ShowUpdate(Strings.Get("Update_Checking"));
+        UpdateResult r;
+        try
+        {
+            using var http = UpdateChecker.CreateHttpClient();
+            r = await new UpdateChecker(http, AppVersion, UpdateChecker.BaseFromEnvironment()).CheckAsync();
+        }
+        catch (Exception)
+        {
+            r = new UpdateResult(UpdateState.Failed);
+        }
+        finally
+        {
+            _checkingUpdate = false;
+        }
+        if (r.State == UpdateState.NewVersion)
+        {
+            _releaseUrl = r.Url;
+            ReleaseButton.Visibility = Visibility.Visible;
+        }
+        ShowUpdate(r.State switch
+        {
+            UpdateState.UpToDate => Strings.Get("Update_UpToDate"),
+            UpdateState.NewVersion => Strings.Format("Update_New", r.Version!),
+            UpdateState.NoReleases => Strings.Get("Update_None"),
+            _ => Strings.Get("Update_Failed"),
+        });
+    }
+
+    private void ShowUpdate(string text)
+    {
+        WindowHelper.Announce(UpdateText, text);
+        FitToContent();
+    }
+
+    /// <summary>Страница выпуска на github.com в браузере по умолчанию; адрес проверен в UpdateChecker.</summary>
+    private void OnReleaseClick(object sender, RoutedEventArgs e)
+    {
+        if (_releaseUrl is null) return;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(_releaseUrl) { UseShellExecute = true });
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // Нет браузера по умолчанию: открыть страницу нечем, окно остаётся как было
+        }
     }
 
     /// <summary>«Проверка следов» (DESIGN.md, раздел 6) в своём окне.</summary>

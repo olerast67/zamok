@@ -8,7 +8,7 @@ Windows, диск NTFS, инструменты из [CONTRIBUTING.md](CONTRIBUTI
 
 ## Каждый выпуск
 
-1. Обновить версию в `core/crates/*/Cargo.toml`, запись в [CHANGELOG.md](CHANGELOG.md), отметки в [ROADMAP.md](ROADMAP.md).
+1. Обновить версию в `core/crates/*/Cargo.toml` и в `<Version>` файла `ui/Zamok.UI/Zamok.UI.csproj` (с суффиксом, как в теге: `0.1.0-alpha`; по ней кнопка «Проверить обновления» сравнивает версии), запись в [CHANGELOG.md](CHANGELOG.md), отметки в [ROADMAP.md](ROADMAP.md).
 2. Запустить проверки из [CONTRIBUTING.md](CONTRIBUTING.md). `tests\ui\test-ui.ps1` и тесты установки показывают окна и работают с реестром пользователя, поэтому их запускают на отдельной системе или в Windows Sandbox (`tests\install\test-sandbox.ps1`).
 3. Собрать установщик. Версия WiX состоит только из чисел, поэтому суффикс `-alpha` есть в теге, а в имени файла его нет:
 

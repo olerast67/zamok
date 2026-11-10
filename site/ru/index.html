@@ -130,7 +130,7 @@
     <div><dt>Пока папка открыта</dt><dd>Файлы расшифровываются при&nbsp;чтении и&nbsp;шифруются при&nbsp;записи. Открытый текст Zamok держит в&nbsp;памяти.</dd></div>
     <div><dt>Если&nbsp;программа упадёт</dt><dd>До&nbsp;проверки копии Zamok откатывает работу, после проверки доводит её&nbsp;до&nbsp;конца.</dd></div>
     <div><dt>Шифрование</dt><dd>Формат Cryptomator vault format 8 (AES-GCM, AES-SIV, scrypt), библиотеки RustCrypto. Шифруются содержимое и&nbsp;имена файлов. Имя самой зашифрованной папки остаётся видимым.</dd></div>
-    <div><dt>Сеть</dt><dd>Программы к&nbsp;сети не&nbsp;обращаются. Телеметрии, аналитики, аккаунтов, серверов и&nbsp;проверки обновлений&nbsp;нет. Это проверено по&nbsp;коду версии <span class="nw">0.1.0-alpha</span>: в&nbsp;<code>core/Cargo.lock</code> нет библиотек HTTP, TLS, сокетов и&nbsp;сетевого async, а&nbsp;в&nbsp;исходниках <code>zamok-core</code>, <code>Zamok.exe</code> и&nbsp;<code>zamok-shell.dll</code> нет сокетов, HTTP-клиентов и&nbsp;веб-адресов. Подробности в&nbsp;<a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">PRIVACY.md</a>.</dd></div>
+    <div><dt>Сеть</dt><dd>Телеметрии, аналитики, аккаунтов и&nbsp;серверов нет. Единственный запрос в&nbsp;сеть делает кнопка «Проверить обновления» в&nbsp;настройках: один запрос HTTPS к&nbsp;API GitHub, только когда вы её нажали. GitHub видит ваш IP-адрес и&nbsp;<code>User-Agent: Zamok/&lt;версия&gt;</code>; cookie, идентификаторы, имена папок и&nbsp;пути не&nbsp;отправляются, ничего не&nbsp;скачивается. Это проверено по&nbsp;коду версии <span class="nw">0.1.0-alpha</span>: в&nbsp;<code>core/Cargo.lock</code> нет библиотек HTTP, TLS, сокетов и&nbsp;сетевого async, в&nbsp;<code>zamok-core</code> и&nbsp;<code>zamok-shell.dll</code> нет сокетов, HTTP-клиентов и&nbsp;веб-адресов, а&nbsp;в&nbsp;<code>Zamok.exe</code> HTTP-клиент вызывает только обработчик кнопки. Подробности в&nbsp;<a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">PRIVACY.md</a>.</dd></div>
   </dl>
 </section>
 
@@ -236,7 +236,7 @@
 <section id="status" class="final" aria-labelledby="status-h">
   <h2 id="status-h">Альфа-версия 0.1.0</h2>
   <div class="prose">
-    <p>Что не&nbsp;сделано и&nbsp;важно для&nbsp;ваших данных, по&nbsp;<a href="https://github.com/olerast67/zamok/blob/main/ROADMAP.md">дорожной карте</a>: нет проверки посторонним человеком, нет fuzzing разбора формата, тестов с&nbsp;отключением питания не&nbsp;было, Windows 11 и&nbsp;облачные клиенты не&nbsp;проверены. Проверки обновлений нет: новая версия ставится поверх старой и&nbsp;сохраняет список папок.</p>
+    <p>Что не&nbsp;сделано и&nbsp;важно для&nbsp;ваших данных, по&nbsp;<a href="https://github.com/olerast67/zamok/blob/main/ROADMAP.md">дорожной карте</a>: нет проверки посторонним человеком, нет fuzzing разбора формата, тестов с&nbsp;отключением питания не&nbsp;было, Windows 11 и&nbsp;облачные клиенты не&nbsp;проверены. Обновления проверяются только кнопкой в&nbsp;настройках, сами ничего не&nbsp;ставят: новую версию вы скачиваете и&nbsp;ставите поверх старой, список папок сохраняется.</p>
     <p>Как&nbsp;это сделано: автор придумал программу, руководил работой и&nbsp;проверял её&nbsp;на&nbsp;настоящем компьютере. Большую часть кода написал ИИ-ассистент (Claude от&nbsp;Anthropic). Независимого аудита не&nbsp;было.</p>
     <p>Нашли уязвимость? Как&nbsp;сообщить о&nbsp;ней закрыто, написано в&nbsp;<a href="https://github.com/olerast67/zamok/blob/main/SECURITY.md">SECURITY.md</a>.</p>
   </div>

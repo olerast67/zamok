@@ -150,6 +150,16 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Defender_Failed" xml:space="preserve"><value>Could not change the Defender settings. Copy the command and run it in PowerShell as administrator.</value></data>
   <data name="Settings_Traces.Content" xml:space="preserve"><value>Traces check</value></data>
   <data name="Settings_Traces.AccessKey" xml:space="preserve"><value>T</value></data>
+  <data name="Settings_Version" xml:space="preserve"><value>Zamok {0}</value></data>
+  <data name="Settings_Update.Content" xml:space="preserve"><value>Check for updates</value></data>
+  <data name="Settings_Update.AccessKey" xml:space="preserve"><value>D</value></data>
+  <data name="Settings_Release.Content" xml:space="preserve"><value>Open on GitHub</value></data>
+  <data name="Settings_Release.AccessKey" xml:space="preserve"><value>G</value></data>
+  <data name="Update_Checking" xml:space="preserve"><value>Checking for updates…</value></data>
+  <data name="Update_UpToDate" xml:space="preserve"><value>You have the latest version.</value></data>
+  <data name="Update_New" xml:space="preserve"><value>Version {0} is out. Download it from the release page and install it over this one: your folder list is kept.</value></data>
+  <data name="Update_None" xml:space="preserve"><value>There are no released versions on GitHub yet.</value></data>
+  <data name="Update_Failed" xml:space="preserve"><value>Could not check for updates: no connection to GitHub or it did not answer. Try again later.</value></data>
   <data name="Traces_Title.Text" xml:space="preserve"><value>Traces check</value></data>
   <data name="Traces_Intro.Text" xml:space="preserve"><value>What Windows may keep from your open folders outside the encryption, and what to do about it. Zamok only looks here and changes nothing.</value></data>
   <data name="Traces_DiskTitle.Text" xml:space="preserve"><value>System drive encryption</value></data>
