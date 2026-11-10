@@ -150,6 +150,16 @@
   <data name="Defender_Failed" xml:space="preserve"><value>Не получилось изменить настройки Defender. Скопируйте команду и выполните её в PowerShell от имени администратора.</value></data>
   <data name="Settings_Traces.Content" xml:space="preserve"><value>Проверка следов</value></data>
   <data name="Settings_Traces.AccessKey" xml:space="preserve"><value>С</value></data>
+  <data name="Settings_Version" xml:space="preserve"><value>Zamok {0}</value></data>
+  <data name="Settings_Update.Content" xml:space="preserve"><value>Проверить обновления</value></data>
+  <data name="Settings_Update.AccessKey" xml:space="preserve"><value>В</value></data>
+  <data name="Settings_Release.Content" xml:space="preserve"><value>Открыть на GitHub</value></data>
+  <data name="Settings_Release.AccessKey" xml:space="preserve"><value>G</value></data>
+  <data name="Update_Checking" xml:space="preserve"><value>Проверка обновлений…</value></data>
+  <data name="Update_UpToDate" xml:space="preserve"><value>У вас последняя версия.</value></data>
+  <data name="Update_New" xml:space="preserve"><value>Вышла версия {0}. Скачайте её со страницы выпуска и поставьте поверх этой: список папок сохранится.</value></data>
+  <data name="Update_None" xml:space="preserve"><value>На GitHub пока нет ни одной выпущенной версии.</value></data>
+  <data name="Update_Failed" xml:space="preserve"><value>Не удалось проверить обновления: нет связи с GitHub или он не ответил. Попробуйте позже.</value></data>
   <data name="Traces_Title.Text" xml:space="preserve"><value>Проверка следов</value></data>
   <data name="Traces_Intro.Text" xml:space="preserve"><value>Что Windows может сохранить из открытых папок вне шифрования и что с этим сделать. Zamok здесь только смотрит и ничего не меняет.</value></data>
   <data name="Traces_DiskTitle.Text" xml:space="preserve"><value>Шифрование системного диска</value></data>

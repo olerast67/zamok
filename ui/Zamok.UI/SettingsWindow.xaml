@@ -4,7 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <!-- Настройки: зашифрованные папки слева, свойства выбранной справа, общее и «О программе» внизу -->
+    <!-- Настройки: зашифрованные папки слева, свойства выбранной справа, общее, версия и проверка обновлений внизу -->
     <Grid x:Name="Root" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="32" />
@@ -140,7 +140,17 @@
                 </Border>
                 <ToggleSwitch x:Name="ScreenLockSwitch" AutomationProperties.AutomationId="ScreenLockSwitch"
                               x:Uid="Settings_ScreenLock" Toggled="OnScreenLockToggled" />
-
+                <!-- О программе: версия и проверка обновлений только по кнопке, одним запросом к GitHub -->
+                <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,4,0,0">
+                    <TextBlock x:Name="VersionText" AutomationProperties.AutomationId="VersionText"
+                               VerticalAlignment="Center" />
+                    <Button x:Name="UpdateButton" AutomationProperties.AutomationId="UpdateButton"
+                            x:Uid="Settings_Update" Click="OnUpdateClick" />
+                </StackPanel>
+                <TextBlock x:Name="UpdateText" AutomationProperties.AutomationId="UpdateText" Visibility="Collapsed"
+                           AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
+                <Button x:Name="ReleaseButton" AutomationProperties.AutomationId="ReleaseButton" Visibility="Collapsed"
+                        x:Uid="Settings_Release" Click="OnReleaseClick" />
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
                 <Button AutomationProperties.AutomationId="TracesButton" x:Uid="Settings_Traces"

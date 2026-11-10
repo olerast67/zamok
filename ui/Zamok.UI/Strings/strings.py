@@ -198,6 +198,19 @@ S = {
     # Проверка следов (DESIGN.md, раздел 6): строка состояния и одно предложение, что сделать
     "Settings_Traces.Content": ("Проверка следов", "Traces check"),
     "Settings_Traces.AccessKey": ("С", "T"),
+    # О программе и проверка обновлений: только по кнопке, один запрос к GitHub
+    "Settings_Version": ("Zamok {0}", "Zamok {0}"),
+    "Settings_Update.Content": ("Проверить обновления", "Check for updates"),
+    "Settings_Update.AccessKey": ("В", "D"),
+    "Settings_Release.Content": ("Открыть на GitHub", "Open on GitHub"),
+    "Settings_Release.AccessKey": ("G", "G"),
+    "Update_Checking": ("Проверка обновлений…", "Checking for updates…"),
+    "Update_UpToDate": ("У вас последняя версия.", "You have the latest version."),
+    "Update_New": ("Вышла версия {0}. Скачайте её со страницы выпуска и поставьте поверх этой: список папок сохранится.",
+                   "Version {0} is out. Download it from the release page and install it over this one: your folder list is kept."),
+    "Update_None": ("На GitHub пока нет ни одной выпущенной версии.", "There are no released versions on GitHub yet."),
+    "Update_Failed": ("Не удалось проверить обновления: нет связи с GitHub или он не ответил. Попробуйте позже.",
+                      "Could not check for updates: no connection to GitHub or it did not answer. Try again later."),
     "Traces_Title.Text": ("Проверка следов", "Traces check"),
     "Traces_Intro.Text": (
         "Что Windows может сохранить из открытых папок вне шифрования и что с этим сделать. Zamok здесь только смотрит и ничего не меняет.",
