@@ -3,9 +3,8 @@
     <linearGradient id="bl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3A6FE0"/><stop offset="1" stop-color="#1D3E9E"/></linearGradient>
   </defs>
   <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bl)"/>
-  <path d="M22 30V23a10 10 0 0 1 20 0v7" fill="none" stroke="#fff" stroke-width="5.5"/>
-  <rect x="15" y="28" width="13" height="5" rx="2.5" fill="#fff"/>
-  <rect x="15" y="31" width="34" height="21" rx="4" fill="#fff"/>
-  <circle cx="32" cy="40" r="3.2" fill="#1D3E9E"/>
-  <rect x="30.6" y="40" width="2.8" height="7.5" rx="1.2" fill="#1D3E9E"/>
+  <path d="M23.75 32V23a8.25 8.25 0 0 1 16.5 0v9" fill="none" stroke="#fff" stroke-width="5.5"/>
+  <rect x="15" y="30" width="34" height="22" rx="5" fill="#fff"/>
+  <circle cx="32" cy="39.5" r="3.4" fill="#1D3E9E"/>
+  <rect x="30.5" y="39.5" width="3" height="7" rx="1.2" fill="#1D3E9E"/>
 </svg>

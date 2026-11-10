@@ -1,19 +1,19 @@
-"""Значок Zamok: синяя плитка, белый замок с корпусом-папкой (zamok.ico) и он же с поднятой
+"""Значок Zamok: синяя плитка и белый симметричный замок (zamok.ico), он же с поднятой
 дужкой для открытой папки (zamok-open.ico), плюс PNG 256 для баннера и сайта.
 
-Запуск: python assets/make-icons.py  (нужен Pillow)
-Каждый размер рисуется в 8 раз крупнее и уменьшается со сглаживанием; на 16 и 24 точках
+Запуск: python assets/make-icons.py [папка]  (нужен Pillow)
+Каждый размер рисуется в 8 раз крупнее и уменьшается со сглаживанием; на 24 точках и меньше
 дужка и скважина толще, чтобы замок читался в трее и в заголовке окна.
-Рисунок задан в сетке 64 на 64, как в исходном SVG (docs/images/logo.svg).
+Рисунок задан в сетке 64 на 64, как в docs/images/logo.svg. Дужка строится как кольцо
+(внешний круг минус внутренний) и две ножки той же ширины, поэтому стыки ровные.
 """
 import os
 import sys
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 SIZES = [16, 20, 24, 32, 40, 48, 64, 256]
 TOP = (58, 111, 224)      # #3A6FE0
 BOTTOM = (29, 62, 158)    # #1D3E9E
-WHITE = (255, 255, 255, 255)
 HOLE = BOTTOM + (255,)
 
 
@@ -32,37 +32,47 @@ def gradient_tile(s: int, radius: float, inset: float) -> Image.Image:
     return out
 
 
+def lock_mask(s: int, u: float, small: bool, open_: bool) -> Image.Image:
+    """Белая часть рисунка как маска: дужка, корпус, минус скважина."""
+    m = Image.new("L", (s, s), 0)
+    d = ImageDraw.Draw(m)
+    cx = 32 * u
+    w = (7.0 if small else 5.5) * u          # толщина дужки
+    ro = 11 * u                              # внешний радиус дужки
+    ri = ro - w
+    cy = (23 - (6 if open_ else 0)) * u      # центр полукольца
+    body_top = 30 * u
+    # Кольцо: верхняя половина
+    ring = Image.new("L", (s, s), 0)
+    rd = ImageDraw.Draw(ring)
+    rd.ellipse([cx - ro, cy - ro, cx + ro, cy + ro], fill=255)
+    rd.ellipse([cx - ri, cy - ri, cx + ri, cy + ri], fill=0)
+    rd.rectangle([0, cy, s, s], fill=0)
+    m = ImageChops.lighter(m, ring)
+    d = ImageDraw.Draw(m)
+    # Ножки ровно под кольцом, обе до корпуса; у открытого замка левая обрывается
+    d.rectangle([cx + ri, cy - 1, cx + ro, body_top + 2 * u], fill=255)
+    left_end = cy + 3 * u if open_ else body_top + 2 * u
+    d.rectangle([cx - ro, cy - 1, cx - ri, left_end], fill=255)
+    # Корпус
+    d.rounded_rectangle([15 * u, body_top, 49 * u, 52 * u], 5 * u, fill=255)
+    # Скважина
+    hr = (4.2 if small else 3.4) * u
+    hx, hy = cx, 39.5 * u
+    d.ellipse([hx - hr, hy - hr, hx + hr, hy + hr], fill=0)
+    hw = (2.0 if small else 1.5) * u
+    d.rounded_rectangle([hx - hw, hy, hx + hw, 46.5 * u], hw * 0.8, fill=0)
+    return m
+
+
 def logo(size: int, open_: bool) -> Image.Image:
     k = 8
     s = size * k
-    u = s / 64  # единица сетки 64x64
+    u = s / 64
     small = size <= 24
     img = gradient_tile(s, 14 * u, 2 * u if size > 24 else 0.5 * u)
-    d = ImageDraw.Draw(img)
-
-    # Дужка: полукольцо радиуса 10 с центром (32, 23) и две ножки до корпуса
-    w = (7.5 if small else 5.5) * u
-    cx, cy, r = 32 * u, 23 * u, 10 * u
-    lift = 6 * u if open_ else 0
-    d.arc([cx - r, cy - r - lift, cx + r, cy + r - lift], 180, 360, fill=WHITE, width=round(w))
-    leg_bottom = 30 * u
-    # Левая ножка у открытого замка короче: дужка вышла из корпуса
-    d.rectangle([cx - r, cy - lift, cx - r + w, (cy - lift + 3 * u) if open_ else leg_bottom], fill=WHITE)
-    d.rectangle([cx + r - w, cy - lift, cx + r, leg_bottom], fill=WHITE)
-
-    # Корпус в форме папки: язычок слева сверху, затем прямоугольник
-    tab = [15 * u, 28 * u, 28 * u, 33 * u]
-    d.rounded_rectangle(tab, 2.5 * u, fill=WHITE)
-    body = [15 * u, 31 * u, 49 * u, 52 * u]
-    d.rounded_rectangle(body, 4 * u, fill=WHITE)
-
-    # Скважина
-    hr = (4.2 if small else 3.2) * u
-    hx, hy = 32 * u, 40 * u
-    d.ellipse([hx - hr, hy - hr, hx + hr, hy + hr], fill=HOLE)
-    hw = (2.0 if small else 1.4) * u
-    d.rounded_rectangle([hx - hw, hy, hx + hw, 47.5 * u], 1.2 * u, fill=HOLE)
-
+    white = Image.new("RGBA", (s, s), (255, 255, 255, 255))
+    img.paste(white, (0, 0), lock_mask(s, u, small, open_))
     return img.resize((size, size), Image.LANCZOS)
 
 
