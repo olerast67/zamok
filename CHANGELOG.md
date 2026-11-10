@@ -7,7 +7,7 @@ Changes to Zamok by version. Release notes on GitHub are taken from the section 
 First alpha. Not audited by a third party. Keep a backup of important data outside Zamok.
 
 Encryption
-- Encrypt a folder in place from the Explorer right-click menu. The original is deleted only after the copy is verified; a crash before that rolls back, a crash after that finishes the work.
+- Encrypt a folder in place from the Explorer right-click menu. The original is deleted only after the copy is verified. A crash or a failure while copying keeps the files already verified, and encrypting again with the same password continues where it stopped; a crash after verification finishes the work.
 - Cryptomator vault format 8 through RustCrypto. Cryptomator opens Zamok folders and Zamok opens Cryptomator vaults.
 - Recovery key of 44 words, optional, on by default.
 - Change password, show recovery key, decrypt permanently.
@@ -17,9 +17,13 @@ Daily use
 - The folder stays at its path through WinFsp. Locked folders show one icon that opens the password window.
 - Windows Hello as a second way in, turned on per folder.
 - Auto-lock on screen lock, sleep, hibernation and sign-out, and after 30 minutes without work in the folder (set per folder). Ctrl+Alt+Shift+L locks all folders.
+- If files are open when the timeout comes, Zamok asks whether to lock now or postpone for 10 minutes. The lock prompt shows which programs hold files open.
 - Tray icon, notifications, settings window. Interface in Russian and English.
 - "Check for updates" button in the settings: one request to GitHub, only when you press it. Nothing is downloaded; a newer version opens its release page.
 - Files are marked "do not index"; shortcuts in Recent files are removed on lock.
+- "Traces check" in the settings shows, without changing anything, whether the system drive is encrypted, hibernation is on, the page file is encrypted, your folders are in the search index and Explorer keeps thumbnails.
+- Keys are kept in memory that Windows does not page out and are wiped on lock.
+- Large files read at about 70% of NTFS speed thanks to read-ahead (bench/RESULTS.md).
 
 Safety checks
 - Zamok cancels "Cut" on an encrypted folder and moving a parent folder to another drive.

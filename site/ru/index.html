@@ -110,7 +110,7 @@
     <li>
       <div class="text">
         <h3><span class="n">3</span>Запереть</h3>
-        <p>Папка запирается сама по&nbsp;<kbd>Win+L</kbd>, при&nbsp;сне и&nbsp;гибернации, при&nbsp;выходе из&nbsp;системы и&nbsp;через 30&nbsp;минут без&nbsp;работы с&nbsp;ней. Время настраивается для&nbsp;каждой папки.</p>
+        <p>Папка запирается сама по&nbsp;<kbd>Win+L</kbd>, при&nbsp;сне и&nbsp;гибернации, при&nbsp;выходе из&nbsp;системы и&nbsp;через 30&nbsp;минут без&nbsp;работы с&nbsp;ней. Время настраивается для&nbsp;каждой папки. Если&nbsp;в&nbsp;этот момент в&nbsp;папке открыты файлы, Zamok спросит, запереть сейчас или&nbsp;отложить на&nbsp;10&nbsp;минут.</p>
         <p><kbd>Ctrl+Alt+Shift+L</kbd> запирает все папки сразу.</p>
       </div>
       <figure><a class="full" href="../images/screens/ru/settings.png"><img class="window" src="../images/screens/ru/settings.png" alt="Настройки Zamok: список папок, где Documents открыта, а Projects и Photos заперты, переключатель Windows Hello, время запирания и свойства шифрования" width="852" height="747" loading="lazy"></a></figure>
@@ -128,9 +128,9 @@
   <dl class="sheet">
     <div><dt>Где вы&nbsp;работаете</dt><dd>В&nbsp;папке на&nbsp;её&nbsp;пути. На&nbsp;месте оригинала драйвер WinFsp показывает виртуальную папку с&nbsp;тем&nbsp;же путём. Ярлыки, проекты в&nbsp;программах и&nbsp;«Недавние файлы» продолжают работать.</dd></div>
     <div><dt>Пока папка открыта</dt><dd>Файлы расшифровываются при&nbsp;чтении и&nbsp;шифруются при&nbsp;записи. Открытый текст Zamok держит в&nbsp;памяти.</dd></div>
-    <div><dt>Если&nbsp;программа упадёт</dt><dd>До&nbsp;проверки копии Zamok откатывает работу, после проверки доводит её&nbsp;до&nbsp;конца.</dd></div>
+    <div><dt>Если&nbsp;программа упадёт</dt><dd>Если&nbsp;сбой случился во&nbsp;время копирования, проверенные файлы сохраняются, и&nbsp;повторное «Зашифровать» с&nbsp;тем&nbsp;же паролем продолжит с&nbsp;места остановки. После проверки копии Zamok доводит работу до&nbsp;конца.</dd></div>
     <div><dt>Шифрование</dt><dd>Формат Cryptomator vault format 8 (AES-GCM, AES-SIV, scrypt), библиотеки RustCrypto. Шифруются содержимое и&nbsp;имена файлов. Имя самой зашифрованной папки остаётся видимым.</dd></div>
-    <div><dt>Сеть</dt><dd>Телеметрии, аналитики, аккаунтов и&nbsp;серверов нет. Единственный запрос в&nbsp;сеть делает кнопка «Проверить обновления» в&nbsp;настройках: один запрос HTTPS к&nbsp;API GitHub, только когда вы её нажали. GitHub видит ваш IP-адрес и&nbsp;<code>User-Agent: Zamok/&lt;версия&gt;</code>; cookie, идентификаторы, имена папок и&nbsp;пути не&nbsp;отправляются, ничего не&nbsp;скачивается. Это проверено по&nbsp;коду версии <span class="nw">0.1.0-alpha</span>: в&nbsp;<code>core/Cargo.lock</code> нет библиотек HTTP, TLS, сокетов и&nbsp;сетевого async, в&nbsp;<code>zamok-core</code> и&nbsp;<code>zamok-shell.dll</code> нет сокетов, HTTP-клиентов и&nbsp;веб-адресов, а&nbsp;в&nbsp;<code>Zamok.exe</code> HTTP-клиент вызывает только обработчик кнопки. Подробности в&nbsp;<a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">PRIVACY.md</a>.</dd></div>
+    <div><dt>Сеть</dt><dd>Телеметрии, аналитики, аккаунтов и&nbsp;серверов&nbsp;нет. Единственный запрос в&nbsp;сеть делает кнопка «Проверить обновления» в&nbsp;настройках: один запрос HTTPS к&nbsp;API GitHub, только когда вы&nbsp;её&nbsp;нажали. GitHub видит ваш IP-адрес и&nbsp;<code>User-Agent: Zamok/&lt;версия&gt;</code>; cookie, идентификаторы, имена папок и&nbsp;пути не&nbsp;отправляются, ничего не&nbsp;скачивается. Это проверено по&nbsp;коду версии <span class="nw">0.1.0-alpha</span>: в&nbsp;<code>core/Cargo.lock</code> нет библиотек HTTP, TLS, сокетов и&nbsp;сетевого async, в&nbsp;<code>zamok-core</code> и&nbsp;<code>zamok-shell.dll</code> нет сокетов, HTTP-клиентов и&nbsp;веб-адресов, а&nbsp;в&nbsp;<code>Zamok.exe</code> HTTP-клиент вызывает только обработчик кнопки. Подробности в&nbsp;<a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">PRIVACY.md</a>.</dd></div>
   </dl>
 </section>
 
@@ -166,7 +166,7 @@
         <tr><th scope="row">Кэш миниатюр</th><td>Проводник может сохранить уменьшенные копии картинок на&nbsp;системном диске, отключить это для&nbsp;одной папки нельзя</td></tr>
         <tr><th scope="row">«Недавние файлы»</th><td>Ярлыки на&nbsp;файлы папки удаляются при&nbsp;запирании; списки в&nbsp;панели задач пока остаются</td></tr>
         <tr><th scope="row">Автосохранение и&nbsp;временные файлы программ</th><td>Word, Photoshop и&nbsp;другие пишут их&nbsp;в&nbsp;свои папки вне Zamok</td></tr>
-        <tr><th scope="row">Файл подкачки и&nbsp;файл гибернации</th><td>В&nbsp;них может попасть содержимое памяти, включая ключи: запрет выгрузки ключей пока не&nbsp;сделан</td></tr>
+        <tr><th scope="row">Файл подкачки и&nbsp;файл гибернации</th><td>В&nbsp;них может попасть содержимое открытых файлов. Ключи Zamok держит в&nbsp;памяти, которую Windows не&nbsp;выгружает в&nbsp;файл подкачки, а&nbsp;перед сном и&nbsp;гибернацией папки запираются и&nbsp;ключи стираются</td></tr>
         <tr><th scope="row">Корзина</th><td>Её&nbsp;нет: файл из&nbsp;открытой папки удаляется сразу</td></tr>
       </tbody>
     </table>
@@ -236,7 +236,7 @@
 <section id="status" class="final" aria-labelledby="status-h">
   <h2 id="status-h">Альфа-версия 0.1.0</h2>
   <div class="prose">
-    <p>Что не&nbsp;сделано и&nbsp;важно для&nbsp;ваших данных, по&nbsp;<a href="https://github.com/olerast67/zamok/blob/main/ROADMAP.md">дорожной карте</a>: нет проверки посторонним человеком, нет fuzzing разбора формата, тестов с&nbsp;отключением питания не&nbsp;было, Windows 11 и&nbsp;облачные клиенты не&nbsp;проверены. Обновления проверяются только кнопкой в&nbsp;настройках, сами ничего не&nbsp;ставят: новую версию вы скачиваете и&nbsp;ставите поверх старой, список папок сохраняется.</p>
+    <p>Что не&nbsp;сделано и&nbsp;важно для&nbsp;ваших данных, по&nbsp;<a href="https://github.com/olerast67/zamok/blob/main/ROADMAP.md">дорожной карте</a>: нет проверки посторонним человеком, нет fuzzing разбора формата, тестов с&nbsp;отключением питания не&nbsp;было, Windows 11 и&nbsp;облачные клиенты не&nbsp;проверены. Обновления проверяются только кнопкой в&nbsp;настройках, сами ничего не&nbsp;ставят: новую версию вы&nbsp;скачиваете и&nbsp;ставите поверх старой, список папок сохраняется.</p>
     <p>Как&nbsp;это сделано: автор придумал программу, руководил работой и&nbsp;проверял её&nbsp;на&nbsp;настоящем компьютере. Большую часть кода написал ИИ-ассистент (Claude от&nbsp;Anthropic). Независимого аудита не&nbsp;было.</p>
     <p>Нашли уязвимость? Как&nbsp;сообщить о&nbsp;ней закрыто, написано в&nbsp;<a href="https://github.com/olerast67/zamok/blob/main/SECURITY.md">SECURITY.md</a>.</p>
   </div>
