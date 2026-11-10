@@ -653,7 +653,9 @@ try {
         $p.WaitForExit(10000) -and (WaitFor { (Folder $idleDir).state -eq 'locked' } 10000)
     }
     $script:idleHeld.Dispose()
-    [void](Send "{`"cmd`":`"set_idle_lock`",`"path`":`"$(J $idleDir)`",`"secs`":0}")
+    # Ubrat papku iz spiska: lishnyaya stroka v nastroykah dala by polosu prokrutki (ee knopki
+    # WinUI nazyvaet na yazyke Windows, proverka yazyka nizhe ih ne zhdet)
+    [void](Send "{`"cmd`":`"remove`",`"path`":`"$(J $idleDir)`"}")
 
     # Yazyk: okna po yazyku Windows (ZAMOK_LANG zadaet ego dlya testa), tekst iz svoego fayla strok
     foreach ($l in @(@('ru', 'ru-RU'), @('en', 'en-US'))) {
@@ -670,10 +672,11 @@ try {
     $w = Window $ui.Id
     [void](WaitFor { Text $w 'DetailName' } 10000)
     # Ni odnogo russkogo slova, krome imen papok (podpisi pereklyuchateley WinUI inache berutsya iz
-    # yazyka Windows). Imya polosy prokrutki daet sama WinUI na yazyke Windows, ego ne zadat
+    # yazyka Windows). Imya polosy prokrutki i ee knopok daet sama WinUI na yazyke Windows, ego ne zadat
     function NoRussian($w) {
         $ru = @($w.FindAll('Descendants', [Windows.Automation.Condition]::TrueCondition) |
-            Where-Object { $_.Current.ControlType -ne [Windows.Automation.ControlType]::ScrollBar } | ForEach-Object { $_.Current.Name } |
+            Where-Object { $_.Current.ControlType -ne [Windows.Automation.ControlType]::ScrollBar -and
+                -not ([Windows.Automation.TreeWalker]::RawViewWalker.GetParent($_).Current.ControlType -eq [Windows.Automation.ControlType]::ScrollBar) } | ForEach-Object { $_.Current.Name } |
             Where-Object { $_ -match '[Ѐ-ӿ]' -and $_ -notlike "*$ruName*" })
         if ($ru) { throw "Russian text: $($ru -join ' | ')" }
         $true
