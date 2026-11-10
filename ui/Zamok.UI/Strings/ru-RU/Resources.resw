@@ -104,6 +104,7 @@
   <data name="Settings_StateUnavailable" xml:space="preserve"><value>недоступна</value></data>
   <data name="Settings_Lock" xml:space="preserve"><value>Запереть</value></data>
   <data name="Lock_OpenFiles" xml:space="preserve"><value>В папке «{0}» открыты файлы, файлов: {1}. Несохранённые изменения пропадут: программа не сможет их записать. Запереть всё равно?</value></data>
+  <data name="Lock_OpenFilesIn" xml:space="preserve"><value>В папке «{0}» открыты файлы, файлов: {1}. Открыто в: {2}. Несохранённые изменения пропадут: программа не сможет их записать. Запереть всё равно?</value></data>
   <data name="App_Unexpected" xml:space="preserve"><value>Внутренняя ошибка Zamok. Попробуйте ещё раз. Файлы в папке не затронуты этой ошибкой.</value></data>
   <data name="A11y_Strength" xml:space="preserve"><value>Надёжность пароля</value></data>
   <data name="A11y_Progress" xml:space="preserve"><value>Ход работы</value></data>
@@ -132,6 +133,13 @@
   <data name="Deleted_RemoveNote" xml:space="preserve"><value>Если убрать папку из Zamok, зашифрованные файлы останутся в скрытой папке «.{0}.zamok», а рядом появится файл «КАК ОТКРЫТЬ {0}.txt» с объяснением, как их открыть.</value></data>
   <data name="Deleted_Restore.Content" xml:space="preserve"><value>Вернуть</value></data>
   <data name="Deleted_Remove.Content" xml:space="preserve"><value>Убрать из Zamok</value></data>
+  <data name="Idle_Message" xml:space="preserve"><value>С папкой не работали {0} мин, и её пора запереть. Но в ней открыты файлы: если запереть сейчас, несохранённые изменения пропадут, программа не сможет их записать.</value></data>
+  <data name="Idle_OpenIn" xml:space="preserve"><value>Открыто в: {0}</value></data>
+  <data name="Idle_OpenCount" xml:space="preserve"><value>Открыто файлов: {0}</value></data>
+  <data name="Idle_Later.Text" xml:space="preserve"><value>Если закрыть это окно, Zamok запрёт папку, когда файлы закроют.</value></data>
+  <data name="Idle_Postpone.Content" xml:space="preserve"><value>Отложить на 10 минут</value></data>
+  <data name="Idle_LockNow.Content" xml:space="preserve"><value>Запереть сейчас</value></data>
+  <data name="Idle_LockNow.AccessKey" xml:space="preserve"><value>З</value></data>
   <data name="Defender_Title.Text" xml:space="preserve"><value>Исключить зашифрованные данные из проверки Defender?</value></data>
   <data name="Defender_Text.Text" xml:space="preserve"><value>Defender проверяет каждый файл дважды: открытым и в зашифрованном виде в скрытой папке рядом. Если исключить скрытые папки, работа с файлами станет быстрее. Открытые файлы Defender проверяет как прежде, а зашифрованные копии проверять не будет: вирус в них всё равно не распознать. Нужны права администратора.</value></data>
   <data name="Defender_ExcludeText.Text" xml:space="preserve"><value>Исключить</value></data>

@@ -445,6 +445,56 @@ try {
         [void](Send "{`"cmd`":`"add`",`"path`":`"$(J $mnt)`",`"vault`":`"$(J $vault)`"}")
         (Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}").ok -and (Get-Content "$mnt\new.txt") -eq 'written through core'
     }
+    # Pora zapirat po bezdeystviyu, no fayl otkryt: okno sprashivaet "Zaperet seychas" ili "Otlozhit"
+    function IdleAsking { @((Send '{"cmd":"status"}').folders | Where-Object { $_.path -eq $mnt -and $_.idle_asking }).Count -eq 1 }
+    function Hold { [IO.File]::Open("$mnt\new.txt", 'Open', 'Read', 'ReadWrite') }
+    function UnlockMnt { [void](Send "{`"cmd`":`"unlock`",`"path`":`"$(J $mnt)`",`"password`":`"$pw`"}") }
+    $me = [IO.Path]::GetFileName((Get-Process -Id $PID).Path)
+    $script:held = Hold
+    Check 'status names the program that holds a file open, exe name only' {
+        $f = (Send '{"cmd":"status"}').folders | Where-Object { $_.path -eq $mnt }
+        if ($f.open_files -ne 1 -or (@($f.open_in) -join ',') -ne $me) { throw "open_files=$($f.open_files) open_in=$($f.open_in)" }
+        $me
+    }
+    Check 'idle lock due with a file open: core asks in a window with --idle-lock and the path' {
+        Remove-Item "$root\asker-args.txt" -ErrorAction SilentlyContinue
+        [void](Send "{`"cmd`":`"set_idle_lock`",`"path`":`"$(J $mnt)`",`"secs`":5}")
+        (WaitFor { IdleAsking } 15000) -and (WaitFor { Test-Path "$root\asker-args.txt" } 5000) -and
+            ((Get-Content "$root\asker-args.txt" -Raw -Encoding UTF8) -eq "--idle-lock|$mnt") -and (State) -eq 'unlocked' -and (Askers).Count -eq 1
+    }
+    Check 'answer postpone: no idle lock for now, even after the file is closed' {
+        $r = Send "{`"cmd`":`"answer_idle`",`"path`":`"$(J $mnt)`",`"lock`":false}"
+        $script:held.Dispose()
+        Start-Sleep -Seconds 8
+        $r.ok -and (State) -eq 'unlocked' -and -not (IdleAsking)
+    }
+    Askers | Stop-Process -Force
+    Check 'answer lock now: folder locks with the file still open' {
+        [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $mnt)`"}"); UnlockMnt
+        $script:held = Hold
+        if (-not (WaitFor { IdleAsking } 15000)) { throw 'no question' }
+        $r = Send "{`"cmd`":`"answer_idle`",`"path`":`"$(J $mnt)`",`"lock`":true}"
+        $r.ok -and $r.folder.state -eq 'locked' -and -not (IdleAsking)
+    }
+    $script:held.Dispose(); Askers | Stop-Process -Force
+    Check 'window closed without an answer: no second question, folder locks once the file is closed' {
+        UnlockMnt; $script:held = Hold
+        if (-not (WaitFor { IdleAsking } 15000)) { throw 'no question' }
+        Askers | Stop-Process -Force
+        Start-Sleep -Seconds 5
+        $waited = (State) -eq 'unlocked' -and (Askers).Count -eq 0 -and -not (IdleAsking)
+        $script:held.Dispose()
+        $waited -and (WaitFor { (State) -eq 'locked' } 12000)
+    }
+    Check 'screen lock while asking: locks at once, the window is closed by core' {
+        UnlockMnt; $script:held = Hold
+        if (-not (WaitFor { IdleAsking } 15000)) { throw 'no question' }
+        PostToCore 0x02B1 7
+        (WaitFor { (State) -eq 'locked' } 5000) -and (WaitFor { (Askers).Count -eq 0 -and -not (IdleAsking) } 8000)
+    }
+    $script:held.Dispose(); Askers | Stop-Process -Force
+    [void](Send "{`"cmd`":`"set_idle_lock`",`"path`":`"$(J $mnt)`",`"secs`":0}")
+    UnlockMnt
     [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $mnt)`"}")
     Check 'vault deleted: folder leaves the list, the name is free again' {
         Remove-Item $vault -Recurse -Force

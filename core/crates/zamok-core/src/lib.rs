@@ -13,6 +13,7 @@
 //! - [`tray`]: значок в трее со списком папок и «Запереть всё».
 //! - [`search`]: путь папки вне индекса поиска Windows.
 //! - [`howto`]: памятка «КАК ОТКРЫТЬ» рядом с хранилищем.
+//! - [`processes`]: имена программ, которые держат файлы папки открытыми.
 
 pub mod autolock;
 pub mod clipguard;
@@ -24,6 +25,7 @@ pub mod howto;
 pub mod mountpoint;
 pub mod pipe;
 pub mod preflight;
+pub mod processes;
 pub mod protocol;
 pub mod recent;
 pub mod search;

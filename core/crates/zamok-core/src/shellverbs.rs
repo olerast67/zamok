@@ -130,6 +130,8 @@ mod tests {
             idle_lock_secs: 0,
             asking: false,
             open_files: 0,
+            open_in: Vec::new(),
+            idle_asking: false,
             hello: false,
             error: None,
         }

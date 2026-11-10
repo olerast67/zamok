@@ -27,7 +27,9 @@ public sealed record FolderInfo(
     string? Error,
     bool Hello = false,
     ulong OpenFiles = 0,
-    bool Asking = false)
+    bool Asking = false,
+    string[]? OpenIn = null,
+    bool IdleAsking = false)
 {
     public bool IsLocked => State == "locked";
     public bool IsUnlocked => State == "unlocked";

@@ -152,6 +152,15 @@ public sealed partial class CoreClient
         }, ct);
 
     /// <summary>Ответ окна «папку удалили в Проводнике»: вернуть её или убрать из Zamok.</summary>
+    /// <summary>Ответ окна «пора запереть, но файлы открыты»: запереть сейчас или отложить на 10 минут.</summary>
+    public Task<Response> AnswerIdleAsync(string path, bool lockNow, CancellationToken ct = default) =>
+        SendAsync(w =>
+        {
+            w.WriteString("cmd", "answer_idle");
+            w.WriteString("path", path);
+            w.WriteBoolean("lock", lockNow);
+        }, ct);
+
     public Task<Response> AnswerDeletedAsync(string path, bool remove, CancellationToken ct = default) =>
         SendAsync(w =>
         {

@@ -43,6 +43,10 @@ pub struct Entry {
     offline: AtomicBool,
     /// Точку подключения удалили в Проводнике, окно спрашивает «вернуть или убрать».
     asking: Mutex<Option<Asking>>,
+    /// Пора запирать по бездействию, но файлы открыты: окно спрашивает «запереть или отложить».
+    idle_asking: Mutex<Option<Asking>>,
+    /// «Отложить» в этом окне: до этого времени по бездействию не запираем.
+    postponed_until: Mutex<Option<std::time::Instant>>,
 }
 
 /// Открытый вопрос о папке, удалённой в Проводнике.
@@ -54,6 +58,9 @@ struct Asking {
 /// Сколько ждать ответа окна «папку удалили». Окно закрыли без ответа или оно не отвечает:
 /// папка возвращается на место запертой, как без вопроса.
 const ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// На сколько окно «пора запереть» откладывает запирание по бездействию.
+pub const POSTPONE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
 /// Окна Zamok: `Zamok.exe` рядом с core или `ZAMOK_UI_EXE` (тесты).
 pub fn ui_exe() -> Option<PathBuf> {
@@ -89,6 +96,8 @@ impl Entry {
             missing_ticks: AtomicU32::new(0),
             offline: AtomicBool::new(false),
             asking: Mutex::new(None),
+            idle_asking: Mutex::new(None),
+            postponed_until: Mutex::new(None),
         })
     }
 
@@ -114,6 +123,11 @@ impl Entry {
             state,
             idle_lock_secs: cfg.idle_lock_secs,
             open_files: self.control().map_or(0, |c| c.open_files()),
+            open_in: self
+                .control()
+                .filter(|c| !c.is_locked() && c.open_files() > 0)
+                .map(|c| crate::processes::names(&c.open_processes()))
+                .unwrap_or_default(),
             hello: self
                 .hello_file
                 .lock()
@@ -121,6 +135,7 @@ impl Entry {
                 .as_ref()
                 .is_some_and(|p| p.is_file()),
             asking: self.asking.lock().unwrap().is_some(),
+            idle_asking: self.idle_asking.lock().unwrap().is_some(),
             error: *self.error.lock().unwrap(),
         }
     }
@@ -162,9 +177,52 @@ impl Entry {
         true
     }
 
+    /// Снять вопрос «запереть или отложить»: окно закрывается, если ещё открыто.
+    /// `answered`: окно ответило и закроется само.
+    fn end_idle_question(&self, answered: bool) {
+        if let Some(mut a) = self.idle_asking.lock().unwrap().take() {
+            if !answered {
+                let _ = a.window.kill();
+            }
+            // Иначе процесс окна остался бы зомби до выхода core
+            std::thread::spawn(move || a.window.wait());
+        }
+    }
+
+    /// Окно «запереть или отложить» закрыли без ответа или оно молчит слишком долго.
+    fn idle_question_expired(&self) -> bool {
+        let mut asking = self.idle_asking.lock().unwrap();
+        let Some(a) = asking.as_mut() else {
+            return false;
+        };
+        let closed = a.window.try_wait().map_or(true, |s| s.is_some());
+        if !closed && a.since.elapsed() < ASK_TIMEOUT {
+            return false;
+        }
+        if !closed {
+            let _ = a.window.kill();
+        }
+        *asking = None;
+        true
+    }
+
+    fn postponed(&self) -> bool {
+        let mut p = self.postponed_until.lock().unwrap();
+        match *p {
+            Some(t) if std::time::Instant::now() < t => true,
+            Some(_) => {
+                *p = None;
+                false
+            }
+            None => false,
+        }
+    }
+
     /// Запереть и отменить идущие открытия. `true`, если папка была открыта.
+    /// Отсрочка запирания по бездействию тоже снимается: после нового открытия она не нужна.
     fn lock_now(&self) -> Option<Arc<Control>> {
         self.lock_epoch.fetch_add(1, Ordering::SeqCst);
+        *self.postponed_until.lock().unwrap() = None;
         let c = self.control()?;
         c.lock().then_some(c)
     }
@@ -1028,25 +1086,29 @@ impl Core {
     }
 
     /// Запереть папки, с которыми долго ничего не делали. Возвращает события для уведомлений:
-    /// папка заперта, или пора запирать, но программа держит файл (о каждой папке один раз).
+    /// папка заперта, или пора запирать, но программа держит файл, а окна для вопроса нет
+    /// (о каждой папке один раз).
     pub fn lock_idle(&self) -> Vec<IdleEvent> {
         let entries = self.entries.lock().unwrap().clone();
         let mut events = Vec::new();
         for e in entries {
             let cfg = e.cfg();
             let secs = cfg.idle_lock_secs;
-            if secs == 0 {
-                continue;
-            }
             let Some(c) = e.control() else { continue };
-            if c.is_locked() || c.idle_for().as_secs() < secs {
+            if secs == 0 || c.is_locked() || c.idle_for().as_secs() < secs {
                 e.waiting_told.store(false, Ordering::SeqCst);
+                e.end_idle_question(false);
                 continue;
             }
-            // Пока программа держит файл из папки, по бездействию не запираем: иначе
-            // открытый документ потом не сохранить. Win+L и сон запирают сразу.
+            if e.postponed() {
+                continue;
+            }
+            // Пока программа держит файл из папки, по бездействию сами не запираем: иначе
+            // открытый документ потом не сохранить. Окно спрашивает «запереть сейчас или
+            // отложить»; без ответа ждём, пока файлы закроют. Win+L и сон запирают сразу.
             if c.open_files() > 0 {
-                if !e.waiting_told.swap(true, Ordering::SeqCst) {
+                e.idle_question_expired();
+                if !e.waiting_told.swap(true, Ordering::SeqCst) && !self.ask_idle(&e, &cfg) {
                     events.push(IdleEvent::Waiting {
                         name: cfg.name(),
                         minutes: secs / 60,
@@ -1054,6 +1116,7 @@ impl Core {
                 }
                 continue;
             }
+            e.end_idle_question(false);
             if c.lock() {
                 settle_lock(&c, &cfg.path);
                 e.waiting_told.store(false, Ordering::SeqCst);
@@ -1065,6 +1128,49 @@ impl Core {
             }
         }
         events
+    }
+
+    /// Спросить в окне `Zamok.exe --idle-lock <путь>`, запереть ли папку с открытыми файлами
+    /// сейчас или отложить. Ответ приходит по каналу ([`Core::answer_idle`]). `false`: окна
+    /// нет или оно не запустилось, тогда остаётся уведомление в трее.
+    fn ask_idle(&self, e: &Entry, cfg: &FolderConfig) -> bool {
+        let Some(exe) = ui_exe() else {
+            return false;
+        };
+        match std::process::Command::new(exe)
+            .arg("--idle-lock")
+            .arg(&cfg.path)
+            .spawn()
+        {
+            Ok(window) => {
+                *e.idle_asking.lock().unwrap() = Some(Asking {
+                    since: std::time::Instant::now(),
+                    window,
+                });
+                tracing::info!(folder = %cfg.id, "idle lock is due but files are open, asking");
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Ответ окна «пора запереть, но файлы открыты». Запереть: сразу, как «Запереть» в меню,
+    /// открытые файлы теряют доступ. Отложить: [`POSTPONE`] без запирания по бездействию,
+    /// потом окно спросит снова, если файлы ещё открыты.
+    pub fn answer_idle(&self, path: &str, lock: bool) -> Result<FolderInfo, ErrorCode> {
+        let e = self.find(path)?;
+        e.end_idle_question(true);
+        e.waiting_told.store(false, Ordering::SeqCst);
+        if lock {
+            if let Some(c) = e.lock_now() {
+                settle_lock(&c, &e.cfg().path);
+                tracing::info!(folder = %e.cfg().id, "locked from the idle question");
+            }
+        } else {
+            *e.postponed_until.lock().unwrap() = Some(std::time::Instant::now() + POSTPONE);
+            tracing::info!(folder = %e.cfg().id, "idle lock postponed");
+        }
+        Ok(e.info())
     }
 
     /// Общие настройки для окна настроек.

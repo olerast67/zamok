@@ -103,6 +103,12 @@ pub enum Request {
         path: String,
         remove: bool,
     },
+    /// Ответ окна «пора запереть, но файлы открыты»: `lock = true` запереть сейчас,
+    /// `false` отложить запирание по бездействию на 10 минут.
+    AnswerIdle {
+        path: String,
+        lock: bool,
+    },
     /// Предложение исключить эти хранилища из проверки Defender показано, больше не спрашивать.
     DefenderOfferDone {
         vaults: Vec<String>,
@@ -184,11 +190,17 @@ pub struct FolderInfo {
     pub idle_lock_secs: u64,
     /// Сколько файлов папки сейчас открыто: окна предупреждают перед запиранием.
     pub open_files: usize,
+    /// В каких программах открыты файлы: только имена exe, без путей (не больше пяти).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub open_in: Vec<String>,
     /// Включён вход по Windows Hello.
     pub hello: bool,
     /// Папку удалили в Проводнике, окно спрашивает «вернуть или убрать».
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub asking: bool,
+    /// Пора запирать по бездействию, но файлы открыты: окно спрашивает «запереть или отложить».
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub idle_asking: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorCode>,
 }
@@ -301,6 +313,11 @@ mod tests {
             parse(br#"{"cmd":"answer_deleted","path":"C:\\a","remove":true}"#),
             Ok(Request::AnswerDeleted { remove: true, .. })
         ));
+        assert!(matches!(
+            parse(br#"{"cmd":"answer_idle","path":"C:\\a","lock":false}"#),
+            Ok(Request::AnswerIdle { lock: false, .. })
+        ));
+        assert!(parse(br#"{"cmd":"answer_idle","path":"C:\\a"}"#).is_err());
         match parse(br#"{"cmd":"add","path":"C:\\a","vault":"C:\\.a.zamok"}"#) {
             Ok(Request::Add { idle_lock_secs, .. }) => assert_eq!(idle_lock_secs, None),
             _ => panic!(),

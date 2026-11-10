@@ -138,15 +138,53 @@ pub struct ZFile {
     dir_buffer: DirBuffer,
     generation: u64,
     delete_on_close: AtomicBool,
-    /// Счётчик открытых файлов поколения этого дескриптора (у каталогов и виртуальных файлов `None`).
-    open_files: Option<Arc<AtomicUsize>>,
+    /// Открытые файлы поколения этого дескриптора и процесс, который его открыл
+    /// (у каталогов и виртуальных файлов `None`).
+    open_files: Option<(Arc<Handles>, u32)>,
 }
 
 impl Drop for ZFile {
     fn drop(&mut self) {
-        if let Some(c) = &self.open_files {
-            c.fetch_sub(1, Ordering::SeqCst);
+        if let Some((h, pid)) = &self.open_files {
+            h.remove(*pid);
         }
+    }
+}
+
+/// Открытые файлы одного поколения: сколько всего и сколько у каждого процесса.
+#[derive(Default)]
+struct Handles {
+    total: AtomicUsize,
+    by_pid: Mutex<HashMap<u32, usize>>,
+}
+
+impl Handles {
+    fn add(&self, pid: u32) {
+        self.total.fetch_add(1, Ordering::SeqCst);
+        *self.by_pid.lock().unwrap().entry(pid).or_insert(0) += 1;
+    }
+
+    fn remove(&self, pid: u32) {
+        self.total.fetch_sub(1, Ordering::SeqCst);
+        let mut map = self.by_pid.lock().unwrap();
+        if let Some(n) = map.get_mut(&pid) {
+            *n -= 1;
+            if *n == 0 {
+                map.remove(&pid);
+            }
+        }
+    }
+}
+
+/// Процесс, который сейчас открывает файл. WinFsp знает его только во время Create
+/// (открытие и создание); вне потоков WinFsp (проверки) 0.
+fn operation_pid() -> u32 {
+    // SAFETY: функции WinFsp без аргументов; контекст операции проверяется до чтения запроса
+    unsafe {
+        if winfsp_sys::FspFileSystemGetOperationContext().is_null() {
+            return 0;
+        }
+        winfsp_sys::FspFileSystemOperationProcessIdF()
     }
 }
 
@@ -188,7 +226,7 @@ pub struct Control {
     /// Сколько файлов папки сейчас открыто программами (каталоги не считаются: окно
     /// Проводника на папке не должно держать её открытой). При запирании счётчик заменяется
     /// новым: дескрипторы, открытые до запирания, уже не работают и считаться не должны.
-    open_handles: Mutex<Arc<AtomicUsize>>,
+    open_handles: Mutex<Arc<Handles>>,
     /// Отсчёт для [`Control::idle_for`].
     started: std::time::Instant,
     /// Когда в папке последний раз читали, писали, создавали, переименовывали или смотрели
@@ -327,7 +365,7 @@ impl Control {
                 f.lock().unwrap().seal();
             }
         }
-        *self.open_handles.lock().unwrap() = Arc::new(AtomicUsize::new(0));
+        *self.open_handles.lock().unwrap() = Arc::default();
         self.clear_dir_cache();
         self.listings.lock().unwrap().clear();
         let mut seen: Vec<String> = self.seen.lock().unwrap().drain().collect();
@@ -359,7 +397,27 @@ impl Control {
 
     /// Сколько файлов папки сейчас открыто программами.
     pub fn open_files(&self) -> usize {
-        self.open_handles.lock().unwrap().load(Ordering::SeqCst)
+        self.open_handles
+            .lock()
+            .unwrap()
+            .total
+            .load(Ordering::SeqCst)
+    }
+
+    /// Процессы, которые держат файлы папки открытыми (номера, по возрастанию). Процесс,
+    /// который WinFsp не назвал, не попадает в список, но в [`Control::open_files`] считается.
+    pub fn open_processes(&self) -> Vec<u32> {
+        let handles = self.open_handles.lock().unwrap().clone();
+        let mut pids: Vec<u32> = handles
+            .by_pid
+            .lock()
+            .unwrap()
+            .keys()
+            .copied()
+            .filter(|p| *p != 0)
+            .collect();
+        pids.sort_unstable();
+        pids
     }
 
     /// Сколько времени с папкой ничего не делали (с момента открытия или последнего обращения).
@@ -404,7 +462,7 @@ impl ZamokFs {
             seen: Mutex::new(std::collections::HashSet::new()),
             pending_invalidate: Mutex::new(Vec::new()),
             fallback_wait: AtomicBool::new(false),
-            open_handles: Mutex::new(Arc::new(AtomicUsize::new(0))),
+            open_handles: Mutex::new(Arc::default()),
             started: std::time::Instant::now(),
             last_activity_ms: AtomicU64::new(0),
         });
@@ -754,9 +812,10 @@ impl ZamokFs {
     ) -> ZFile {
         let counted = virt.is_none() && matches!(kind, Some(Kind::File { .. }));
         let open_files = counted.then(|| {
-            let counter = self.ctl.open_handles.lock().unwrap().clone();
-            counter.fetch_add(1, Ordering::SeqCst);
-            counter
+            let handles = self.ctl.open_handles.lock().unwrap().clone();
+            let pid = operation_pid();
+            handles.add(pid);
+            (handles, pid)
         });
         ZFile {
             open_files,
@@ -1752,5 +1811,31 @@ mod tests {
         assert_eq!(z.control().open_files(), 1);
         drop(new);
         assert_eq!(z.control().open_files(), 0);
+    }
+
+    #[test]
+    fn handles_are_counted_per_process() {
+        let d = tempfile::tempdir().unwrap();
+        let z = open_fs(&d.path().join("v"));
+        let h = z.ctl.open_handles.lock().unwrap().clone();
+        h.add(10);
+        h.add(10);
+        h.add(7);
+        // Вне потока WinFsp процесс неизвестен: файл считается, в списке процессов его нет
+        let f = make_file(&z, "\\a.txt", b"x");
+        assert_eq!(z.control().open_files(), 4);
+        assert_eq!(z.control().open_processes(), vec![7, 10]);
+        h.remove(10);
+        assert_eq!(z.control().open_processes(), vec![7, 10]);
+        h.remove(10);
+        h.remove(7);
+        assert!(z.control().open_processes().is_empty());
+        assert_eq!(z.control().open_files(), 1);
+        drop(f);
+        assert_eq!(z.control().open_files(), 0);
+        // После запирания старые записи не видны
+        h.add(3);
+        assert!(z.control().lock());
+        assert!(z.control().open_processes().is_empty());
     }
 }
