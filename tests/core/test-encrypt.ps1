@@ -3,6 +3,8 @@
 # kanalom, nastoyashchiy %LOCALAPPDATA%\Zamok ne zatragivaetsya.
 # Glavnoe: process snimaetsya avariyno na kazhdom shage (ZAMOK_TEST_CRASH), posle perezapuska
 # libo original na meste i ne tronut, libo papka zashifrovana i soderzhimoe to zhe.
+# Avariya vo vremya kopirovaniya ostavlyaet kopiyu i zhurnal: povtornoe shifrovanie toy zhe papki
+# prodolzhaet s mesta ostanovki (razdel G).
 # Zapusk: powershell -NoProfile -ExecutionPolicy Bypass -File tests\core\test-encrypt.ps1
 # Skript v ASCII: russkie imena sobirayutsya iz kodov simvolov.
 $ErrorActionPreference = 'Stop'
@@ -39,6 +41,9 @@ function StartCore([string]$crash = '', [string]$pause = '') {
     if ($pause) { $psi.EnvironmentVariables['ZAMOK_TEST_PAUSE'] = $pause }
     $p = [Diagnostics.Process]::Start($psi)
     [void](WaitFor { (Test-Path "\\.\pipe\$pipeName") -or $p.HasExited } 60000)
+    # Kanal sozdaetsya do vosstanovleniya posle sboya, a otvechat core nachinaet tolko posle nego:
+    # pervyy otvet znachit, chto vosstanovlenie zakoncheno
+    if (-not $p.HasExited) { try { [void](Send '{"cmd":"status"}') } catch {} }
     $p
 }
 function Send([string]$json) {
@@ -97,6 +102,21 @@ function Sib([string]$path) {
     @{ Tmp = "$parent\.$name.zamok.tmp"; Vault = "$parent\.$name.zamok"; Aside = "$parent\.$name.zamok-original" }
 }
 function Journals { @(Get-ChildItem "$data\jobs" -Filter *.json -ErrorAction SilentlyContinue).Count }
+# Otpechatki faylov shifroteksta (bez dir.c9r i dirid.c9r): shifrovanie sluchaynoe, poetomu
+# nepodmenennyy fayl = tot zhe otpechatok
+function CtHashes([string]$vault) {
+    @(Get-ChildItem -LiteralPath $vault -Recurse -Force -File | Where-Object { $_.Name -like '*.c9r' -and $_.Name -ne 'dir.c9r' -and $_.Name -ne 'dirid.c9r' } |
+        ForEach-Object { Sha $_.FullName })
+}
+$javaDir = 'C:\dev\tools\jdk-26.0.2.1+1\bin'; $toolDir = "$repo\tests\fixtures-tool"
+$haveCryptomator = (Test-Path "$javaDir\java.exe") -and (Test-Path "$toolDir\cp.txt")
+# Cryptomator chitaet hranilishche (papka dolzhna byt zaperta); sravnivayutsya fayly
+function CryptomatorFiles([string]$vault, [string]$out) {
+    $cp = (Get-Content "$toolDir\cp.txt").Substring(4).Trim([char]34)
+    & "$javaDir\java.exe" "-Dfile.encoding=UTF-8" "-Dsun.jnu.encoding=UTF-8" -cp "$toolDir/out;$cp" ReadVault $vault $out $pw 2>&1 | Out-Null
+    (Manifest $out) -split "`n" | Where-Object { $_ -like 'F *' }
+}
+function FilesOf([string]$manifest) { $manifest -split "`n" | Where-Object { $_ -like 'F *' } }
 function IsMount([string]$p) { $i = Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue; $i -and ($i.Attributes -band [IO.FileAttributes]::ReparsePoint) }
 
 # Podgotovka
@@ -153,15 +173,11 @@ try {
         $r.ok -and (Manifest $a) -eq $ref
     }
     Check 'encrypting it again is refused' { (Send (EncryptReq $a)).error -eq 'not_a_plain_folder' }
-    $j = 'C:\dev\tools\jdk-26.0.2.1+1\bin'; $t = "$repo\tests\fixtures-tool"
-    if ((Test-Path "$j\java.exe") -and (Test-Path "$t\cp.txt")) {
+    if ($haveCryptomator) {
         [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $a)`"}")
-        $cp = (Get-Content "$t\cp.txt").Substring(4).Trim([char]34)
-        & "$j\java.exe" "-Dfile.encoding=UTF-8" "-Dsun.jnu.encoding=UTF-8" -cp "$t/out;$cp" ReadVault $sa.Vault "$root\a-cryptomator" $pw 2>&1 | Out-Null
         Check 'Cryptomator reads the encrypted folder: same content' {
             # Cryptomator ne sozdaet pustye papki v vygruzke inache, sravnivaem fayly
-            $f = { param($m) ($m -split "`n" | Where-Object { $_ -like 'F *' }) -join "`n" }
-            (& $f (Manifest "$root\a-cryptomator")) -eq (& $f $ref)
+            ((CryptomatorFiles $sa.Vault "$root\a-cryptomator") -join "`n") -eq ((FilesOf $ref) -join "`n")
         }
     }
 
@@ -207,7 +223,8 @@ try {
 
     # E. Avariya na kazhdom shage, potom perezapusk
     $points = @(
-        @{ P = 'copying'; Back = $true }, @{ P = 'copy:3'; Back = $true }, @{ P = 'flush_done'; Back = $true }, @{ P = 'verified_before_journal'; Back = $true },
+        @{ P = 'copying'; Back = $true }, @{ P = 'copy:3'; Back = $true }, @{ P = 'copy_written:3'; Back = $true },
+        @{ P = 'flush_done'; Back = $true }, @{ P = 'verified_before_journal'; Back = $true },
         @{ P = 'verified'; Back = $false }, @{ P = 'vault_placed_before_journal'; Back = $false }, @{ P = 'vault_placed'; Back = $false },
         @{ P = 'original_aside_before_journal'; Back = $false }, @{ P = 'original_aside'; Back = $false }, @{ P = 'aside_checked'; Back = $false },
         @{ P = 'registered_before_journal'; Back = $false }, @{ P = 'registered'; Back = $false }, @{ P = 'aside_deleted'; Back = $false }
@@ -222,9 +239,16 @@ try {
         $code = if ($died) { $script:proc.ExitCode } else { $script:proc.Kill(); 'alive' }
         $script:proc = StartCore
         if ($pt.Back) {
-            Check "crash at $($pt.P) (exit $code): original back untouched, nothing left" {
-                -not (IsMount $e) -and (Manifest $e) -eq $ref -and -not (Test-Path $se.Tmp) -and -not (Test-Path $se.Vault) -and
-                    -not (Test-Path $se.Aside) -and (Journals) -eq 0 -and -not (Folder $e)
+            # Kopirovanie prervano: original ne tronut, kopiya i zhurnal zhdut prodolzheniya
+            Check "crash at $($pt.P) (exit $code): original untouched, copy waits to be continued" {
+                -not (IsMount $e) -and (Manifest $e) -eq $ref -and (Test-Path $se.Tmp) -and -not (Test-Path $se.Vault) -and
+                    -not (Test-Path $se.Aside) -and (Journals) -eq 1 -and -not (Folder $e)
+            }
+            $r = Send (EncryptReq $e)
+            $je = if ($r.ok) { WaitJob $r.job.id } else { $r }
+            Check "crash at $($pt.P), encrypt again: continued, same content, nothing left" {
+                $je.state -eq 'done' -and (Folder $e).state -eq 'unlocked' -and (Manifest $e) -eq $ref -and -not (Test-Path $se.Tmp) -and -not (Test-Path $se.Aside) -and
+                    (Journals) -eq 0 -or $(throw "job=$($je | ConvertTo-Json -Compress)")
             }
         } else {
             Check "crash at $($pt.P) (exit $code): encrypted, same content, nothing left" {
@@ -292,10 +316,132 @@ try {
         $script:proc = StartCore
         Check "crash at $($case.P), file added before restart: recovery rolls back, the file survives" {
             -not (IsMount $e) -and (Test-Path -LiteralPath "$e\$added") -and
-                ((Get-Content -LiteralPath "$e\$added" -Raw) -eq 'must survive') -and (NothingLeft $se) -and -not (Folder $e)
+                ((Get-Content -LiteralPath "$e\$added" -Raw) -eq 'must survive') -and (NothingLeft $se) -and -not (Folder $e) -or
+                $(throw "mount=$(IsMount $e) file=$(Test-Path -LiteralPath "$e\$added") tmp=$(Test-Path $se.Tmp) vault=$(Test-Path $se.Vault) aside=$(Test-Path $se.Aside) journals=$(Journals) folder=$([bool](Folder $e))")
         }
         [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(20000)
     }
+
+    # G. Prodolzhenie kopirovaniya s mesta ostanovki
+    function CrashAt([string]$point, [string]$dir) {
+        if ($script:proc -and -not $script:proc.HasExited) { [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(20000) }
+        $script:proc = StartCore $point
+        try { [void](Send (EncryptReq $dir)) } catch {}
+        if (-not $script:proc.WaitForExit(120000)) { $script:proc.Kill() }
+        $script:proc = StartCore
+    }
+    function EncryptWait([string]$dir, [string]$p = $pw) {
+        $r = Send (EncryptReq $dir $p)
+        if (-not $r.ok) { return $r }
+        WaitJob $r.job.id
+    }
+    function Waits($p, [string]$dir) { -not (IsMount $dir) -and (Test-Path $p.Tmp) -and (Journals) -eq 1 -and -not (Folder $dir) }
+    function Finished($p) { -not (Test-Path $p.Tmp) -and -not (Test-Path $p.Aside) -and (Journals) -eq 0 }
+
+    # G1. Avariya posle 20 sverennyh faylov: oni ostayutsya v kopii, ostalnoe dopisyvaetsya
+    $g1 = "$root\g1\$ruName"; MakeSample $g1; $sg1 = Sib $g1
+    CrashAt 'copy:20' $g1
+    Check 'resume: after a crash at copy:20 the original is untouched, copy and journal wait' { (Waits $sg1 $g1) -and (Manifest $g1) -eq $ref }
+    $before = CtHashes $sg1.Tmp
+    $jg1 = EncryptWait $g1
+    Check 'resume: done, same content, nothing left' {
+        $jg1.state -eq 'done' -and (Manifest $g1) -eq $ref -and (Finished $sg1) -or $(throw "job=$($jg1 | ConvertTo-Json -Compress)")
+    }
+    Check 'resume: the 20 verified files were not copied again' {
+        $after = CtHashes $sg1.Vault
+        $same = @($before | Where-Object { $after -contains $_ }).Count
+        if ($before.Count -ne 20 -or $same -ne 20) { throw "before=$($before.Count) kept=$same" }
+        "kept=$same of $($after.Count)"
+    }
+    if ($haveCryptomator) {
+        [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $g1)`"}")
+        Check 'resume: Cryptomator reads the continued vault, same content' {
+            ((CryptomatorFiles $sg1.Vault "$root\g1-cryptomator") -join "`n") -eq ((FilesOf $ref) -join "`n")
+        }
+    }
+
+    # G2. Avariya posle zapisi 10-go fayla do ego sverki, mezhdu zapuskami papka menyalas,
+    # odin fayl shifroteksta isporchen: v itoge rovno novoe soderzhimoe papki
+    $g2 = "$root\g2\$ruName"; MakeSample $g2; $sg2 = Sib $g2
+    CrashAt 'copy_written:10' $g2
+    Check 'resume: crash before the check of a written file leaves the copy waiting' { (Waits $sg2 $g2) -and (Manifest $g2) -eq $ref }
+    [IO.File]::WriteAllText("$g2\many\f1.txt", 'changed between runs')
+    Remove-Item -LiteralPath "$g2\many\f30.txt"
+    Remove-Item -LiteralPath "$g2\pustaya"
+    [IO.File]::WriteAllText("$g2\new.txt", 'added between runs')
+    $ct = Get-ChildItem -LiteralPath $sg2.Tmp -Recurse -Force -File | Where-Object { $_.Name -like '*.c9r' -and $_.Name -ne 'dir.c9r' -and $_.Name -ne 'dirid.c9r' -and $_.Length -gt 100 } | Select-Object -First 1
+    $bytes = [IO.File]::ReadAllBytes($ct.FullName); [IO.File]::WriteAllBytes($ct.FullName, $bytes[0..($bytes.Length - 20)])
+    $want2 = Manifest $g2
+    $jg2 = EncryptWait $g2
+    Check 'resume after changes in the folder and a damaged file: exactly the new content' {
+        $jg2.state -eq 'done' -and (Manifest $g2) -eq $want2 -and (Finished $sg2) -or $(throw "job=$($jg2 | ConvertTo-Json -Compress)")
+    }
+    if ($haveCryptomator) {
+        [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $g2)`"}")
+        Check 'resume: Cryptomator reads it, same content as the changed folder' {
+            ((CryptomatorFiles $sg2.Vault "$root\g2-cryptomator") -join "`n") -eq ((FilesOf $want2) -join "`n")
+        }
+    }
+
+    # G3. Drugoy parol: prervannaya kopiya otkatyvaetsya, shifrovanie s nulya novym parolem
+    $g3 = "$root\g3\$ruName"; MakeSample $g3; $sg3 = Sib $g3; $pw3 = 'zamok-other-password'
+    CrashAt 'copy:5' $g3
+    $before = CtHashes $sg3.Tmp
+    $jg3 = EncryptWait $g3 $pw3
+    Check 'resume with another password: starts over, the new password opens it' {
+        [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $g3)`"}")
+        $old = Send "{`"cmd`":`"unlock`",`"path`":`"$(J $g3)`",`"password`":`"$pw`"}"
+        $new = Send "{`"cmd`":`"unlock`",`"path`":`"$(J $g3)`",`"password`":`"$pw3`"}"
+        $after = CtHashes $sg3.Vault
+        $jg3.state -eq 'done' -and -not $old.ok -and $new.ok -and (Manifest $g3) -eq $ref -and (Finished $sg3) -and
+            @($before | Where-Object { $after -contains $_ }).Count -eq 0
+    }
+
+    # G4. Kopiya povrezhdena (dannye otrezany ot dereva): otkat i shifrovanie s nulya
+    $g4 = "$root\g4\$ruName"; MakeSample $g4; $sg4 = Sib $g4
+    CrashAt 'copy:5' $g4
+    $orphan = "$($sg4.Tmp)\d\ZZ\ORPHANORPHANORPHANORPHANORPHAN22"
+    New-Item -ItemType Directory -Force $orphan | Out-Null; [IO.File]::WriteAllText("$orphan\junk.c9r", 'x')
+    $jg4 = EncryptWait $g4
+    Check 'resume of a damaged copy: rolled back and encrypted from scratch, same content' {
+        $jg4.state -eq 'done' -and (Manifest $g4) -eq $ref -and (Finished $sg4) -and -not (Test-Path "$($sg4.Vault)\d\ZZ\ORPHANORPHANORPHANORPHANORPHAN22") -or
+            $(throw "job=$($jg4 | ConvertTo-Json -Compress)")
+    }
+
+    # G5. Shifruyut druguyu papku: prervannaya kopiya pervoy otkatyvaetsya, papka ne tronuta
+    $g5 = "$root\g5\$ruName"; MakeSample $g5; $sg5 = Sib $g5
+    $g5b = "$root\g5b\$ruName"; MakeSample $g5b; $sg5b = Sib $g5b
+    CrashAt 'copy:3' $g5
+    $sys5 = "$env:LOCALAPPDATA\Temp\zamok-system-test-$PID"; New-Item -ItemType Directory -Force $sys5 | Out-Null
+    Check 'refused encryption of another folder keeps the interrupted copy' {
+        (Send (EncryptReq $sys5)).error -eq 'system_folder' -and (Waits $sg5 $g5)
+    }
+    Remove-Item $sys5 -Force
+    $jg5 = EncryptWait $g5b
+    Check 'another folder encrypted meanwhile: the interrupted copy is dropped, its folder untouched' {
+        $jg5.state -eq 'done' -and (Folder $g5b) -and -not (Test-Path $sg5.Tmp) -and (Manifest $g5) -eq $ref -and
+            -not (Folder $g5) -and (Finished $sg5b)
+    }
+    [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(20000)
+
+    # G6. Fayl izmenilsya posredi kopirovaniya: oshibka, kopiya zhdet; povtor dodelyvaet bez perezapuska
+    $g6 = "$root\g6\$ruName"; MakeSample $g6; $sg6 = Sib $g6; $gate6 = "$root\gate6"
+    $script:proc = StartCore '' "copy:5|$gate6"
+    $r6 = Send (EncryptReq $g6)
+    [void](WaitFor { Test-Path "$gate6.reached" } 60000)
+    $big2 = New-Object byte[] (1MB); (New-Object Random 7).NextBytes($big2)
+    [IO.File]::WriteAllBytes("$g6\$ruPapka\big.bin", $big2)
+    $want6 = Manifest $g6
+    New-Item -ItemType File $gate6 | Out-Null
+    $jg6 = WaitJob $r6.job.id
+    Check 'file changed during the copy: changed_during_copy, the copy waits, the folder has the new file' {
+        $jg6.error -eq 'changed_during_copy' -and (Waits $sg6 $g6) -and (Manifest $g6) -eq $want6
+    }
+    $jg6b = EncryptWait $g6
+    Check 'encrypt again in the same session: continued, the new content' {
+        $jg6b.state -eq 'done' -and (Manifest $g6) -eq $want6 -and (Finished $sg6) -or $(throw "job=$($jg6b | ConvertTo-Json -Compress)")
+    }
+    [void](Send '{"cmd":"quit"}'); [void]$script:proc.WaitForExit(20000)
 
     Check 'log has no folder names, paths or passwords' {
         $log = Get-Content "$data\core.log" -Raw -Encoding UTF8

@@ -230,9 +230,9 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Error_not_enough_space" xml:space="preserve"><value>There is not enough space on the drive for a second copy of the folder.</value></data>
   <data name="Error_job_running" xml:space="preserve"><value>A folder is being encrypted or decrypted. Wait until it finishes.</value></data>
   <data name="Error_recovery_pending" xml:space="preserve"><value>The previous encryption has not finished. Restart the computer or the Zamok background program.</value></data>
-  <data name="Error_changed_during_copy" xml:space="preserve"><value>Something changed in the folder during the work. Everything was cancelled, the files are in place. Close the programs writing to the folder and try again.</value></data>
+  <data name="Error_changed_during_copy" xml:space="preserve"><value>Something changed in the folder during the work. The files are in place. Close the programs writing to the folder and encrypt it again: Zamok will continue where it stopped when it can.</value></data>
   <data name="Error_verify_failed" xml:space="preserve"><value>The encrypted copy failed the check. Everything was cancelled, the files are in place.</value></data>
-  <data name="Error_copy_failed" xml:space="preserve"><value>Could not write the encrypted copy. Everything was cancelled, the files are in place.</value></data>
+  <data name="Error_copy_failed" xml:space="preserve"><value>Could not write the encrypted copy. The files are in place. Check the free disk space and encrypt the folder again: Zamok will continue where it stopped when it can.</value></data>
   <data name="Error_folder_in_use" xml:space="preserve"><value>Another program is using the folder (for example, a console window opened in it). Everything was cancelled, the files are in place.</value></data>
   <data name="Error_cancelled" xml:space="preserve"><value>Cancelled. The files are in place.</value></data>
 </root>

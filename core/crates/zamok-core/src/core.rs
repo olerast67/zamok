@@ -418,7 +418,10 @@ impl Core {
     }
 
     pub fn add_job(&self, p: Arc<Progress>) {
-        self.jobs.lock().unwrap().push(p);
+        let mut jobs = self.jobs.lock().unwrap();
+        // Продолженная работа идёт под прежним номером: старый ход (с ошибкой) больше не нужен
+        jobs.retain(|j| j.id != p.id);
+        jobs.push(p);
     }
 
     pub fn job(&self, id: &str) -> Option<Arc<Progress>> {

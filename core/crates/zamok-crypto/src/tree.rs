@@ -27,6 +27,71 @@ pub enum Node {
     Symlink { path: String },
 }
 
+/// Узел вместе с тем, что нужно, чтобы дописывать хранилище после сбоя: ID каталога и
+/// узел на диске (файл `.c9r` или папка узла). `Empty`: запись без содержимого, остаток
+/// прерванной записи.
+#[derive(Debug, Clone)]
+pub enum Entry {
+    Dir {
+        path: String,
+        id: String,
+        node: PathBuf,
+    },
+    File {
+        path: String,
+        ciphertext: PathBuf,
+        node: PathBuf,
+    },
+    Symlink {
+        path: String,
+        node: PathBuf,
+    },
+    Empty {
+        path: String,
+        node: PathBuf,
+    },
+}
+
+impl Entry {
+    /// Путь внутри хранилища через `/`.
+    pub fn path(&self) -> &str {
+        match self {
+            Entry::Dir { path, .. }
+            | Entry::File { path, .. }
+            | Entry::Symlink { path, .. }
+            | Entry::Empty { path, .. } => path,
+        }
+    }
+
+    /// Узел на диске: файл `.c9r` или папка узла.
+    pub fn node(&self) -> &Path {
+        match self {
+            Entry::Dir { node, .. }
+            | Entry::File { node, .. }
+            | Entry::Symlink { node, .. }
+            | Entry::Empty { node, .. } => node,
+        }
+    }
+
+    fn into_node(self) -> Option<Node> {
+        match self {
+            Entry::Dir { path, .. } => Some(Node::Dir { path }),
+            Entry::File {
+                path, ciphertext, ..
+            } => Some(Node::File { path, ciphertext }),
+            Entry::Symlink { path, .. } => Some(Node::Symlink { path }),
+            Entry::Empty { .. } => None,
+        }
+    }
+}
+
+/// Итог внутреннего обхода: узлы с подробностями и пропуски.
+#[derive(Default)]
+struct Walked {
+    nodes: Vec<Entry>,
+    skipped: Vec<String>,
+}
+
 /// Итог обхода с пропусками: что удалось прочитать и что нет. В `skipped` путь и причина.
 #[derive(Debug, Default)]
 pub struct WalkReport {
@@ -121,16 +186,60 @@ impl Vault {
     /// `dir.c9r` и папки каталога), но только пока в `d/` нет непустых папок, до которых обход
     /// не дошёл: такая папка значит, что ссылка на каталог испорчена и файлы отрезаны от дерева.
     pub fn walk(&self) -> Result<Vec<Node>> {
-        self.walk_inner(false).map(|r| r.nodes)
+        self.walk_inner(false)
+            .map(|w| w.nodes.into_iter().filter_map(Entry::into_node).collect())
     }
 
     /// Как [`Vault::walk`], но повреждённые записи пропускаются и перечисляются в отчёте.
     pub fn walk_tolerant(&self) -> Result<WalkReport> {
-        self.walk_inner(true)
+        let w = self.walk_inner(true)?;
+        Ok(WalkReport {
+            nodes: w.nodes.into_iter().filter_map(Entry::into_node).collect(),
+            skipped: w.skipped,
+        })
     }
 
-    fn walk_inner(&self, tolerant: bool) -> Result<WalkReport> {
-        let mut report = WalkReport::default();
+    /// Все узлы дерева с ID каталогов и узлами на диске, включая записи без содержимого.
+    /// Проверки те же, что у [`Vault::walk`]: любая повреждённая запись или отрезанные от
+    /// дерева данные дают ошибку. Нужен, чтобы продолжить прерванную запись хранилища.
+    pub fn entries(&self) -> Result<Vec<Entry>> {
+        self.walk_inner(false).map(|w| w.nodes)
+    }
+
+    /// Убрать узел из хранилища. У каталога сначала удаляется его папка в `d/`, потом узел:
+    /// вложенные каталоги нужно убрать раньше (глубокие первыми), иначе их папки в `d/`
+    /// останутся отрезанными от дерева.
+    pub fn remove_entry(&self, entry: &Entry) -> Result<()> {
+        if let Entry::Dir { id, .. } = entry {
+            match fs::remove_dir_all(self.root.join(names::dir_path(&self.key, id))) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+                _ => {}
+            }
+        }
+        let node = entry.node();
+        let r = match fs::symlink_metadata(node) {
+            Ok(m) if m.is_dir() => fs::remove_dir_all(node),
+            Ok(_) => fs::remove_file(node),
+            Err(e) => Err(e),
+        };
+        match r {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+            _ => Ok(()),
+        }
+    }
+
+    /// Папка каталога `id` в `d/` и запасная копия его ID, если их нет: сбой посреди
+    /// [`Vault::add_dir`] мог оставить ссылку на каталог без его папки.
+    pub fn ensure_dir(&self, id: &str) -> Result<()> {
+        let dir = self.root.join(names::dir_path(&self.key, id));
+        if !dir.join(names::DIRID_BACKUP_FILE).is_file() {
+            write_dirid_backup(&self.root, &self.key, id)?;
+        }
+        Ok(())
+    }
+
+    fn walk_inner(&self, tolerant: bool) -> Result<Walked> {
+        let mut report = Walked::default();
         let mut visited = std::collections::HashSet::new();
         visited.insert(String::new());
         let mut reached = std::collections::HashSet::new();
@@ -161,7 +270,7 @@ impl Vault {
                 let read = entry
                     .map_err(Error::from)
                     .and_then(|e| self.read_entry(&e, &dir_id));
-                let (name, classified) = match read {
+                let (name, classified, node) = match read {
                     Ok(Some(found)) => found,
                     Ok(None) => continue,
                     Err(e) if tolerant => {
@@ -188,8 +297,10 @@ impl Vault {
                             }
                             return Err(Error::Authentication);
                         }
-                        report.nodes.push(Node::Dir {
+                        report.nodes.push(Entry::Dir {
                             path: child.clone(),
+                            id: child_id.clone(),
+                            node,
                         });
                         stack.push((child_id, child, depth + 1));
                     }
@@ -199,11 +310,13 @@ impl Vault {
                                 .skipped
                                 .push(format!("{child}: entry has no content"));
                         }
+                        report.nodes.push(Entry::Empty { path: child, node });
                     }
-                    Classified::Symlink => report.nodes.push(Node::Symlink { path: child }),
-                    Classified::File(ciphertext) => report.nodes.push(Node::File {
+                    Classified::Symlink => report.nodes.push(Entry::Symlink { path: child, node }),
+                    Classified::File(ciphertext) => report.nodes.push(Entry::File {
                         path: child,
                         ciphertext,
+                        node,
                     }),
                 }
             }
@@ -250,7 +363,7 @@ impl Vault {
         &self,
         entry: &fs::DirEntry,
         dir_id: &str,
-    ) -> Result<Option<(String, Classified)>> {
+    ) -> Result<Option<(String, Classified, PathBuf)>> {
         let fname = entry.file_name().to_string_lossy().into_owned();
         if fname == names::DIRID_BACKUP_FILE {
             return Ok(None);
@@ -283,7 +396,7 @@ impl Vault {
         } else {
             Classified::Empty
         };
-        Ok(Some((name, classified)))
+        Ok(Some((name, classified, node_dir)))
     }
 
     /// Выгрузить расшифрованную копию в папку `out` (должна быть пустой или новой).
@@ -622,5 +735,55 @@ mod tests {
             assert!(safe_name(bad).is_err(), "{bad:?}");
         }
         assert!(safe_name("Отчёт 2026.docx").is_ok());
+    }
+
+    #[test]
+    fn entries_can_be_removed_and_written_again() {
+        let d = tempdir("entries");
+        let v = sample(&d.join("v"));
+        let (deep, _) = v.add_dir("", "deep").unwrap();
+        let (deeper, _) = v.add_dir(&deep, "deeper").unwrap();
+        v.add_file(&deeper, "c.txt", &mut &b"ccc"[..]).unwrap();
+        // Длинное имя: узел становится папкой .c9s
+        let long = "д".repeat(150);
+        v.add_file("", &long, &mut &b"long"[..]).unwrap();
+        // Запись без содержимого: сбой между созданием папки узла и dir.c9r
+        let (node, _) = names::node_name(&v.key, "half", "", v.config.shortening_threshold);
+        fs::create_dir(v.root.join(names::dir_path(&v.key, "")).join(node)).unwrap();
+        let all = v.entries().unwrap();
+        let find = |p: &str| all.iter().find(|e| e.path() == p).unwrap().clone();
+        assert!(matches!(find("half"), Entry::Empty { .. }));
+        assert!(matches!(find("deep/deeper"), Entry::Dir { .. }));
+        // Глубокие первыми: после каждого шага обход проходит без ошибок
+        for p in [
+            "deep/deeper/c.txt",
+            "deep/deeper",
+            "deep",
+            "half",
+            &long,
+            "a.txt",
+        ] {
+            v.remove_entry(&find(p)).unwrap();
+            v.walk().unwrap();
+        }
+        let left: Vec<String> = v
+            .entries()
+            .unwrap()
+            .iter()
+            .map(|e| e.path().to_string())
+            .collect();
+        assert_eq!(left.len(), 3, "{left:?}");
+        // Имена снова свободны
+        v.add_file("", "a.txt", &mut &b"new"[..]).unwrap();
+        v.add_dir("", "half").unwrap();
+        // Ссылка на каталог без его папки в d/: ensure_dir возвращает папку
+        let (lost, _) = v.add_dir("", "lost").unwrap();
+        fs::remove_dir_all(v.root.join(names::dir_path(&v.key, &lost))).unwrap();
+        v.ensure_dir(&lost).unwrap();
+        v.add_file(&lost, "x.txt", &mut &b"x"[..]).unwrap();
+        let out = d.join("out");
+        assert_eq!(v.export(&out).unwrap(), 3);
+        assert_eq!(fs::read(out.join("lost").join("x.txt")).unwrap(), b"x");
+        let _ = fs::remove_dir_all(&d);
     }
 }
