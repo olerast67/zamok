@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# Проверкам нужно только читать код
+permissions:
+  contents: read
+
 jobs:
   core:
     runs-on: windows-latest
