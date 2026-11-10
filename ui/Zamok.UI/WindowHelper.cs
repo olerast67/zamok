@@ -63,10 +63,34 @@ internal static partial class WindowHelper
     {
         root.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
-            root.Measure(new Windows.Foundation.Size(width, double.PositiveInfinity));
-            var height = (int)Math.Ceiling(root.DesiredSize.Height);
-            ResizeClient(window, width, Math.Max(160, height));
+            // Окно не выше рабочей области экрана: сначала шире (до 1,6 исходной ширины и
+            // не шире экрана), потом высота обрезается, и прокрутку берёт ScrollViewer внутри
+            var (maxW, maxH) = WorkAreaLogical(window);
+            maxH -= 32;
+            var cap = Math.Min((int)(width * 1.6), maxW - 48);
+            int Measure(int w)
+            {
+                root.Measure(new Windows.Foundation.Size(w, double.PositiveInfinity));
+                return (int)Math.Ceiling(root.DesiredSize.Height);
+            }
+            var height = Measure(width);
+            while (height > maxH && width + 40 <= cap)
+            {
+                width += 40;
+                height = Measure(width);
+            }
+            ResizeClient(window, width, Math.Clamp(height, 160, Math.Max(160, maxH)));
         });
+    }
+
+    /// <summary>Рабочая область экрана окна (без панели задач) в логических точках.</summary>
+    private static (int Width, int Height) WorkAreaLogical(Window window)
+    {
+        var hwnd = Handle(window);
+        var scale = GetDpiForWindow(hwnd) / 96.0;
+        var area = DisplayArea.GetFromWindowId(Win32Interop.GetWindowIdFromWindow(hwnd),
+            DisplayAreaFallback.Primary).WorkArea;
+        return ((int)(area.Width / scale), (int)(area.Height / scale));
     }
 
     /// <summary>Размер клиентской области (логические точки), окно по центру экрана.</summary>

@@ -22,7 +22,9 @@
                        Style="{StaticResource CaptionTextBlockStyle}" />
         </Grid>
 
-        <StackPanel Grid.Row="1" Padding="24,8,24,16" Spacing="8">
+        <!-- На низком экране окно ограничено по высоте, строки прокручиваются -->
+        <ScrollViewer Grid.Row="1">
+        <StackPanel Padding="24,8,24,16" Spacing="8">
             <TextBlock x:Uid="Traces_Title" AutomationProperties.AutomationId="Heading"
                        AutomationProperties.HeadingLevel="Level1"
                        Style="{StaticResource SubtitleTextBlockStyle}" />
@@ -138,6 +140,7 @@
                 </Grid>
             </Border>
         </StackPanel>
+        </ScrollViewer>
 
         <Grid Grid.Row="2" Padding="24,16" ColumnSpacing="8"
               Background="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"

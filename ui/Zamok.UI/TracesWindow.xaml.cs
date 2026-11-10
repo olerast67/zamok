@@ -13,7 +13,7 @@ namespace Zamok.UI;
 /// </summary>
 public sealed partial class TracesWindow : Window
 {
-    private const int DialogWidth = 560;
+    private const int DialogWidth = 760;
     private readonly CoreClient _client = new();
 
     public TracesWindow()

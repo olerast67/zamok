@@ -163,13 +163,15 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <ProgressRing x:Name="Busy" IsActive="False" Width="16" Height="16" VerticalAlignment="Center" />
-            <Button x:Name="BackButton" Grid.Column="1" AutomationProperties.AutomationId="BackButton"
-                    x:Uid="Common_Back" MinWidth="96" Visibility="Collapsed" Click="OnBackClick" />
-            <Button x:Name="SkipKeyButton" Grid.Column="1" AutomationProperties.AutomationId="SkipKeyButton"
-                    MinWidth="96" Visibility="Collapsed" HorizontalAlignment="Right" Click="OnSkipKeyClick" />
-            <Button x:Name="LockNowButton" Grid.Column="1" AutomationProperties.AutomationId="LockNowButton"
-                    x:Uid="Encrypt_LockNow" MinWidth="96" Visibility="Collapsed" HorizontalAlignment="Right"
-                    Click="OnLockNowClick" />
+            <!-- Кнопки слева от главной в одном ряду: на шаге проверки ключа видны сразу «Без ключа» и «Назад» -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button x:Name="SkipKeyButton" AutomationProperties.AutomationId="SkipKeyButton"
+                        MinWidth="96" Visibility="Collapsed" Click="OnSkipKeyClick" />
+                <Button x:Name="LockNowButton" AutomationProperties.AutomationId="LockNowButton"
+                        x:Uid="Encrypt_LockNow" MinWidth="96" Visibility="Collapsed" Click="OnLockNowClick" />
+                <Button x:Name="BackButton" AutomationProperties.AutomationId="BackButton"
+                        x:Uid="Common_Back" MinWidth="96" Visibility="Collapsed" Click="OnBackClick" />
+            </StackPanel>
             <Button x:Name="NextButton" Grid.Column="2" AutomationProperties.AutomationId="NextButton"
                     Style="{StaticResource AccentButtonStyle}" MinWidth="110" Click="OnNextClick" />
             <Button x:Name="CancelButton" Grid.Column="3" AutomationProperties.AutomationId="CancelButton"

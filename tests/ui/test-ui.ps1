@@ -164,6 +164,24 @@ function A11y([string]$label, $w, $proc) {
         if ($dup) { throw "same access key: $($dup -join ', ')" }
         "$($els.Count) controls; access keys $($keys -join ' ')"
     }
+    Check "layout ${label}: visible buttons and fields do not overlap" {
+        # Dve knopki v odnoy yacheyke setki ili tekst shire knopki: ramki peresekayutsya
+        $all = Focusables $w
+        $els = @($all | Where-Object { $_.Current.ControlType.ProgrammaticName -in
+            'ControlType.Button', 'ControlType.Edit', 'ControlType.Hyperlink' })
+        $hit = @()
+        for ($i = 0; $i -lt $els.Count; $i++) {
+            for ($j = $i + 1; $j -lt $els.Count; $j++) {
+                $a = $els[$i].Current.BoundingRectangle; $b = $els[$j].Current.BoundingRectangle
+                if ($a.IsEmpty -or $b.IsEmpty) { continue }
+                $x = [Math]::Min($a.Right, $b.Right) - [Math]::Max($a.Left, $b.Left)
+                $y = [Math]::Min($a.Bottom, $b.Bottom) - [Math]::Max($a.Top, $b.Top)
+                if ($x -gt 1 -and $y -gt 1) { $hit += "$(Ident $els[$i]) / $(Ident $els[$j])" }
+            }
+        }
+        if ($hit) { throw "overlap: $($hit -join ', ')" }
+        "$($els.Count) controls apart"
+    }
     Check "a11y ${label}: Tab and Shift+Tab go through every control in order" {
         # Okno moglo izmenitsya vo vremya proverki (shifrovanie doshlo do kontsa, i Otmena
         # vyklyuchilas): togda eshche raz s novym sostavom
@@ -674,9 +692,11 @@ try {
     # Ni odnogo russkogo slova, krome imen papok (podpisi pereklyuchateley WinUI inache berutsya iz
     # yazyka Windows). Imya polosy prokrutki i ee knopok daet sama WinUI na yazyke Windows, ego ne zadat
     function NoRussian($w) {
+        # Knopki vnutri polosy prokrutki tozhe ot WinUI: propuskaem vse vnutri ScrollBar
+        $walker = [Windows.Automation.TreeWalker]::ControlViewWalker
+        $inBar = { param($e) for ($p = $e; $p; $p = $walker.GetParent($p)) { if ($p.Current.ControlType.ProgrammaticName -eq 'ControlType.ScrollBar') { return $true } }; $false }
         $ru = @($w.FindAll('Descendants', [Windows.Automation.Condition]::TrueCondition) |
-            Where-Object { $_.Current.ControlType -ne [Windows.Automation.ControlType]::ScrollBar -and
-                -not ([Windows.Automation.TreeWalker]::RawViewWalker.GetParent($_).Current.ControlType -eq [Windows.Automation.ControlType]::ScrollBar) } | ForEach-Object { $_.Current.Name } |
+            Where-Object { -not (& $inBar $_) } | ForEach-Object { $_.Current.Name } |
             Where-Object { $_ -match '[Ѐ-ӿ]' -and $_ -notlike "*$ruName*" })
         if ($ru) { throw "Russian text: $($ru -join ' | ')" }
         $true
