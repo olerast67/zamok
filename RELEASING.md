@@ -1,6 +1,6 @@
 # Выпуск версии
 
-Установщик собирается сценарием `installeruild-msi.ps1` на компьютере разработчика или в GitHub Actions (`.github/workflows/release.yml`). `.github/workflows/ci.yml` только проверяет код.
+Установщик собирается сценарием `installer\build-msi.ps1` на компьютере разработчика или в GitHub Actions (`.github/workflows/release.yml`). `.github/workflows/ci.yml` только проверяет код.
 
 ## Что нужно
 
@@ -29,7 +29,7 @@ Windows, диск NTFS, инструменты из [CONTRIBUTING.md](CONTRIBUTI
 Что сделано, чтобы одинаковый код давал одинаковые программы:
 
 - Версия Rust записана в `core/rust-toolchain.toml`, rustup ставит её сам. Зависимости берутся строго из `Cargo.lock` (`cargo build --locked`).
-- `scriptsuild-core-release.ps1` собирает `zamok-core.exe`, `zamok-shell.dll` и `zamok-recover.exe` с `--remap-path-prefix`: папка репозитория, реестр cargo и rustup в сообщениях об ошибках и отладочных сведениях заменяются на `/zamok`, `/cargo`, `/rustup`. Компоновщик получает `/Brepro` (без времени сборки в заголовке файла) и `/PDBALTPATH:%_PDB%` (в программе остаётся только имя файла PDB, а не полный путь).
+- `scripts\build-core-release.ps1` собирает `zamok-core.exe`, `zamok-shell.dll` и `zamok-recover.exe` с `--remap-path-prefix`: папка репозитория, реестр cargo и rustup в сообщениях об ошибках и отладочных сведениях заменяются на `/zamok`, `/cargo`, `/rustup`. Компоновщик получает `/Brepro` (без времени сборки в заголовке файла) и `/PDBALTPATH:%_PDB%` (в программе остаётся только имя файла PDB, а не полный путь).
 - `SOURCE_DATE_EPOCH` равен времени последнего коммита. Rust и MSBuild его не читают, переменная нужна инструментам, которые ставят дату в файлы.
 - `Zamok.exe` публикуется с `Deterministic=true` и `ContinuousIntegrationBuild=true`: без времени сборки, пути исходников заменены на `/_/`.
 
@@ -44,18 +44,18 @@ Windows, диск NTFS, инструменты из [CONTRIBUTING.md](CONTRIBUTI
 Как проверить самому:
 
 ```powershell
-# 1. Личных путей в программах нет (после сборки; без аргументов проверяет core	argetelease)
+# 1. Личных путей в программах нет (после сборки; без аргументов проверяет core\target\release)
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check-paths.ps1
 
 # 2. Две сборки Rust в разных папках дают одинаковые файлы
-git clone <repo> C:uild ; git clone <repo> C:uild   # один и тот же коммит
-powershell -NoProfile -ExecutionPolicy Bypass -File C:uild\scriptsuild-core-release.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File C:uild\scriptsuild-core-release.ps1
-Get-FileHash C:uild\core	argetelease\zamok-core.exe, C:uild\core	argetelease\zamok-core.exe
+git clone <repo> C:\build\a ; git clone <repo> C:\build\b   # один и тот же коммит
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\build\a\scripts\build-core-release.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\build\b\scripts\build-core-release.ps1
+Get-FileHash C:\build\a\core\target\release\zamok-core.exe, C:\build\b\core\target\release\zamok-core.exe
 
 # 3. Программа из релиза совпадает со своей сборкой: распаковать MSI и сравнить отпечатки
-msiexec /a Zamok-0.1.0.msi /qn TARGETDIR=C:uild\msi
-Get-ChildItem C:uild\msi -Recurse -Include zamok-core.exe, zamok-shell.dll | Get-FileHash
+msiexec /a Zamok-0.1.0.msi /qn TARGETDIR=C:\build\msi
+Get-ChildItem C:\build\msi -Recurse -Include zamok-core.exe, zamok-shell.dll | Get-FileHash
 ```
 ## Подпись (позже)
 

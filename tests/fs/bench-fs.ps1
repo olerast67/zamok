@@ -1,5 +1,5 @@
 # Этап 3: скорость зашифрованной папки Zamok против NTFS (те же задачи, что в P5).
-# Запуск: powershell -NoProfile -ExecutionPolicy Bypass -File testss/bench-fs.ps1
+# Запуск: powershell -NoProfile -ExecutionPolicy Bypass -File tests\fs/bench-fs.ps1
 # Варианты: NTFS напрямую и Zamok (шифрование, FileInfoTimeout = 0).
 param([int]$Files = 20000, [int]$BigMB = 1024)
 $ErrorActionPreference = 'Stop'
