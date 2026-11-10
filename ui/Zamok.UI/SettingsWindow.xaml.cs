@@ -187,7 +187,7 @@ public sealed partial class SettingsWindow : Window
         if (f.IsUnlocked)
         {
             if (f.OpenFiles > 0 && !WindowHelper.Confirm(
-                    Strings.Format("Lock_OpenFiles", f.Name, f.OpenFiles), WindowHelper.Handle(this))) return;
+                    Strings.LockOpenFiles(f), WindowHelper.Handle(this))) return;
             try
             {
                 var r = await _client.LockAsync(f.Path);
@@ -375,6 +375,9 @@ public sealed partial class SettingsWindow : Window
         DefenderCopy.IsEnabled = !busy;
         DefenderNo.IsEnabled = !busy;
     }
+
+    /// <summary>«Проверка следов» (DESIGN.md, раздел 6) в своём окне.</summary>
+    private void OnTracesClick(object sender, RoutedEventArgs e) => new TracesWindow().Activate();
 
     private void OnCloseClick(object sender, RoutedEventArgs e) => Close();
 }

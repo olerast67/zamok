@@ -164,6 +164,24 @@ function A11y([string]$label, $w, $proc) {
         if ($dup) { throw "same access key: $($dup -join ', ')" }
         "$($els.Count) controls; access keys $($keys -join ' ')"
     }
+    Check "layout ${label}: visible buttons and fields do not overlap" {
+        # Dve knopki v odnoy yacheyke setki ili tekst shire knopki: ramki peresekayutsya
+        $all = Focusables $w
+        $els = @($all | Where-Object { $_.Current.ControlType.ProgrammaticName -in
+            'ControlType.Button', 'ControlType.Edit', 'ControlType.Hyperlink' })
+        $hit = @()
+        for ($i = 0; $i -lt $els.Count; $i++) {
+            for ($j = $i + 1; $j -lt $els.Count; $j++) {
+                $a = $els[$i].Current.BoundingRectangle; $b = $els[$j].Current.BoundingRectangle
+                if ($a.IsEmpty -or $b.IsEmpty) { continue }
+                $x = [Math]::Min($a.Right, $b.Right) - [Math]::Max($a.Left, $b.Left)
+                $y = [Math]::Min($a.Bottom, $b.Bottom) - [Math]::Max($a.Top, $b.Top)
+                if ($x -gt 1 -and $y -gt 1) { $hit += "$(Ident $els[$i]) / $(Ident $els[$j])" }
+            }
+        }
+        if ($hit) { throw "overlap: $($hit -join ', ')" }
+        "$($els.Count) controls apart"
+    }
     Check "a11y ${label}: Tab and Shift+Tab go through every control in order" {
         # Okno moglo izmenitsya vo vremya proverki (shifrovanie doshlo do kontsa, i Otmena
         # vyklyuchilas): togda eshche raz s novym sostavom
@@ -198,6 +216,31 @@ function A11y([string]$label, $w, $proc) {
 }
 # LiveSetting: 1 Polite, 2 Assertive (ekrannyy diktor chitaet stroku sam, bez perehoda k ney)
 function Live($w, [string]$id) { [ZLive]::Of([IntPtr]$w.Current.NativeWindowHandle, $id) }
+
+# Okno "Proverka sledov" sredi okon processa (ono otkryvaetsya iz nastroek, okon dva)
+function TracesWindow([int]$procId) {
+    $cond = New-Object Windows.Automation.PropertyCondition ($AE::ProcessIdProperty), $procId
+    foreach ($c in @($AE::RootElement.FindAll('Children', $cond))) { if (El $c 'RecheckButton') { return $c } }
+    $null
+}
+# Tekst sovpadaet so strokoy iz fayla strok (podstanovka {0} lyubaya)
+function IsTextLike([string]$prefix, [string]$shown) {
+    foreach ($k in @($strings.Keys | Where-Object { $_.StartsWith($prefix) })) {
+        foreach ($v in $strings[$k]) { if ($shown -match ('^' + (([regex]::Escape($v)) -replace '\\\{\d\}', '.*') + '$')) { return $true } }
+    }
+    $false
+}
+# V kazhdoy stroke sostoyanie i sovet, oba iz fayla strok; Zamok nichego ne menyaet
+function TracesRows($tw) {
+    $rows = @()
+    foreach ($r in 'Disk', 'Hiber', 'Page', 'Index', 'Thumbs') {
+        $st = Text $tw "${r}Status"; $ad = Text $tw "${r}Advice"
+        if (-not (IsTextLike "Traces_${r}_" $st)) { throw "${r}: status is not a string: $st" }
+        if (-not ((IsTextLike "Traces_${r}Do_" $ad) -or (IsText 'Traces_Nothing' $ad))) { throw "${r}: advice is not a string: $ad" }
+        $rows += "${r}: $st"
+    }
+    $rows -join ' | '
+}
 
 function StartCore {
     $psi = New-Object Diagnostics.ProcessStartInfo $coreExe
@@ -276,7 +319,8 @@ try {
         -not (Enabled $w 'NextButton')
     }
     Check 'wizard: strength text is a real string' {
-        SetValue $w 'Password2' $pw; Start-Sleep -Milliseconds 300
+        # Na zanyatoy mashine okno inogda ne uspevaet za vvodom: zhdem, pri nuzhde vvodim eshche raz
+        foreach ($try in 1..3) { SetValue $w 'Password2' $pw; if (WaitFor { Enabled $w 'NextButton' } 3000) { break } }
         (IsText 'Encrypt_Strength4' (Text $w 'StrengthText')) -and (Enabled $w 'NextButton')
     }
     A11y 'wizard password step' $w $ui
@@ -510,6 +554,24 @@ try {
         Press $w 'ToggleButton'
         WaitFor { (Folder $dir).state -eq 'locked' } 10000
     }
+    # Proverka sledov: knopka v nastroykah otkryvaet vtoroe okno togo zhe processa
+    Check 'traces: Settings button opens the check, every row has a status and advice from the string file' {
+        Press $w 'TracesButton'
+        if (-not (WaitFor { $script:tw = TracesWindow $ui.Id; $script:tw -and (El $script:tw 'RecheckButton').Current.IsEnabled -and (Text $script:tw 'ThumbsStatus') } 20000)) { throw 'no traces window' }
+        TracesRows $script:tw
+    }
+    Check 'traces: test folders outside the profile are not in the search index' {
+        $s = Text $script:tw 'IndexStatus'
+        if ($s -ne $byLang['ru-RU']['Traces_Index_Outside'] -and $s -ne $byLang['ru-RU']['Traces_Index_SearchOff']) { throw "index: $s" }
+        $s
+    }
+    if ($script:tw) { A11y 'traces' $script:tw $ui }
+    Check 'traces: Check again runs the check again, Close closes only this window' {
+        Press $script:tw 'RecheckButton'
+        if (-not (WaitFor { (El $script:tw 'RecheckButton').Current.IsEnabled } 20000)) { throw 'still checking' }
+        Press $script:tw 'CloseButton'
+        (WaitFor { -not (TracesWindow $ui.Id) } 5000) -and -not $ui.HasExited -and (Text $w 'DetailName')
+    }
     $ui.Kill()
 
     # 4. Oshibki
@@ -572,6 +634,47 @@ try {
         $gone -and -not (Test-Path $dir) -and (Test-Path "$root\.$ruName.zamok\masterkey.cryptomator") -and $note.Count -eq 1
     }
 
+    # Pora zapirat po bezdeystviyu, a fayl otkryt: core sprashivaet v okne --idle-lock
+    function IdleWindow {
+        $c = Get-CimInstance Win32_Process -Filter "Name='Zamok.exe'" | Where-Object { $_.ExecutablePath -eq $uiExe -and $_.CommandLine -like '*--idle-lock*' } | Select-Object -First 1
+        if ($c) { Get-Process -Id $c.ProcessId -ErrorAction SilentlyContinue } else { $null }
+    }
+    $idleDir = "$root\idle"; MakeSample $idleDir
+    [void](Send "{`"cmd`":`"encrypt`",`"path`":`"$(J $idleDir)`",`"password`":`"$pw`"}")
+    [void](WaitFor { (Folder $idleDir).state -eq 'unlocked' } 60000)
+    $me = [IO.Path]::GetFileName((Get-Process -Id $PID).Path)
+    $script:idleHeld = [IO.File]::Open("$idleDir\note.txt", 'Open', 'Read', 'ReadWrite')
+    Check 'idle lock with a file open: window names the program, Postpone keeps the folder open' {
+        [void](Send "{`"cmd`":`"set_idle_lock`",`"path`":`"$(J $idleDir)`",`"secs`":3}")
+        if (-not (WaitFor { IdleWindow } 15000)) { throw 'no window' }
+        $p = IdleWindow; $w = Window $p.Id
+        if ((Text $w 'FolderName') -ne 'idle') { throw "name: $(Text $w 'FolderName')" }
+        $want = @($strings['Idle_OpenIn'] | ForEach-Object { $_ -f $me })
+        if (-not (WaitFor { $want -contains (Text $w 'OpenIn') } 5000)) { throw "open in: $(Text $w 'OpenIn')" }
+        if (-not (IsText 'Idle_Later.Text' (Text $w 'Later'))) { throw 'later text is not a string' }
+        A11y 'idle lock question' $w $p
+        Press $w 'PostponeButton'
+        $p.WaitForExit(10000) -and -not (Folder $idleDir).idle_asking -and (Start-Sleep -Seconds 5) -eq $null -and
+            (Folder $idleDir).state -eq 'unlocked'
+    }
+    Check 'idle lock with a file open: Lock now locks the folder' {
+        # Deskriptor, otkrytyy do zapiraniya, posle nego ne schitaetsya: otkryt zanovo
+        [void](Send "{`"cmd`":`"set_idle_lock`",`"path`":`"$(J $idleDir)`",`"secs`":0}")
+        [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $idleDir)`"}")
+        [void](Send "{`"cmd`":`"unlock`",`"path`":`"$(J $idleDir)`",`"password`":`"$pw`"}")
+        $script:idleHeld.Dispose(); $script:idleHeld = [IO.File]::Open("$idleDir\note.txt", 'Open', 'Read', 'ReadWrite')
+        [void](Send "{`"cmd`":`"set_idle_lock`",`"path`":`"$(J $idleDir)`",`"secs`":3}")
+        if (-not (WaitFor { IdleWindow } 15000)) { throw 'no window' }
+        $p = IdleWindow; $w = Window $p.Id
+        [void](WaitFor { Text $w 'OpenIn' } 5000)
+        Press $w 'LockButton'
+        $p.WaitForExit(10000) -and (WaitFor { (Folder $idleDir).state -eq 'locked' } 10000)
+    }
+    $script:idleHeld.Dispose()
+    # Ubrat papku iz spiska: lishnyaya stroka v nastroykah dala by polosu prokrutki (ee knopki
+    # WinUI nazyvaet na yazyke Windows, proverka yazyka nizhe ih ne zhdet)
+    [void](Send "{`"cmd`":`"remove`",`"path`":`"$(J $idleDir)`"}")
+
     # Yazyk: okna po yazyku Windows (ZAMOK_LANG zadaet ego dlya testa), tekst iz svoego fayla strok
     foreach ($l in @(@('ru', 'ru-RU'), @('en', 'en-US'))) {
         $ui = StartUi '--unlock', $item $pipeName $l[0]
@@ -587,16 +690,25 @@ try {
     $w = Window $ui.Id
     [void](WaitFor { Text $w 'DetailName' } 10000)
     # Ni odnogo russkogo slova, krome imen papok (podpisi pereklyuchateley WinUI inache berutsya iz
-    # yazyka Windows). Imya polosy prokrutki daet sama WinUI na yazyke Windows, ego ne zadat
+    # yazyka Windows). Imya polosy prokrutki i ee knopok daet sama WinUI na yazyke Windows, ego ne zadat
     function NoRussian($w) {
+        # Knopki vnutri polosy prokrutki tozhe ot WinUI: propuskaem vse vnutri ScrollBar
+        $walker = [Windows.Automation.TreeWalker]::ControlViewWalker
+        $inBar = { param($e) for ($p = $e; $p; $p = $walker.GetParent($p)) { if ($p.Current.ControlType.ProgrammaticName -eq 'ControlType.ScrollBar') { return $true } }; $false }
         $ru = @($w.FindAll('Descendants', [Windows.Automation.Condition]::TrueCondition) |
-            Where-Object { $_.Current.ControlType -ne [Windows.Automation.ControlType]::ScrollBar } | ForEach-Object { $_.Current.Name } |
+            Where-Object { -not (& $inBar $_) } | ForEach-Object { $_.Current.Name } |
             Where-Object { $_ -match '[Ѐ-ӿ]' -and $_ -notlike "*$ruName*" })
         if ($ru) { throw "Russian text: $($ru -join ' | ')" }
         $true
     }
     Check 'language en: settings have no Russian text' { NoRussian $w }
     A11y 'settings in English' $w $ui
+    $ui.Kill()
+    $ui = StartUi '--traces' $pipeName 'en'
+    $w = Window $ui.Id
+    [void](WaitFor { (El $w 'RecheckButton').Current.IsEnabled -and (Text $w 'ThumbsStatus') } 20000)
+    Check 'language en: the traces check has no Russian text' { (NoRussian $w) -and (TracesRows $w) }
+    A11y 'traces in English' $w $ui
     $ui.Kill()
     $dir4 = "$root\english"; MakeSample $dir4
     $ui = StartUi '--encrypt', $dir4 $pipeName 'en'

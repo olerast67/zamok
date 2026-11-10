@@ -32,7 +32,7 @@ public sealed partial class EncryptWindow : Window
         _path = path.TrimEnd('\\');
         _name = Path.GetFileName(_path);
         InitializeComponent();
-        WindowHelper.SetupDialog(this, Root, TitleBar, TitleIcon, 440, 420);
+        WindowHelper.SetupDialog(this, Root, TitleBar, TitleIcon, 540, 420);
         var icon = WindowHelper.FolderIcon(32);
         if (icon is not null) FolderIcon.Source = icon;
         else FallbackIcon.Visibility = Visibility.Visible;
@@ -119,7 +119,7 @@ public sealed partial class EncryptWindow : Window
         if (_page is Page.Password or Page.Done) Close();
     }
 
-    private void Fit() => WindowHelper.FitHeight(this, Root, _page == Page.Key ? 520 : 460);
+    private void Fit() => WindowHelper.FitHeight(this, Root, _page == Page.Key ? 600 : 540);
 
     // 1. Пароль
 

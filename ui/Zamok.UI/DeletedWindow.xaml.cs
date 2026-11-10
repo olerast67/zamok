@@ -14,7 +14,7 @@ namespace Zamok.UI;
 /// </summary>
 public sealed partial class DeletedWindow : Window
 {
-    private const int DialogWidth = 440;
+    private const int DialogWidth = 520;
     private readonly string _path;
     private readonly CoreClient _client = new();
 

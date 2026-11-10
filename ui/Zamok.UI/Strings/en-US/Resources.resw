@@ -104,6 +104,7 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Settings_StateUnavailable" xml:space="preserve"><value>unavailable</value></data>
   <data name="Settings_Lock" xml:space="preserve"><value>Lock</value></data>
   <data name="Lock_OpenFiles" xml:space="preserve"><value>Files are open in the folder “{0}”, count: {1}. Unsaved changes will be lost: the program will not be able to save them. Lock anyway?</value></data>
+  <data name="Lock_OpenFilesIn" xml:space="preserve"><value>Files are open in the folder “{0}”, count: {1}. Open in: {2}. Unsaved changes will be lost: the program will not be able to save them. Lock anyway?</value></data>
   <data name="App_Unexpected" xml:space="preserve"><value>Internal Zamok error. Try again. The files in the folder are not affected by this error.</value></data>
   <data name="A11y_Strength" xml:space="preserve"><value>Password strength</value></data>
   <data name="A11y_Progress" xml:space="preserve"><value>Progress</value></data>
@@ -132,6 +133,13 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Deleted_RemoveNote" xml:space="preserve"><value>If you remove the folder from Zamok, the encrypted files stay in the hidden folder “.{0}.zamok”, and the file “HOW TO OPEN {0}.txt” next to it explains how to open them.</value></data>
   <data name="Deleted_Restore.Content" xml:space="preserve"><value>Bring back</value></data>
   <data name="Deleted_Remove.Content" xml:space="preserve"><value>Remove from Zamok</value></data>
+  <data name="Idle_Message" xml:space="preserve"><value>The folder was not used for {0} min and is due to lock. But files in it are open: if you lock it now, unsaved changes will be lost because the program will not be able to save them.</value></data>
+  <data name="Idle_OpenIn" xml:space="preserve"><value>Open in: {0}</value></data>
+  <data name="Idle_OpenCount" xml:space="preserve"><value>Open files: {0}</value></data>
+  <data name="Idle_Later.Text" xml:space="preserve"><value>If you close this window, Zamok locks the folder once the files are closed.</value></data>
+  <data name="Idle_Postpone.Content" xml:space="preserve"><value>Postpone for 10 minutes</value></data>
+  <data name="Idle_LockNow.Content" xml:space="preserve"><value>Lock now</value></data>
+  <data name="Idle_LockNow.AccessKey" xml:space="preserve"><value>L</value></data>
   <data name="Defender_Title.Text" xml:space="preserve"><value>Exclude the encrypted data from Defender scans?</value></data>
   <data name="Defender_Text.Text" xml:space="preserve"><value>Defender scans every file twice: as you open it and in encrypted form in the hidden folder next to it. Excluding the hidden folders makes working with files faster. Files you open are still scanned as before; the encrypted copies will not be, but a virus cannot be recognised in them anyway. Administrator rights are needed.</value></data>
   <data name="Defender_ExcludeText.Text" xml:space="preserve"><value>Exclude</value></data>
@@ -140,6 +148,54 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Defender_Done" xml:space="preserve"><value>Done: Defender no longer scans the encrypted Zamok data.</value></data>
   <data name="Defender_Copied" xml:space="preserve"><value>The command is copied. Paste it into PowerShell run as administrator.</value></data>
   <data name="Defender_Failed" xml:space="preserve"><value>Could not change the Defender settings. Copy the command and run it in PowerShell as administrator.</value></data>
+  <data name="Settings_Traces.Content" xml:space="preserve"><value>Traces check</value></data>
+  <data name="Settings_Traces.AccessKey" xml:space="preserve"><value>T</value></data>
+  <data name="Traces_Title.Text" xml:space="preserve"><value>Traces check</value></data>
+  <data name="Traces_Intro.Text" xml:space="preserve"><value>What Windows may keep from your open folders outside the encryption, and what to do about it. Zamok only looks here and changes nothing.</value></data>
+  <data name="Traces_DiskTitle.Text" xml:space="preserve"><value>System drive encryption</value></data>
+  <data name="Traces_HiberTitle.Text" xml:space="preserve"><value>Hibernation</value></data>
+  <data name="Traces_PageTitle.Text" xml:space="preserve"><value>Page file</value></data>
+  <data name="Traces_IndexTitle.Text" xml:space="preserve"><value>Windows Search index</value></data>
+  <data name="Traces_ThumbsTitle.Text" xml:space="preserve"><value>Thumbnail cache</value></data>
+  <data name="Traces_Recheck.Content" xml:space="preserve"><value>Check again</value></data>
+  <data name="Traces_Recheck.AccessKey" xml:space="preserve"><value>A</value></data>
+  <data name="Traces_Close.Content" xml:space="preserve"><value>Close</value></data>
+  <data name="Traces_Nothing" xml:space="preserve"><value>Nothing to do.</value></data>
+  <data name="Traces_Disk_On" xml:space="preserve"><value>Drive {0} is encrypted with BitLocker or device encryption.</value></data>
+  <data name="Traces_DiskDo_On" xml:space="preserve"><value>Nothing to do: traces on this drive cannot be read from a stolen computer.</value></data>
+  <data name="Traces_Disk_Encrypting" xml:space="preserve"><value>Drive {0} is being encrypted right now.</value></data>
+  <data name="Traces_DiskDo_Encrypting" xml:space="preserve"><value>Wait until the encryption finishes and check again.</value></data>
+  <data name="Traces_Disk_Paused" xml:space="preserve"><value>BitLocker protection on drive {0} is suspended: the key is stored on the drive in the clear.</value></data>
+  <data name="Traces_DiskDo_Paused" xml:space="preserve"><value>Resume protection in Control Panel, BitLocker Drive Encryption.</value></data>
+  <data name="Traces_Disk_Waiting" xml:space="preserve"><value>Drive {0} is encrypted, but protection is not on yet: the key is stored on the drive in the clear.</value></data>
+  <data name="Traces_DiskDo_Waiting" xml:space="preserve"><value>Turn on device encryption in Windows Settings or BitLocker in Control Panel.</value></data>
+  <data name="Traces_Disk_Off" xml:space="preserve"><value>Drive {0} is not encrypted.</value></data>
+  <data name="Traces_DiskDo_Off" xml:space="preserve"><value>Turn on BitLocker or device encryption if your Windows has it: without it, the traces below can be read from a stolen laptop.</value></data>
+  <data name="Traces_Disk_Unknown" xml:space="preserve"><value>Could not find out whether drive {0} is encrypted.</value></data>
+  <data name="Traces_DiskDo_Unknown" xml:space="preserve"><value>Check in Control Panel, BitLocker Drive Encryption.</value></data>
+  <data name="Traces_Hiber_Off" xml:space="preserve"><value>Hibernation is off.</value></data>
+  <data name="Traces_Hiber_OnSafe" xml:space="preserve"><value>Hibernation is on, and the hibernation file is on the encrypted drive.</value></data>
+  <data name="Traces_Hiber_On" xml:space="preserve"><value>Hibernation is on: Windows writes the memory to the drive, including files open from your folders.</value></data>
+  <data name="Traces_HiberDo_On" xml:space="preserve"><value>Turn hibernation off with powercfg /h off in a command prompt run as administrator, or turn on drive encryption.</value></data>
+  <data name="Traces_Hiber_Unknown" xml:space="preserve"><value>Could not find out whether hibernation is on.</value></data>
+  <data name="Traces_HiberDo_Unknown" xml:space="preserve"><value>You can check with powercfg /a.</value></data>
+  <data name="Traces_Page_Encrypted" xml:space="preserve"><value>The page file is encrypted.</value></data>
+  <data name="Traces_Page_OnEncryptedDisk" xml:space="preserve"><value>The page file is on the encrypted drive.</value></data>
+  <data name="Traces_Page_Plain" xml:space="preserve"><value>The page file is not encrypted: Windows may write parts of open files to it.</value></data>
+  <data name="Traces_PageDo_Plain" xml:space="preserve"><value>Turn on drive encryption, or run fsutil behavior set EncryptPagingFile 1 as administrator and restart the computer.</value></data>
+  <data name="Traces_Page_Unknown" xml:space="preserve"><value>Could not find out whether the page file is encrypted: this setting is not visible without administrator rights.</value></data>
+  <data name="Traces_PageDo_Unknown" xml:space="preserve"><value>You can check with fsutil behavior query EncryptPagingFile as administrator.</value></data>
+  <data name="Traces_Index_NoFolders" xml:space="preserve"><value>There are no encrypted folders yet.</value></data>
+  <data name="Traces_Index_SearchOff" xml:space="preserve"><value>Windows Search does not index files: the search service is off.</value></data>
+  <data name="Traces_Index_Outside" xml:space="preserve"><value>Zamok folders are not in the Windows Search index.</value></data>
+  <data name="Traces_Index_Inside" xml:space="preserve"><value>These folders are in the Windows Search index: {0}.</value></data>
+  <data name="Traces_IndexDo_Inside" xml:space="preserve"><value>Remove them in Indexing Options with the Modify button, otherwise Search remembers file names and properties.</value></data>
+  <data name="Traces_Index_Unknown" xml:space="preserve"><value>Could not check the search index: the Zamok background program does not answer.</value></data>
+  <data name="Traces_IndexDo_Unknown" xml:space="preserve"><value>Sign in to Windows again and check again.</value></data>
+  <data name="Traces_Thumbs_IconsOnly" xml:space="preserve"><value>File Explorer shows icons instead of thumbnails, so no new thumbnails are made.</value></data>
+  <data name="Traces_ThumbsDo_IconsOnly" xml:space="preserve"><value>Thumbnails made earlier stay in the cache: you can remove them in Disk Cleanup, item “Thumbnails”.</value></data>
+  <data name="Traces_Thumbs_Cached" xml:space="preserve"><value>Thumbnails of pictures and videos from your folders stay in the Windows cache after locking.</value></data>
+  <data name="Traces_ThumbsDo_Cached" xml:space="preserve"><value>If this matters, turn on “Always show icons, never thumbnails” in File Explorer Options on the View tab and remove Thumbnails in Disk Cleanup.</value></data>
   <data name="Error_core_not_running" xml:space="preserve"><value>Could not start the Zamok background program. Restart the computer.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>The other side is not this user's Zamok program. The password was not sent.</value></data>
   <data name="Error_vault_damaged" xml:space="preserve"><value>Some encrypted files are cut off from the folder tree. The folder stays encrypted and nothing was deleted.</value></data>

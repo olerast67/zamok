@@ -130,6 +130,35 @@ public sealed class CoreIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task OpenFilesAreNamedByProgramAndIdleAnswersWork()
+    {
+        var dir = Sample("Отчёты");
+        var started = await _client.EncryptAsync(dir, "верный пароль");
+        Assert.True(started.Ok, started.Error);
+        Assert.True((await WaitJob(started.Job!.Id)).IsDone);
+
+        var me = Path.GetFileName(Environment.ProcessPath!);
+        using (File.Open(Path.Combine(dir, "Отчёт.txt"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            var f = Assert.Single((await _client.StatusAsync()).Folders!);
+            Assert.Equal(1UL, f.OpenFiles);
+            // Только имя программы, без пути
+            Assert.Equal([me], f.OpenIn!);
+            Assert.False(f.IdleAsking);
+
+            // «Отложить» папку не запирает, «Запереть сейчас» запирает при открытом файле
+            var later = await _client.AnswerIdleAsync(dir, lockNow: false);
+            Assert.True(later.Ok, later.Error);
+            Assert.True(later.Folder!.IsUnlocked);
+            Assert.True((await _client.AnswerIdleAsync(dir, lockNow: true)).Folder!.IsLocked);
+        }
+        var locked = Assert.Single((await _client.StatusAsync()).Folders!);
+        Assert.Equal(0UL, locked.OpenFiles);
+        Assert.Null(locked.OpenIn);
+        Assert.Equal("not_found", (await _client.AnswerIdleAsync(Path.Combine(_root, "нет такой"), true)).Error);
+    }
+
+    [Fact]
     public async Task RefusalCarriesExamples()
     {
         var dir = Sample("Занято");

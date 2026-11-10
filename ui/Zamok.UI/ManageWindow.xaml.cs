@@ -19,7 +19,7 @@ public sealed partial class ManageWindow : Window
     private readonly CoreClient _client = new();
     private string? _key;
     private bool _done;
-    private int _width = 440;
+    private int _width = 520;
 
     public ManageWindow(Mode mode, string path)
     {
@@ -28,7 +28,7 @@ public sealed partial class ManageWindow : Window
         _name = Path.GetFileName(_path);
         InitializeComponent();
         var change = mode == Mode.ChangePassword;
-        WindowHelper.SetupDialog(this, Root, TitleBar, TitleIcon, 440,
+        WindowHelper.SetupDialog(this, Root, TitleBar, TitleIcon, 520,
             change ? 400 : mode == Mode.Decrypt ? 330 : 290);
         var icon = WindowHelper.FolderIcon(32);
         if (icon is not null) FolderIcon.Source = icon;
@@ -122,7 +122,7 @@ public sealed partial class ManageWindow : Window
             {
                 var r = await _client.ChangePasswordAsync(_path, Password.Password, NewPassword1.Password);
                 if (!r.Ok) { keepFields = true; ShowError(Strings.Error(r.Error)); return; }
-                Finish(Strings.Get("Manage_Changed"), 440, 240);
+                Finish(Strings.Get("Manage_Changed"), 520, 240);
                 PageInput.Visibility = Visibility.Collapsed;
                 PageDone.Visibility = Visibility.Visible;
             }
@@ -145,7 +145,7 @@ public sealed partial class ManageWindow : Window
                 if (_key is null) { ShowError(Strings.Error("internal")); return; }
                 KeyView.Fill(KeyGrid, KeyWords, _key);
                 StepText.Text = Strings.Get("Encrypt_StepKey");
-                Finish(null, 520, 470);
+                Finish(null, 600, 470);
                 PageInput.Visibility = Visibility.Collapsed;
                 PageKey.Visibility = Visibility.Visible;
             }
@@ -192,12 +192,12 @@ public sealed partial class ManageWindow : Window
                 PageProgress.Visibility = Visibility.Collapsed;
                 if (job.IsDone)
                 {
-                    Finish(Strings.Format("Manage_Decrypted", _name), 440, 240);
+                    Finish(Strings.Format("Manage_Decrypted", _name), 520, 240);
                     PageDone.Visibility = Visibility.Visible;
                 }
                 else
                 {
-                    Finish(null, 440, 260);
+                    Finish(null, 520, 260);
                     ShowError(Strings.Error(job.Error));
                 }
                 return;
@@ -211,7 +211,7 @@ public sealed partial class ManageWindow : Window
     {
         PageProgress.Visibility = Visibility.Collapsed;
         OkButton.Visibility = Visibility.Visible;
-        Finish(null, 440, 260);
+        Finish(null, 520, 260);
         ShowError(Strings.Error(error));
     }
 
