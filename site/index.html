@@ -109,7 +109,7 @@
     <li>
       <div class="text">
         <h3><span class="n">3</span>Lock</h3>
-        <p>The folder locks by itself on <kbd>Win+L</kbd>, on sleep and hibernation, on sign-out and after 30&nbsp;minutes without work in it. The timeout is set per folder.</p>
+        <p>The folder locks by itself on <kbd>Win+L</kbd>, on sleep and hibernation, on sign-out and after 30&nbsp;minutes without work in it. The timeout is set per folder. If files are open when the timeout comes, Zamok asks whether to lock now or postpone for 10&nbsp;minutes.</p>
         <p><kbd>Ctrl+Alt+Shift+L</kbd> locks all folders at once.</p>
       </div>
       <figure><a class="full" href="images/screens/en/settings.png"><img class="window" src="images/screens/en/settings.png" alt="Zamok settings: the folder list with Documents open and Projects and Photos locked, the Windows Hello switch, the idle timeout and the encryption properties" width="852" height="747" loading="lazy"></a></figure>
@@ -127,7 +127,7 @@
   <dl class="sheet">
     <div><dt>Where you work</dt><dd>In the folder at its own path. In place of the original, the WinFsp driver presents a virtual folder with the same path. Shortcuts, program projects and recent files keep working.</dd></div>
     <div><dt>While the folder is open</dt><dd>Files are decrypted on read and encrypted on write. Zamok keeps the plaintext in memory.</dd></div>
-    <div><dt>If the program crashes</dt><dd>Before the copy is verified, Zamok rolls the work back. After that, it finishes the work.</dd></div>
+    <div><dt>If the program crashes</dt><dd>If it happens while copying, the files already verified are kept, and encrypting again with the same password continues where it stopped. After the copy is verified, Zamok finishes the work.</dd></div>
     <div><dt>Encryption</dt><dd>Cryptomator vault format 8 (AES-GCM, AES-SIV, scrypt) through the RustCrypto libraries. File contents and file names are encrypted. The name of the encrypted folder itself stays visible.</dd></div>
     <div><dt>Network</dt><dd>There is no telemetry, no analytics, no accounts and no servers. The only network request is the “Check for updates” button in the settings: one HTTPS request to the GitHub API, sent only when you press it. GitHub sees your IP address and <code>User-Agent: Zamok/&lt;version&gt;</code>; no cookies, identifiers, folder names or paths are sent, and nothing is downloaded. This was checked in the code of <span class="nw">0.1.0-alpha</span>: <code>core/Cargo.lock</code> has no HTTP, TLS, socket or async network crates, <code>zamok-core</code> and <code>zamok-shell.dll</code> contain no sockets, HTTP clients or web addresses, and in <code>Zamok.exe</code> only the button handler calls the HTTP client. Details in <a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">PRIVACY.md</a>.</dd></div>
   </dl>
@@ -165,7 +165,7 @@
         <tr><th scope="row">Thumbnail cache</th><td>Explorer may store small copies of pictures on the system drive; this cannot be turned off for a single folder</td></tr>
         <tr><th scope="row">Recent files</th><td>Shortcuts to the folder’s files are removed on lock; taskbar jump lists stay for now</td></tr>
         <tr><th scope="row">Autosave and temporary files</th><td>Word, Photoshop and others write them to their own folders outside Zamok</td></tr>
-        <tr><th scope="row">Page file and hibernation file</th><td>Contents of memory may end up there, including keys: locking keys in memory is not done yet</td></tr>
+        <tr><th scope="row">Page file and hibernation file</th><td>Contents of open files may end up there. Zamok keeps its keys in memory that Windows does not page out, and before sleep and hibernation the folders lock and the keys are wiped</td></tr>
         <tr><th scope="row">Recycle Bin</th><td>There is none: a file deleted from an open folder is gone at once</td></tr>
       </tbody>
     </table>
