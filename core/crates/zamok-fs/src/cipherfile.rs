@@ -135,13 +135,17 @@ fn decrypt_range(
     let (first, last) = (offset / payload, (end - 1) / payload);
     let last_pt = (len - last * payload).min(payload) as usize;
     let total = (last - first) as usize * CHUNK_LEN + NONCE_LEN + last_pt + TAG_LEN;
-    CT_BUF.with_borrow_mut(|ct| -> Result<()> {
-        // Буфер шифротекста живёт в потоке и не выделяется на каждый запрос: свежие страницы
-        // большого буфера стоят по ошибке страницы на каждые 4 КиБ
-        if ct.len() < total {
-            ct.resize(total, 0);
+    // Буфер шифротекста живёт в потоке и не выделяется на каждый запрос: свежие страницы
+    // большого буфера стоят по ошибке страницы на каждые 4 КиБ. Буфер забирается из потока на
+    // время работы, а не берётся взаймы: пока поток пула ждёт свои куски в `install`, он
+    // выполняет чужие задачи, и упреждение другого файла зайдёт сюда же в этом потоке. Взаймы
+    // это паника «RefCell already borrowed», а паника в задаче `spawn` роняет весь процесс.
+    let mut owned = CT_BUF.with_borrow_mut(std::mem::take);
+    let r = (|| -> Result<()> {
+        if owned.len() < total {
+            owned.resize(total, 0);
         }
-        let ct = &mut ct[..total];
+        let ct = &mut owned[..total];
         read_exact_at(file, ct, chunk_pos(first))?;
 
         // Для каждого куска: номер, шифротекст, место в ответе и смещение внутри куска
@@ -171,7 +175,14 @@ fn decrypt_range(
                     Ok(())
                 })
         })
-    })
+    })();
+    // Вернуть буфер потоку, если там пусто или лежит меньший (его взяла вложенная задача)
+    CT_BUF.with_borrow_mut(|b| {
+        if b.capacity() < owned.capacity() {
+            *b = owned;
+        }
+    });
+    r
 }
 
 fn write_all_at(file: &File, buf: &[u8], mut pos: u64) -> io::Result<()> {
@@ -375,9 +386,14 @@ impl CipherFile {
                 .filter(|d| d.len() >= n)
                 .unwrap_or_else(|| Zeroizing::new(vec![0u8; n]));
             let end = start + n as u64;
-            let state = match decrypt_range(&file, &header, start, end, len, &mut data[..n]) {
-                Ok(()) => Fetched::Data(data),
-                Err(_) => Fetched::Failed,
+            // Паника в задаче `spawn` роняет весь процесс: здесь она становится неудачным
+            // упреждением, и запрос читается обычным путём
+            let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                decrypt_range(&file, &header, start, end, len, &mut data[..n])
+            }));
+            let state = match read {
+                Ok(Ok(())) => Fetched::Data(data),
+                _ => Fetched::Failed,
             };
             drop(header);
             let mut slot = ahead.slot.lock().unwrap();
@@ -641,5 +657,41 @@ mod tests {
         assert!(f.write_at(0, b"x").is_err());
         drop(f);
         std::fs::remove_file(&p).unwrap();
+    }
+
+    /// Много файлов читаются большими запросами одновременно: задачи упреждения разных файлов
+    /// встречаются в одном потоке пула (пока поток ждёт свои куски, он берёт чужую задачу).
+    /// Паника в задаче `spawn` роняет весь процесс, поэтому этот тест либо проходит, либо
+    /// процесс тестов падает с 0xc0000409.
+    #[test]
+    fn parallel_large_reads_of_many_files_do_not_crash() {
+        let k = MasterKey::generate().unwrap();
+        let size = 6 * 1024 * 1024;
+        let data: Vec<u8> = (0..size).map(|i| (i * 7 % 251) as u8).collect();
+        let paths: Vec<_> = (0..8).map(|i| tmp(&format!("par{i}"))).collect();
+        for p in &paths {
+            let mut f = CipherFile::create(p, &k).unwrap();
+            f.write_at(0, &data).unwrap();
+        }
+        std::thread::scope(|s| {
+            for p in &paths {
+                let (k, data) = (&k, &data);
+                s.spawn(move || {
+                    for _ in 0..6 {
+                        let f = CipherFile::open(p, k).unwrap();
+                        let mut buf = vec![0u8; 1024 * 1024];
+                        let mut off = 0;
+                        while off < data.len() {
+                            let n = f.read_at(off as u64, &mut buf).unwrap();
+                            assert_eq!(&buf[..n], &data[off..off + n]);
+                            off += n;
+                        }
+                    }
+                });
+            }
+        });
+        for p in &paths {
+            std::fs::remove_file(p).unwrap();
+        }
     }
 }
