@@ -586,9 +586,11 @@ try {
     $ui = StartUi '--settings' $pipeName 'en'
     $w = Window $ui.Id
     [void](WaitFor { Text $w 'DetailName' } 10000)
-    # Ni odnogo russkogo slova, krome imen papok (podpisi pereklyuchateley WinUI inache berutsya iz yazyka Windows)
+    # Ni odnogo russkogo slova, krome imen papok (podpisi pereklyuchateley WinUI inache berutsya iz
+    # yazyka Windows). Imya polosy prokrutki daet sama WinUI na yazyke Windows, ego ne zadat
     function NoRussian($w) {
-        $ru = @($w.FindAll('Descendants', [Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name } |
+        $ru = @($w.FindAll('Descendants', [Windows.Automation.Condition]::TrueCondition) |
+            Where-Object { $_.Current.ControlType -ne [Windows.Automation.ControlType]::ScrollBar } | ForEach-Object { $_.Current.Name } |
             Where-Object { $_ -match '[Ѐ-ӿ]' -and $_ -notlike "*$ruName*" })
         if ($ru) { throw "Russian text: $($ru -join ' | ')" }
         $true

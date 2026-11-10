@@ -21,8 +21,6 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <DefaultLanguage>ru-RU</DefaultLanguage>
-    <!-- Свой Main (Program.cs): язык окон задаётся до запуска WinUI -->
-    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- LibraryImport создаёт код с unsafe для вызовов Windows -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

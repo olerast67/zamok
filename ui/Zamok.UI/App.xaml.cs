@@ -14,6 +14,10 @@ public partial class App : Application
 
     public App()
     {
+        // Язык окон тот же, что у core, меню Проводника и установщика: язык интерфейса Windows,
+        // русский или английский. Без этого Windows на третьем языке показывала бы окна
+        // по-русски (язык сборки по умолчанию), а трей по-английски
+        Microsoft.Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = Lang.Code;
         InitializeComponent();
         // Последняя страховка: неожиданная ошибка показывается, а окно остаётся
         UnhandledException += (_, e) =>
