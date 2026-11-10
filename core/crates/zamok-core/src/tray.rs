@@ -73,11 +73,11 @@ fn load_icon(open: bool) -> HICON {
 }
 
 fn load_icon_file(open: bool) -> HICON {
-    // Значки из системы (собраны при установке), запасные свои
+    // Значок программы: замок закрыт или с поднятой дужкой; системные собранные запасные
     let names = if open {
-        ["tray-open.ico", "zamok-open.ico"]
+        ["zamok-open.ico", "tray-open.ico"]
     } else {
-        ["tray-locked.ico", "zamok.ico"]
+        ["zamok.ico", "tray-locked.ico"]
     };
     let dir = std::env::current_exe()
         .ok()

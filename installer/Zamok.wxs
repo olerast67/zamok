@@ -63,24 +63,24 @@
            («только на папках Zamok») переписывает zamok-core -->
       <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\ZamokEncrypt">
         <RegistryValue Name="MUIVerb" Value="[T_ENCRYPT]" Type="string" />
-        <RegistryValue Name="Icon" Value="[INSTALLFOLDER]open-item.ico" Type="string" />
+        <RegistryValue Name="Icon" Value="[INSTALLFOLDER]zamok.ico" Type="string" />
         <RegistryValue Key="command" Value="&quot;[INSTALLFOLDER]Zamok.exe&quot; --encrypt &quot;%1&quot;" Type="string" />
       </RegistryKey>
       <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\ZamokLock">
         <RegistryValue Name="MUIVerb" Value="[T_LOCK]" Type="string" />
-        <RegistryValue Name="Icon" Value="[INSTALLFOLDER]open-item.ico" Type="string" />
+        <RegistryValue Name="Icon" Value="[INSTALLFOLDER]zamok.ico" Type="string" />
         <RegistryValue Name="AppliesTo" Value="System.ItemPathDisplay:=&quot;::zamok-none::&quot;" Type="string" />
         <RegistryValue Key="command" Value="&quot;[INSTALLFOLDER]Zamok.exe&quot; --lock &quot;%1&quot;" Type="string" />
       </RegistryKey>
       <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\ZamokUnlock">
         <RegistryValue Name="MUIVerb" Value="[T_UNLOCK]" Type="string" />
-        <RegistryValue Name="Icon" Value="[INSTALLFOLDER]open-item.ico" Type="string" />
+        <RegistryValue Name="Icon" Value="[INSTALLFOLDER]zamok.ico" Type="string" />
         <RegistryValue Name="AppliesTo" Value="System.ItemPathDisplay:=&quot;::zamok-none::&quot;" Type="string" />
         <RegistryValue Key="command" Value="&quot;[INSTALLFOLDER]Zamok.exe&quot; --unlock &quot;%1&quot;" Type="string" />
       </RegistryKey>
       <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\ZamokMore">
         <RegistryValue Name="MUIVerb" Value="Zamok" Type="string" />
-        <RegistryValue Name="Icon" Value="[INSTALLFOLDER]open-item.ico" Type="string" />
+        <RegistryValue Name="Icon" Value="[INSTALLFOLDER]zamok.ico" Type="string" />
         <RegistryValue Name="SubCommands" Value="" Type="string" />
         <RegistryValue Name="AppliesTo" Value="System.ItemPathDisplay:=&quot;::zamok-none::&quot;" Type="string" />
         <RegistryValue Key="shell\1ChangePassword" Name="MUIVerb" Value="[T_CHANGE]" Type="string" />
@@ -96,7 +96,7 @@
       <RegistryKey Root="HKCU" Key="Software\Classes\Zamok.OpenItem">
         <RegistryValue Value="[T_TYPE]" Type="string" />
         <RegistryValue Name="FriendlyTypeName" Value="[T_TYPE]" Type="string" />
-        <RegistryValue Key="DefaultIcon" Value="[INSTALLFOLDER]open-item.ico" Type="string" />
+        <RegistryValue Key="DefaultIcon" Value="[INSTALLFOLDER]zamok.ico" Type="string" />
         <RegistryValue Key="shell\open\command" Value="&quot;[INSTALLFOLDER]Zamok.exe&quot; --unlock &quot;%1&quot;" Type="string" />
       </RegistryKey>
 
