@@ -12,7 +12,7 @@
            UpgradeCode="0AB3538F-B5F5-495A-B728-3619649FC6BC"
            Scope="perUser" Compressed="yes" Language="1049" Codepage="1251">
 
-    <MajorUpgrade DowngradeErrorMessage="Уже установлена более новая версия Zamok." />
+    <MajorUpgrade DowngradeErrorMessage="[T_DOWNGRADE]" />
     <MediaTemplate EmbedCab="yes" />
     <Icon Id="ZamokIcon" SourceFile="$(AppDir)\zamok.ico" />
     <Property Id="ARPPRODUCTICON" Value="ZamokIcon" />
@@ -23,7 +23,7 @@
       <RegistrySearch Root="HKLM" Key="SOFTWARE\WinFsp" Name="InstallDir" Type="raw" Bitness="always32" />
     </Property>
     <Launch Condition="Installed OR WINFSPDIR"
-            Message="Для Zamok нужен WinFsp (бесплатный драйвер файловых систем): https://winfsp.dev/rel/ . Установите его и запустите установку Zamok снова." />
+            Message="[T_NOWINFSP]" />
 
     <!-- Тексты пунктов меню: русские, если язык пользователя русский -->
     <Property Id="T_ENCRYPT" Value="Encrypt with password" />
@@ -40,6 +40,11 @@
     <SetProperty Id="T_SHOWKEY" Value="Показать ключ восстановления" Before="CostFinalize" Condition="UserLanguageID = 1049" Sequence="both" />
     <SetProperty Id="T_DECRYPT" Value="Расшифровать навсегда" Before="CostFinalize" Condition="UserLanguageID = 1049" Sequence="both" />
     <SetProperty Id="T_TYPE" Value="Папка Zamok" Before="CostFinalize" Condition="UserLanguageID = 1049" Sequence="both" />
+    <!-- Сообщения проверок в начале установки: до поиска прошлых версий и условий запуска -->
+    <Property Id="T_DOWNGRADE" Value="A newer version of Zamok is already installed." />
+    <Property Id="T_NOWINFSP" Value="Zamok needs WinFsp (a free file system driver): https://winfsp.dev/rel/ . Install it and run the Zamok setup again." />
+    <SetProperty Id="T_DOWNGRADE" Value="Уже установлена более новая версия Zamok." Before="FindRelatedProducts" Condition="UserLanguageID = 1049" Sequence="both" />
+    <SetProperty Id="T_NOWINFSP" Value="Для Zamok нужен WinFsp (бесплатный драйвер файловых систем): https://winfsp.dev/rel/ . Установите его и запустите установку Zamok снова." Before="FindRelatedProducts" Condition="UserLanguageID = 1049" Sequence="both" />
 
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ProgramsDir" Name="Programs">

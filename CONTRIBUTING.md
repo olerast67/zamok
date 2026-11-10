@@ -36,11 +36,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-dev.ps1
 | `tests\core\test-core.ps1` | фоновая программа на настоящей системе |
 | `tests\core\test-encrypt.ps1`, `test-decrypt.ps1` | шифрование и расшифровка, авария на каждом шаге |
 | `tests\fs\test-fs.ps1` | операции с файлами, результат читает Cryptomator |
-| `tests\ui\test-ui.ps1` | окна через UI Automation |
+| `tests\ui\test-ui.ps1` | окна через UI Automation, клавиатура и экранный диктор, оба языка |
+| `tests\shell\test-shell.ps1` | DLL Проводника без диска и сети, 1000 меню папки подряд |
 | `tests\install\test-install.ps1`, `test-msi.ps1`, `test-bundle.ps1` | установка, только если Zamok не установлен |
 | `tests\install\test-copyhook.ps1` | расширение Проводника, нужен установленный Zamok и диск D: с NTFS |
 
-Скрипты запускаются так: `powershell -NoProfile -ExecutionPolicy Bypass -File <путь>`, для `test-copyhook.ps1` ещё с `-Sta`. Тесты установки работают с настоящим реестром пользователя.
+Скрипты запускаются так: `powershell -NoProfile -ExecutionPolicy Bypass -File <путь>`, для `test-copyhook.ps1`, `test-shell.ps1` и `screens.ps1` ещё с `-Sta`. Снимки окон для README и сайта: `tests\ui\screens.ps1 -Lang ru` и `-Lang en`. Тесты установки работают с настоящим реестром пользователя.
 
 После изменения окон посмотрите на них глазами: тесты не видят обрезанный текст.
 

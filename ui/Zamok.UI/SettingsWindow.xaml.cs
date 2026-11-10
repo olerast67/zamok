@@ -32,6 +32,9 @@ public sealed partial class SettingsWindow : Window
         WindowHelper.SetupDialog(this, Root, TitleBar, TitleIcon, 680, 540);
         Title = Strings.Get("Settings_Title/Text");
         WindowHelper.HookKeys(Root, null, Close);
+        // Кнопка со значком: имя для экранного диктора из её текста
+        AutomationProperties.SetName(DefenderExclude, Strings.Get("Defender_ExcludeText/Text"));
+        DefenderExclude.AccessKey = Strings.Get("Access_Exclude");
         var icon = WindowHelper.FolderIcon(32);
         if (icon is not null) FolderIcon.Source = icon;
         foreach (var m in IdleMinutes)
@@ -142,6 +145,7 @@ public sealed partial class SettingsWindow : Window
             ? $"{StateText(f)}: {Strings.Error(f.Error)}"
             : StateText(f);
         ToggleButton.Content = Strings.Get(f.IsUnlocked ? "Settings_Lock" : "Settings_Open");
+        ToggleButton.AccessKey = Strings.Get(f.IsUnlocked ? "Access_Lock" : "Access_Open");
         ToggleButton.IsEnabled = f.State != "unavailable";
         PropPath.Text = Strings.Format("Settings_PropPath", f.Path);
         PropVault.Text = Strings.Format("Settings_PropVault", VaultPath(f.Path));
@@ -171,8 +175,7 @@ public sealed partial class SettingsWindow : Window
 
     private void ShowError(string text)
     {
-        ErrorText.Text = text;
-        ErrorText.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+        WindowHelper.Announce(ErrorText, text);
         FitToContent();
     }
 
@@ -274,8 +277,7 @@ public sealed partial class SettingsWindow : Window
 
     private void ShowStatus(string text)
     {
-        StatusText.Text = text;
-        StatusText.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+        WindowHelper.Announce(StatusText, text);
         FitToContent();
     }
 
@@ -338,8 +340,15 @@ public sealed partial class SettingsWindow : Window
         }
         var data = new Windows.ApplicationModel.DataTransfer.DataPackage();
         data.SetText(command);
-        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(data);
-        Windows.ApplicationModel.DataTransfer.Clipboard.Flush();
+        if (!await WindowHelper.ClipboardAsync(() =>
+            {
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(data);
+                Windows.ApplicationModel.DataTransfer.Clipboard.Flush();
+            }))
+        {
+            ShowError(Strings.Get("Common_ClipboardBusy"));
+            return;
+        }
         await DefenderDoneAsync(vaults);
         ShowStatus(Strings.Get("Defender_Copied"));
     }

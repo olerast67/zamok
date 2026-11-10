@@ -109,8 +109,10 @@
             </Grid.ColumnDefinitions>
             <StackPanel Spacing="4">
                 <TextBlock x:Name="ErrorText" AutomationProperties.AutomationId="ErrorText" Visibility="Collapsed"
+                           AutomationProperties.LiveSetting="Assertive"
                            Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
                 <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="StatusText" Visibility="Collapsed"
+                           AutomationProperties.LiveSetting="Polite"
                            TextWrapping="Wrap" />
                 <!-- Предложение исключить скрытые хранилища из проверки Defender: раз на хранилище -->
                 <Border x:Name="DefenderCard" AutomationProperties.AutomationId="DefenderCard" Visibility="Collapsed"

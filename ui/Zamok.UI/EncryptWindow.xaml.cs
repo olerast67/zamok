@@ -41,6 +41,12 @@ public sealed partial class EncryptWindow : Window
         AutomationProperties.SetName(StrengthBar, Strings.Get("A11y_Strength"));
         AutomationProperties.SetName(Progress, Strings.Get("A11y_Progress"));
         AutomationProperties.SetName(Busy, Strings.Get("A11y_Busy"));
+        // Кнопки со значком: имя для экранного диктора из их текста
+        AutomationProperties.SetName(SaveKeyButton, Strings.Get("Encrypt_SaveKeyText/Text"));
+        AutomationProperties.SetName(CopyKeyButton, Strings.Get("Encrypt_CopyKeyText/Text"));
+        SaveKeyButton.AccessKey = Strings.Get("Access_SaveKey");
+        CopyKeyButton.AccessKey = Strings.Get("Access_CopyKey");
+        SkipKeyButton.AccessKey = Strings.Get("Access_SkipKey");
         WindowHelper.HookKeys(Root, OnEnter, OnEscape);
         ShowPage(Page.Password);
         Activated += (_, _) => { if (_page == Page.Password) Password1.Focus(FocusState.Programmatic); };
@@ -90,8 +96,7 @@ public sealed partial class EncryptWindow : Window
 
     private void ShowError(string text)
     {
-        ErrorText.Text = text;
-        ErrorText.Visibility = Vis(!string.IsNullOrEmpty(text));
+        WindowHelper.Announce(ErrorText, text);
         Fit();
     }
 
@@ -199,13 +204,13 @@ public sealed partial class EncryptWindow : Window
     private async void OnSaveKeyClick(object sender, RoutedEventArgs e)
     {
         if (await KeyView.SaveAsync(this, _name, _recoveryKey!))
-            KeySaved.Text = Strings.Get("Encrypt_KeySaved");
+            WindowHelper.Announce(KeySaved, Strings.Get("Encrypt_KeySaved"));
     }
 
-    private void OnCopyKeyClick(object sender, RoutedEventArgs e)
+    private async void OnCopyKeyClick(object sender, RoutedEventArgs e)
     {
-        KeyView.Copy(_recoveryKey!);
-        KeySaved.Text = Strings.Get("Encrypt_KeyCopied");
+        var copied = await KeyView.CopyAsync(_recoveryKey!);
+        WindowHelper.Announce(KeySaved, Strings.Get(copied ? "Encrypt_KeyCopied" : "Common_ClipboardBusy"));
     }
 
     // 3. Проверка

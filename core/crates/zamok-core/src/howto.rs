@@ -29,10 +29,16 @@ pub enum Why {
     Removed,
 }
 
-/// Язык интерфейса Windows русский: памятка по-русски.
+/// Язык интерфейса Windows русский: памятка, трей и уведомления по-русски, иначе по-английски.
+/// То же правило в окнах (`Lang` в `WindowHelper.cs`). `ZAMOK_LANG=ru` или `en` задаёт язык
+/// для тестов.
 pub fn user_is_russian() -> bool {
     use windows::Win32::Globalization::GetUserDefaultUILanguage;
-    (unsafe { GetUserDefaultUILanguage() } & 0x3FF) == 0x19
+    match std::env::var("ZAMOK_LANG").as_deref() {
+        Ok("ru") => true,
+        Ok("en") => false,
+        _ => (unsafe { GetUserDefaultUILanguage() } & 0x3FF) == 0x19,
+    }
 }
 
 fn note_text(folder: &FolderConfig, russian: bool, why: Why) -> String {

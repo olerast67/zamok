@@ -38,6 +38,11 @@ public sealed partial class ManageWindow : Window
         AutomationProperties.SetName(StrengthBar, Strings.Get("A11y_Strength"));
         AutomationProperties.SetName(Progress, Strings.Get("A11y_Progress"));
         AutomationProperties.SetName(Busy, Strings.Get("A11y_Busy"));
+        // Кнопки со значком: имя для экранного диктора из их текста
+        AutomationProperties.SetName(SaveKeyButton, Strings.Get("Encrypt_SaveKeyText/Text"));
+        AutomationProperties.SetName(CopyKeyButton, Strings.Get("Encrypt_CopyKeyText/Text"));
+        SaveKeyButton.AccessKey = Strings.Get("Access_SaveKey");
+        CopyKeyButton.AccessKey = Strings.Get("Access_CopyKey");
         WindowHelper.HookKeys(Root, OnEnter, OnEscape);
         Closed += (_, _) => KeyView.ClearIfStillOurs();
         StepText.Text = Strings.Get(mode switch
@@ -63,8 +68,7 @@ public sealed partial class ManageWindow : Window
 
     private void ShowError(string text)
     {
-        ErrorText.Text = text;
-        ErrorText.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+        WindowHelper.Announce(ErrorText, text);
         WindowHelper.FitHeight(this, Root, _width);
     }
 
@@ -223,13 +227,13 @@ public sealed partial class ManageWindow : Window
 
     private async void OnSaveKeyClick(object sender, RoutedEventArgs e)
     {
-        if (await KeyView.SaveAsync(this, _name, _key!)) KeySaved.Text = Strings.Get("Encrypt_KeySaved");
+        if (await KeyView.SaveAsync(this, _name, _key!)) WindowHelper.Announce(KeySaved, Strings.Get("Encrypt_KeySaved"));
     }
 
-    private void OnCopyKeyClick(object sender, RoutedEventArgs e)
+    private async void OnCopyKeyClick(object sender, RoutedEventArgs e)
     {
-        KeyView.Copy(_key!);
-        KeySaved.Text = Strings.Get("Encrypt_KeyCopied");
+        var copied = await KeyView.CopyAsync(_key!);
+        WindowHelper.Announce(KeySaved, Strings.Get(copied ? "Encrypt_KeyCopied" : "Common_ClipboardBusy"));
     }
 
     private void OnCancelClick(object sender, RoutedEventArgs e) => Close();

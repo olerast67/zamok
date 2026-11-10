@@ -58,20 +58,18 @@ internal static partial class KeyView
     /// В буфер, но мимо журнала Win+V и облачной синхронизации. Через минуту буфер очищается,
     /// если в нём всё ещё ключ: номер изменения буфера говорит об этом, не читая содержимое.
     /// </summary>
-    public static void Copy(string key)
+    public static async Task<bool> CopyAsync(string key)
     {
         var data = new DataPackage();
         data.SetText(key);
-        Clipboard.SetContentWithOptions(data, new ClipboardContentOptions
-        {
-            IsAllowedInHistory = false,
-            IsRoamable = false,
-        });
+        var options = new ClipboardContentOptions { IsAllowedInHistory = false, IsRoamable = false };
+        if (!await WindowHelper.ClipboardAsync(() => Clipboard.SetContentWithOptions(data, options))) return false;
         _copiedSequence = GetClipboardSequenceNumber();
         _clearTimer?.Stop();
         _clearTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
         _clearTimer.Tick += (_, _) => ClearIfStillOurs();
         _clearTimer.Start();
+        return true;
     }
 
     /// <summary>Очистить буфер, если там ключ. Вызывается и при закрытии окна: таймер умрёт вместе с ним.</summary>

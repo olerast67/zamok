@@ -54,6 +54,7 @@
                              x:Uid="Encrypt_Password2" PasswordRevealMode="Peek" PasswordChanged="OnPasswordChanged" />
                 <ProgressBar x:Name="StrengthBar" Maximum="4" Height="3" />
                 <TextBlock x:Name="StrengthText" AutomationProperties.AutomationId="StrengthText"
+                           AutomationProperties.LiveSetting="Polite"
                            Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 <CheckBox x:Name="MakeKey" AutomationProperties.AutomationId="MakeKey"
@@ -106,6 +107,7 @@
                         </StackPanel>
                     </Button>
                     <TextBlock x:Name="KeySaved" AutomationProperties.AutomationId="KeySaved" VerticalAlignment="Center"
+                               AutomationProperties.LiveSetting="Polite"
                                Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap" MaxWidth="200"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
@@ -137,6 +139,7 @@
                     <FontIcon x:Name="DoneIcon" Glyph="&#xE73E;" FontSize="18" Visibility="Collapsed"
                               Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
                     <TextBlock x:Name="ProgressTitle" AutomationProperties.AutomationId="ProgressTitle"
+                               AutomationProperties.LiveSetting="Polite"
                                TextWrapping="Wrap" MaxWidth="340" />
                 </StackPanel>
                 <ProgressBar x:Name="Progress" AutomationProperties.AutomationId="Progress" Maximum="1" />

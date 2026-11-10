@@ -45,8 +45,7 @@ static SHOWN: Mutex<Option<(bool, String)>> = Mutex::new(None);
 static RUNNING_JOBS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
 fn russian() -> bool {
-    use windows::Win32::Globalization::GetUserDefaultUILanguage;
-    (unsafe { GetUserDefaultUILanguage() } & 0x3FF) == 0x19
+    crate::howto::user_is_russian()
 }
 
 fn t(ru: &'static str, en: &'static str) -> &'static str {

@@ -138,6 +138,45 @@ internal static partial class WindowHelper
         Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
             .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
+    /// <summary>
+    /// Показать текст в строке с <c>AutomationProperties.LiveSetting</c> (ошибка, «Сохранено»):
+    /// пустой текст прячет строку. TextBlock сам не сообщает о новом тексте, поэтому событие
+    /// живой области поднимается здесь, и экранный диктор читает текст без перехода к нему.
+    /// </summary>
+    public static void Announce(TextBlock block, string text)
+    {
+        block.Text = text;
+        block.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+        if (string.IsNullOrEmpty(text)) return;
+        var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.FromElement(block)
+                   ?? Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(block);
+        peer?.RaiseAutomationEvent(Microsoft.UI.Xaml.Automation.Peers.AutomationEvents.LiveRegionChanged);
+    }
+
+    /// <summary>
+    /// Положить в буфер обмена. Пока буфер держит другая программа, Windows отказывает
+    /// (CLIPBRD_E_CANT_OPEN): несколько попыток в течение секунды, потом false.
+    /// </summary>
+    public static async Task<bool> ClipboardAsync(Action put)
+    {
+        for (var i = 0; ; i++)
+        {
+            try
+            {
+                put();
+                return true;
+            }
+            catch (System.Runtime.InteropServices.COMException) when (i < 9)
+            {
+                await Task.Delay(100);
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                return false;
+            }
+        }
+    }
+
     /// <summary>Нажать кнопку, если её сейчас можно нажать.</summary>
     public static bool CanPress(Control button) => button.IsEnabled && button.Visibility == Visibility.Visible;
 
@@ -157,6 +196,28 @@ internal static partial class WindowHelper
 
     [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
     private static partial int MessageBoxW(IntPtr hwnd, string text, string caption, uint type);
+}
+
+/// <summary>
+/// Язык окон: русский, если язык интерфейса Windows русский, иначе английский (то же правило
+/// в core, <c>howto::user_is_russian</c>). <c>ZAMOK_LANG=ru</c> или <c>en</c> задаёт язык для
+/// тестов и снимков окон.
+/// </summary>
+internal static partial class Lang
+{
+    public static bool Russian { get; } = Detect();
+
+    public static string Code => Russian ? "ru-RU" : "en-US";
+
+    private static bool Detect()
+    {
+        var forced = Environment.GetEnvironmentVariable("ZAMOK_LANG");
+        if (forced is "ru" or "en") return forced == "ru";
+        return (GetUserDefaultUILanguage() & 0x3FF) == 0x19;
+    }
+
+    [LibraryImport("kernel32.dll")]
+    private static partial ushort GetUserDefaultUILanguage();
 }
 
 /// <summary>Строки интерфейса из Strings\&lt;язык&gt;\Resources.resw.</summary>
