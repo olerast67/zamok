@@ -31,9 +31,10 @@ function WaitFor([scriptblock]$cond, [int]$ms = 10000) {
 
 # Stroki interfeysa na oboih yazykah: proveryaem, chto okno pokazyvaet tekst, a ne klyuch
 $strings = @{}
+$byLang = @{ 'ru-RU' = @{}; 'en-US' = @{} }
 foreach ($lang in 'ru-RU', 'en-US') {
     [xml]$x = Get-Content "$repo\ui\Zamok.UI\Strings\$lang\Resources.resw" -Raw -Encoding UTF8
-    foreach ($d in $x.root.data) { if (-not $strings[$d.name]) { $strings[$d.name] = @() }; $strings[$d.name] += $d.value }
+    foreach ($d in $x.root.data) { if (-not $strings[$d.name]) { $strings[$d.name] = @() }; $strings[$d.name] += $d.value; $byLang[$lang][$d.name] = $d.value }
 }
 function IsText([string]$key, [string]$shown) { $strings[$key] -contains $shown }
 
@@ -84,6 +85,120 @@ function Press($w, [string]$id) {
 }
 function Enabled($w, [string]$id) { (El $w $id).Current.IsEnabled }
 
+# Dostupnost (etap 6): imena dlya ekrannogo diktora, klavishi dostupa, poryadok Tab.
+# Nastoyashchie nazhatiya (SendInput) idut, tolko esli okno Zamok sejchas aktivnoe: inache
+# klavisha popala by v chuzhoe okno. Togda fokus proveryaetsya cherez UI Automation, i v
+# primechanii proverki eto napisano.
+Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices; using System.Collections.Generic;
+public static class ZK {
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint type; public KEYBDINPUT ki; public long pad; }
+  [StructLayout(LayoutKind.Sequential)] struct KEYBDINPUT { public ushort vk; public ushort scan; public uint flags; public uint time; public IntPtr extra; }
+  [DllImport("user32.dll")] static extern uint SendInput(uint n, INPUT[] i, int size);
+  public static uint ForegroundPid() { uint p; GetWindowThreadProcessId(GetForegroundWindow(), out p); return p; }
+  // Klavisha tolko v okno processa pid; false, esli aktivno drugoe okno
+  public static bool Key(uint pid, ushort vk, bool shift) {
+    if (ForegroundPid() != pid) return false;
+    var l = new List<INPUT>();
+    if (shift) l.Add(new INPUT { type = 1, ki = new KEYBDINPUT { vk = 0x10 } });
+    l.Add(new INPUT { type = 1, ki = new KEYBDINPUT { vk = vk } });
+    l.Add(new INPUT { type = 1, ki = new KEYBDINPUT { vk = vk, flags = 2 } });
+    if (shift) l.Add(new INPUT { type = 1, ki = new KEYBDINPUT { vk = 0x10, flags = 2 } });
+    return SendInput((uint)l.Count, l.ToArray(), Marshal.SizeOf(typeof(INPUT))) == l.Count;
+  }
+}
+// Svoystvo LiveSetting (30135) upravlyaemaya biblioteka UI Automation ne znaet: chitaem cherez COM.
+// Poryadok metodov kak v UIAutomationClient.h, nenuzhnye metody tolko derzhat mesto.
+[ComImport, Guid("30cbe57d-d9d0-452a-ab13-7ac5ac4825ee"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IZUia { void CompareElements(); void CompareRuntimeIds(); void GetRootElement();
+  [PreserveSig] int ElementFromHandle(IntPtr hwnd, out IZUiaElement el);
+  void ElementFromPoint(); void GetFocusedElement(); void GetRootElementBuildCache(); void ElementFromHandleBuildCache();
+  void ElementFromPointBuildCache(); void GetFocusedElementBuildCache(); void CreateTreeWalker(); void get_ControlViewWalker();
+  void get_ContentViewWalker(); void get_RawViewWalker(); void get_RawViewCondition(); void get_ControlViewCondition();
+  void get_ContentViewCondition(); void CreateCacheRequest(); void CreateTrueCondition(); void CreateFalseCondition();
+  [PreserveSig] int CreatePropertyCondition(int id, [MarshalAs(UnmanagedType.Struct)] object value, [MarshalAs(UnmanagedType.IUnknown)] out object cond); }
+[ComImport, Guid("d22108aa-8ac5-49a5-837b-37bbb3d7591e"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IZUiaElement { void SetFocus(); void GetRuntimeId();
+  [PreserveSig] int FindFirst(int scope, [MarshalAs(UnmanagedType.IUnknown)] object cond, out IZUiaElement found);
+  void FindAll(); void FindFirstBuildCache(); void FindAllBuildCache(); void BuildUpdatedCache();
+  [PreserveSig] int GetCurrentPropertyValue(int id, [MarshalAs(UnmanagedType.Struct)] out object v); }
+public static class ZLive {
+  // LiveSetting elementa okna hwnd s etim AutomationId: 0 net, 1 Polite, 2 Assertive, -1 ne nayden
+  public static int Of(IntPtr hwnd, string automationId) {
+    var uia = (IZUia)Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("ff48dba4-60ef-4201-aa87-54103eef594e")));
+    IZUiaElement w, e; object cond, v;
+    if (uia.ElementFromHandle(hwnd, out w) != 0 || w == null) return -1;
+    if (uia.CreatePropertyCondition(30011, automationId, out cond) != 0) return -1;
+    if (w.FindFirst(4, cond, out e) != 0 || e == null) return -1;
+    if (e.GetCurrentPropertyValue(30135, out v) != 0) return -1;
+    return v == null ? 0 : Convert.ToInt32(v);
+  }
+}
+'@
+function Focusables($w) {
+    $list = @()
+    foreach ($e in @($w.FindAll('Descendants', [Windows.Automation.Condition]::TrueCondition))) {
+        $c = $e.Current
+        if (-not $c.IsKeyboardFocusable -or -not $c.IsEnabled -or $c.IsOffscreen) { continue }
+        # Tab vhodit v spisok na vybrannuyu stroku, ostalnye stroki strelkami
+        if ($c.ControlType -eq [Windows.Automation.ControlType]::ListItem -and
+            -not $e.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Current.IsSelected) { continue }
+        $list += $e
+    }
+    , $list
+}
+function Ident($e) { if ($e.Current.AutomationId) { $e.Current.AutomationId } else { $e.Current.Name } }
+function Focused { Ident ([Windows.Automation.AutomationElement]::FocusedElement) }
+function A11y([string]$label, $w, $proc) {
+    Check "a11y ${label}: every control has a name for Narrator, access keys differ" {
+        $els = Focusables $w
+        if ($els.Count -lt 1) { throw 'nothing focusable' }
+        # Imya pustoe ili klyuch stroki vmesto teksta
+        $bad = @($els | Where-Object { $n = $_.Current.Name; -not $n.Trim() -or $strings.ContainsKey($n.Replace('/', '.')) } | ForEach-Object { Ident $_ })
+        if ($bad) { throw "no name: $($bad -join ', ')" }
+        $keys = @($w.FindAll('Descendants', [Windows.Automation.Condition]::TrueCondition) |
+            Where-Object { -not $_.Current.IsOffscreen -and $_.Current.AccessKey } | ForEach-Object { $_.Current.AccessKey.ToUpper() })
+        $dup = @($keys | Group-Object | Where-Object Count -gt 1 | ForEach-Object Name)
+        if ($dup) { throw "same access key: $($dup -join ', ')" }
+        "$($els.Count) controls; access keys $($keys -join ' ')"
+    }
+    Check "a11y ${label}: Tab and Shift+Tab go through every control in order" {
+        # Okno moglo izmenitsya vo vremya proverki (shifrovanie doshlo do kontsa, i Otmena
+        # vyklyuchilas): togda eshche raz s novym sostavom
+        foreach ($attempt in 1..3) {
+            $els = Focusables $w
+            $want = @($els | ForEach-Object { Ident $_ })
+            $els[0].SetFocus(); Start-Sleep -Milliseconds 200
+            $why = $null
+            if ([ZK]::ForegroundPid() -ne $proc.Id -or (Focused) -ne $want[0]) { $why = 'window not active'; break }
+            $fwd = @(); $back = @()
+            foreach ($i in 1..(2 * $want.Count)) {
+                if (-not [ZK]::Key($proc.Id, 9, $i -gt $want.Count)) { $why = "another window became active after $($i - 1) presses"; break }
+                Start-Sleep -Milliseconds 150
+                if ($i -le $want.Count) { $fwd += Focused } else { $back += Focused }
+            }
+            if ($why) { break }
+            $expFwd = @($want | Select-Object -Skip 1) + $want[0]
+            $expBack = @($want[($want.Count - 1)..0])
+            if (($fwd -join '>') -eq ($expFwd -join '>') -and ($back -join '>') -eq ($expBack -join '>')) { return "Tab pressed for real: $($want -join ' > ')" }
+            if ((@(Focusables $w | ForEach-Object { Ident $_ }) -join '>') -ne ($want -join '>') -and $attempt -lt 3) { continue }
+            if (($fwd -join '>') -ne ($expFwd -join '>')) { throw "Tab: $($fwd -join ' > '), want $($expFwd -join ' > ')" }
+            throw "Shift+Tab: $($back -join ' > '), want $($expBack -join ' > ')"
+        }
+        # Klavishi ne nazhat: Windows ne dala oknu klaviaturu. Kazhdyy element dostupen cherez
+        # UI Automation (deystvie est), poryadok berem iz dereva okna
+        foreach ($e in $els) {
+            $pats = @($e.GetSupportedPatterns() | ForEach-Object { $_.ProgrammaticName })
+            if (-not ($pats -match 'Invoke|Toggle|Value|SelectionItem|ExpandCollapse|Scroll')) { throw "$(Ident $e): no action for UI Automation" }
+        }
+        "$why, Tab not pressed for real; every control usable through UI Automation: $($want -join ' > ')"
+    }
+}
+# LiveSetting: 1 Polite, 2 Assertive (ekrannyy diktor chitaet stroku sam, bez perehoda k ney)
+function Live($w, [string]$id) { [ZLive]::Of([IntPtr]$w.Current.NativeWindowHandle, $id) }
+
 function StartCore {
     $psi = New-Object Diagnostics.ProcessStartInfo $coreExe
     $psi.UseShellExecute = $false
@@ -120,11 +235,12 @@ function Send([string]$json) {
 }
 function J([string]$s) { $s.Replace('\', '\\').Replace('"', '\"') }
 function Folder([string]$path) { (Send '{"cmd":"status"}').folders | Where-Object { $_.path -eq $path } }
-function StartUi([string[]]$uiArgs, [string]$pipe = $pipeName) {
+function StartUi([string[]]$uiArgs, [string]$pipe = $pipeName, [string]$lang = '') {
     $psi = New-Object Diagnostics.ProcessStartInfo $uiExe
     $psi.UseShellExecute = $false
     $psi.Arguments = ($uiArgs | ForEach-Object { '"' + $_ + '"' }) -join ' '
     $psi.EnvironmentVariables['ZAMOK_PIPE'] = $pipe
+    if ($lang) { $psi.EnvironmentVariables['ZAMOK_LANG'] = $lang }
     [Diagnostics.Process]::Start($psi)
 }
 function MakeSample([string]$dir) {
@@ -163,18 +279,22 @@ try {
         SetValue $w 'Password2' $pw; Start-Sleep -Milliseconds 300
         (IsText 'Encrypt_Strength4' (Text $w 'StrengthText')) -and (Enabled $w 'NextButton')
     }
+    A11y 'wizard password step' $w $ui
     Press $w 'NextButton'
     [void](WaitFor { (Text $w 'KeyWords') -match '44\.' } 20000)
     $keyText = Text $w 'KeyWords'
     $words = @([regex]::Matches($keyText, '\d+\.\s+(\S+)') | ForEach-Object { $_.Groups[1].Value })
     Check 'wizard: recovery key shows 44 numbered words' { $words.Count -eq 44 }
+    A11y 'wizard key step' $w $ui
     Press $w 'NextButton'
     Start-Sleep -Milliseconds 500
+    A11y 'wizard words step' $w $ui
     Check 'wizard: wrong words are rejected' {
         1..4 | ForEach-Object { SetValue $w "Word$_" 'wrong' }
         Press $w 'NextButton'; Start-Sleep -Milliseconds 300
         IsText 'Encrypt_WordsWrong' (Text $w 'ErrorText')
     }
+    Check 'wizard: the error line is read by Narrator at once (LiveSetting Assertive)' { (Live $w 'ErrorText') -eq 2 }
     Check 'wizard: correct words lead to the result' {
         foreach ($i in 1..4) {
             $header = (El $w "Word$i").Current.Name
@@ -187,6 +307,7 @@ try {
     Check 'wizard: folder is encrypted and open, content intact' {
         (Folder $dir).state -eq 'unlocked' -and (Get-Content "$dir\note.txt") -eq 'hello from ui test'
     }
+    A11y 'wizard result' $w $ui
     Check 'wizard: Lock now locks the folder and closes the window' {
         Press $w 'LockNowButton'
         $ui.WaitForExit(10000) -and (Folder $dir).state -eq 'locked'
@@ -199,10 +320,12 @@ try {
     $w = Window $ui.Id
     Check 'unlock: window shows the folder name' { $w -and (Text $w 'FolderName') -eq $ruName }
     Check 'unlock: prompt is a real string' { IsText 'Unlock_Prompt.Text' (Text $w 'Prompt') }
+    A11y 'unlock' $w $ui
     Check 'unlock: wrong password keeps the window and says so' {
         SetValue $w 'Password' 'not the password'; Press $w 'OpenButton'
         (WaitFor { IsText 'Error_wrong_password' (Text $w 'ErrorText') } 10000) -and -not $ui.HasExited -and (Folder $dir).state -eq 'locked'
     }
+    Check 'unlock: "Wrong password" is read by Narrator at once (LiveSetting Assertive)' { (Live $w 'ErrorText') -eq 2 }
     Check 'unlock: right password opens the folder and closes the window' {
         SetValue $w 'Password' $pw; Press $w 'OpenButton'
         $ui.WaitForExit(10000) -and (Folder $dir).state -eq 'unlocked' -and (Test-Path "$dir\note.txt")
@@ -211,13 +334,32 @@ try {
         $ui = StartUi '--unlock', $item
         $ui.WaitForExit(15000)
     }
+    # Klaviatura po-nastoyashchemu: Enter v pole parolya otkryvaet, Esc zakryvaet okno
+    [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $dir)`"}")
+    $ui = StartUi '--unlock', $item
+    $w = Window $ui.Id
+    Check 'keyboard: Enter in the password field opens the folder' {
+        SetValue $w 'Password' $pw; (El $w 'Password').SetFocus(); Start-Sleep -Milliseconds 200
+        if (-not [ZK]::Key($ui.Id, 13, $false)) { Press $w 'OpenButton'; $how = 'window not active, Enter not pressed for real (Open pressed through UI Automation)' } else { $how = 'Enter pressed for real' }
+        if (-not ($ui.WaitForExit(10000) -and (Folder $dir).state -eq 'unlocked')) { throw 'not opened' }
+        $how
+    }
+    $ui = StartUi '--unlock', "$root\not-encrypted-esc"
+    $w = Window $ui.Id
+    Check 'keyboard: Esc closes the window' {
+        Start-Sleep -Milliseconds 500; (El $w 'CancelButton').SetFocus(); Start-Sleep -Milliseconds 200
+        if (-not [ZK]::Key($ui.Id, 27, $false)) { $ui.Kill(); return 'window not active, Esc not pressed for real' }
+        if (-not $ui.WaitForExit(5000)) { throw 'still open' }
+        'Esc pressed for real'
+    }
 
     # 3. Klyuch vosstanovleniya
     [void](Send "{`"cmd`":`"lock`",`"path`":`"$(J $dir)`"}")
     $ui = StartUi '--unlock', $dir
     $w = Window $ui.Id
+    Press $w 'ModeLink'; Start-Sleep -Milliseconds 300
+    A11y 'unlock with the recovery key' $w $ui
     Check 'recovery: the key opens the folder' {
-        Press $w 'ModeLink'; Start-Sleep -Milliseconds 300
         (IsText 'Unlock_PromptRecovery.Text' (Text $w 'Prompt')) | Out-Null
         SetValue $w 'RecoveryWords' ($words -join ' '); Press $w 'OpenButton'
         $ui.WaitForExit(10000) -and (Folder $dir).state -eq 'unlocked'
@@ -270,6 +412,8 @@ try {
     # Rasshifrovat navsegda cherez okno
     $ui = StartUi '--decrypt', $dir2
     $w = Window $ui.Id
+    Start-Sleep -Milliseconds 500
+    A11y 'decrypt window' $w $ui
     Check 'decrypt window: wrong password is reported' {
         SetValue $w 'Password' 'not it'; Start-Sleep -Milliseconds 300; Press $w 'OkButton'
         WaitFor { IsText 'Error_wrong_password' (Text $w 'ErrorText') } 10000
@@ -286,6 +430,8 @@ try {
     $ui = StartUi '--change-password', $dir
     $w = Window $ui.Id
     $pw2 = 'Novyy parol dlya testa 2026'
+    Start-Sleep -Milliseconds 500
+    A11y 'change password' $w $ui
     Check 'change password: wrong current password is reported' {
         SetValue $w 'Password' 'not it'; SetValue $w 'NewPassword1' $pw2; SetValue $w 'NewPassword2' $pw2
         Start-Sleep -Milliseconds 300; Press $w 'OkButton'
@@ -301,12 +447,15 @@ try {
     }
     $ui = StartUi '--show-key', $dir
     $w = Window $ui.Id
+    Start-Sleep -Milliseconds 500
+    A11y 'show key, password' $w $ui
     Check 'show key: the password shows the same 44 words' {
         SetValue $w 'Password' $pw2; Start-Sleep -Milliseconds 300; Press $w 'OkButton'
         if (-not (WaitFor { (Text $w 'KeyWords') -match '44\.' } 10000)) { throw 'no key' }
         $shown = @([regex]::Matches((Text $w 'KeyWords'), '\d+\.\s+(\S+)') | ForEach-Object { $_.Groups[1].Value })
         ($shown -join ' ') -eq ($words -join ' ')
     }
+    A11y 'show key, the key' $w $ui
     $ui.Kill()
     $pw = $pw2
 
@@ -328,10 +477,18 @@ try {
         # Svernutyy element v dereve UI Automation ne viden: nalichie teksta i est pokaz kartochki
         if (-not (WaitFor { El $w 'DefenderText' } 10000)) { throw 'no card' }
         if (-not (IsText 'Defender_Text.Text' (Text $w 'DefenderText'))) { throw 'text is not a string' }
+        A11y 'settings' $w $ui
         $offer = @((Send '{"cmd":"status"}').settings.defender_offer)
         $saved = Get-Clipboard -Raw -ErrorAction SilentlyContinue
-        Press $w 'DefenderCopy'
-        $copied = $null; [void](WaitFor { $script:copied = Get-Clipboard -Raw; $script:copied -like 'Add-MpPreference*' } 5000)
+        # Buffer obmena mozhet derzhat drugaya programma: okno togda pishet ob etom, nazhimaem eshche raz
+        $script:copied = $null
+        foreach ($try in 1..3) {
+            Press $w 'DefenderCopy'; Start-Sleep -Milliseconds 500
+            if (WaitFor { (IsText 'Defender_Copied' (Text $w 'StatusText')) -or (IsText 'Common_ClipboardBusy' (Text $w 'ErrorText')) } 5000) {
+                if (IsText 'Defender_Copied' (Text $w 'StatusText')) { break }
+            }
+        }
+        [void](WaitFor { $script:copied = Get-Clipboard -Raw; $script:copied -like 'Add-MpPreference*' } 5000)
         if ($saved) { Set-Clipboard -Value $saved }
         $env:ZT_CMD = $script:copied
         $env:ZT_WANT = $offer -join '|'
@@ -341,6 +498,7 @@ try {
             (WaitFor { @((Send '{"cmd":"status"}').settings.defender_offer).Count -eq 0 } 5000) -and
             (IsText 'Defender_Copied' (Text $w 'StatusText'))
     }
+    Check 'settings: the status line is read by Narrator (LiveSetting Polite)' { (Live $w 'StatusText') -eq 1 }
     Check 'settings: Defender offer is gone after the answer' {
         WaitFor { -not (El $w 'DefenderText') } 5000
     }
@@ -391,6 +549,7 @@ try {
         $p = DeletedWindow; $w = Window $p.Id
         if ((Text $w 'FolderName') -ne $ruName) { throw "name: $(Text $w 'FolderName')" }
         if (-not (IsText 'Deleted_Message.Text' (Text $w 'Message'))) { throw 'message is not a string' }
+        A11y 'deleted folder' $w $p
         Press $w 'RestoreButton'
         $p.WaitForExit(10000) -and (WaitFor { (Folder $dir).state -eq 'locked' -and (Test-Path "$dir\$openWord $ruName.zamok") } 10000)
     }
@@ -412,6 +571,38 @@ try {
         $note = @(Get-ChildItem -LiteralPath $root -Filter "*$ruName.txt" -File)
         $gone -and -not (Test-Path $dir) -and (Test-Path "$root\.$ruName.zamok\masterkey.cryptomator") -and $note.Count -eq 1
     }
+
+    # Yazyk: okna po yazyku Windows (ZAMOK_LANG zadaet ego dlya testa), tekst iz svoego fayla strok
+    foreach ($l in @(@('ru', 'ru-RU'), @('en', 'en-US'))) {
+        $ui = StartUi '--unlock', $item $pipeName $l[0]
+        $w = Window $ui.Id
+        Check "language $($l[0]): the window speaks it" {
+            (WaitFor { (Text $w 'Prompt') -eq $byLang[$l[1]]['Unlock_Prompt.Text'] } 5000) -and
+                (Text $w 'OpenButton') -eq $byLang[$l[1]]['Unlock_Open.Content']
+        }
+        if ($l[0] -eq 'en') { A11y 'unlock in English' $w $ui }
+        $ui.Kill()
+    }
+    $ui = StartUi '--settings' $pipeName 'en'
+    $w = Window $ui.Id
+    [void](WaitFor { Text $w 'DetailName' } 10000)
+    # Ni odnogo russkogo slova, krome imen papok (podpisi pereklyuchateley WinUI inache berutsya iz yazyka Windows)
+    function NoRussian($w) {
+        $ru = @($w.FindAll('Descendants', [Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name } |
+            Where-Object { $_ -match '[Ѐ-ӿ]' -and $_ -notlike "*$ruName*" })
+        if ($ru) { throw "Russian text: $($ru -join ' | ')" }
+        $true
+    }
+    Check 'language en: settings have no Russian text' { NoRussian $w }
+    A11y 'settings in English' $w $ui
+    $ui.Kill()
+    $dir4 = "$root\english"; MakeSample $dir4
+    $ui = StartUi '--encrypt', $dir4 $pipeName 'en'
+    $w = Window $ui.Id
+    Start-Sleep -Milliseconds 500
+    Check 'language en: the wizard has no Russian text' { NoRussian $w }
+    A11y 'wizard in English' $w $ui
+    $ui.Kill()
 
     # 6. Okno Provodnika na papke posle parolya pokazyvaet fayly bez F5. Poslednim: Provodnik
     # zabiraet aktivnost, i okna, zapushchennye testom posle nego, aktivnymi ne stanovyatsya

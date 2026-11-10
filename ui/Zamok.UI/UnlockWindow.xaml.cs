@@ -63,6 +63,10 @@ public sealed partial class UnlockWindow : Window
         ShowFolder(path.TrimEnd('\\'), null);
         Title = FolderName.Text;
         AutomationProperties.SetName(Busy, Strings.Get("A11y_Busy"));
+        // Кнопка со значком: имя для экранного диктора из её текста
+        AutomationProperties.SetName(HelloButton, Strings.Get("Unlock_HelloText/Text"));
+        HelloButton.AccessKey = Strings.Get("Access_Hello");
+        ModeLink.AccessKey = Strings.Get("Access_Recovery");
         WindowHelper.HookKeys(Root, () => OnOpenClick(OpenButton, new RoutedEventArgs()), Close);
         WindowHelper.FitHeight(this, Root, 420);
         Activated += OnFirstActivated;
@@ -122,8 +126,7 @@ public sealed partial class UnlockWindow : Window
 
     private void ShowError(string text)
     {
-        ErrorText.Text = text;
-        ErrorText.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+        WindowHelper.Announce(ErrorText, text);
         WindowHelper.FitHeight(this, Root, 420);
     }
 
@@ -143,6 +146,7 @@ public sealed partial class UnlockWindow : Window
         RecoveryWords.Visibility = _recoveryMode ? Visibility.Visible : Visibility.Collapsed;
         Prompt.Text = Strings.Get(_recoveryMode ? "Unlock_PromptRecovery/Text" : "Unlock_Prompt/Text");
         ModeLink.Content = Strings.Get(_recoveryMode ? "Unlock_UsePassword/Content" : "Unlock_UseRecovery/Content");
+        ModeLink.AccessKey = Strings.Get(_recoveryMode ? "Access_Password" : "Access_Recovery");
         ShowError("");
         WindowHelper.FitHeight(this, Root, 420);
         if (_recoveryMode) RecoveryWords.Focus(FocusState.Programmatic);

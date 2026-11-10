@@ -57,6 +57,7 @@
                              x:Uid="Manage_NewPassword2" PasswordRevealMode="Peek" PasswordChanged="OnNewChanged" />
                 <ProgressBar x:Name="StrengthBar" Maximum="4" Height="3" />
                 <TextBlock x:Name="StrengthText" AutomationProperties.AutomationId="StrengthText"
+                           AutomationProperties.LiveSetting="Polite"
                            Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
@@ -82,19 +83,20 @@
                     </ScrollViewer>
                 </Border>
                 <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
-                    <Button AutomationProperties.AutomationId="SaveKeyButton" Click="OnSaveKeyClick">
+                    <Button x:Name="SaveKeyButton" AutomationProperties.AutomationId="SaveKeyButton" Click="OnSaveKeyClick">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <FontIcon Glyph="&#xE74E;" FontSize="14" />
                             <TextBlock x:Uid="Encrypt_SaveKeyText" />
                         </StackPanel>
                     </Button>
-                    <Button AutomationProperties.AutomationId="CopyKeyButton" Click="OnCopyKeyClick">
+                    <Button x:Name="CopyKeyButton" AutomationProperties.AutomationId="CopyKeyButton" Click="OnCopyKeyClick">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <FontIcon Glyph="&#xE8C8;" FontSize="14" />
                             <TextBlock x:Uid="Encrypt_CopyKeyText" />
                         </StackPanel>
                     </Button>
-                    <TextBlock x:Name="KeySaved" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="200"
+                    <TextBlock x:Name="KeySaved" AutomationProperties.AutomationId="KeySaved"
+                               AutomationProperties.LiveSetting="Polite" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="200"
                                Style="{StaticResource CaptionTextBlockStyle}"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
@@ -113,6 +115,7 @@
             <StackPanel x:Name="PageDone" Grid.Row="1" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
                 <FontIcon Glyph="&#xE73E;" FontSize="18" Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
                 <TextBlock x:Name="DoneText" AutomationProperties.AutomationId="DoneText"
+                           AutomationProperties.LiveSetting="Polite"
                            TextWrapping="Wrap" MaxWidth="340" />
             </StackPanel>
 

@@ -8,6 +8,7 @@
   <data name="Common_Back.Content" xml:space="preserve"><value>Back</value></data>
   <data name="Common_Next" xml:space="preserve"><value>Next</value></data>
   <data name="Common_Close" xml:space="preserve"><value>Close</value></data>
+  <data name="Common_ClipboardBusy" xml:space="preserve"><value>Could not copy: another program is using the clipboard. Try again.</value></data>
   <data name="Unlock_Prompt.Text" xml:space="preserve"><value>Enter the password to open the folder.</value></data>
   <data name="Unlock_PromptRecovery.Text" xml:space="preserve"><value>Paste the whole recovery key file or type the 44 words in order.</value></data>
   <data name="Unlock_Password.Header" xml:space="preserve"><value>Password</value></data>
@@ -67,7 +68,6 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Manage_Change" xml:space="preserve"><value>Change</value></data>
   <data name="Manage_Show" xml:space="preserve"><value>Show</value></data>
   <data name="Manage_Changed" xml:space="preserve"><value>The password has been changed. The old one no longer opens the folder.</value></data>
-  <data name="Menu_More" xml:space="preserve"><value>Zamok</value></data>
   <data name="Manage_Decrypting.Text" xml:space="preserve"><value>The folder is being decrypted. Do not turn off the computer until it finishes.</value></data>
   <data name="Manage_DecryptStep" xml:space="preserve"><value>Decrypt permanently</value></data>
   <data name="Manage_DecryptWarning.Text" xml:space="preserve"><value>The files become ordinary, unencrypted, and stay in the same place. A checked decrypted copy is made first, the encrypted data is deleted last.</value></data>
@@ -87,6 +87,10 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Settings_EmptyHow.Text" xml:space="preserve"><value>To encrypt a folder, right-click it and choose “Encrypt with password”.</value></data>
   <data name="Settings_ScreenLock.Header" xml:space="preserve"><value>Lock all folders when the screen locks (Win+L)</value></data>
   <data name="Settings_Close.Content" xml:space="preserve"><value>Close</value></data>
+  <data name="Settings_ScreenLock.OnContent" xml:space="preserve"><value>On</value></data>
+  <data name="Settings_ScreenLock.OffContent" xml:space="preserve"><value>Off</value></data>
+  <data name="Settings_Hello.OnContent" xml:space="preserve"><value>On</value></data>
+  <data name="Settings_Hello.OffContent" xml:space="preserve"><value>Off</value></data>
   <data name="Settings_Hello.Header" xml:space="preserve"><value>Open with Windows Hello (PIN, fingerprint, face)</value></data>
   <data name="Settings_HelloNote.Text" xml:space="preserve"><value>Anyone who knows the Windows PIN can open the folder too. It works only on this computer; the password and the recovery key stay the main way in.</value></data>
   <data name="Settings_HelloTitle" xml:space="preserve"><value>Turn on Windows Hello</value></data>
@@ -105,6 +109,25 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="A11y_Progress" xml:space="preserve"><value>Progress</value></data>
   <data name="A11y_Busy" xml:space="preserve"><value>Checking</value></data>
   <data name="Settings_Open" xml:space="preserve"><value>Open</value></data>
+  <data name="Encrypt_MakeKey.AccessKey" xml:space="preserve"><value>K</value></data>
+  <data name="Common_Back.AccessKey" xml:space="preserve"><value>B</value></data>
+  <data name="Encrypt_LockNow.AccessKey" xml:space="preserve"><value>L</value></data>
+  <data name="Access_SkipKey" xml:space="preserve"><value>N</value></data>
+  <data name="Access_SaveKey" xml:space="preserve"><value>S</value></data>
+  <data name="Access_CopyKey" xml:space="preserve"><value>C</value></data>
+  <data name="Access_Recovery" xml:space="preserve"><value>R</value></data>
+  <data name="Access_Password" xml:space="preserve"><value>P</value></data>
+  <data name="Access_Hello" xml:space="preserve"><value>W</value></data>
+  <data name="Access_Open" xml:space="preserve"><value>O</value></data>
+  <data name="Access_Lock" xml:space="preserve"><value>L</value></data>
+  <data name="Access_Exclude" xml:space="preserve"><value>X</value></data>
+  <data name="Settings_Show.AccessKey" xml:space="preserve"><value>E</value></data>
+  <data name="Settings_Hello.AccessKey" xml:space="preserve"><value>H</value></data>
+  <data name="Settings_Idle.AccessKey" xml:space="preserve"><value>U</value></data>
+  <data name="Settings_ScreenLock.AccessKey" xml:space="preserve"><value>S</value></data>
+  <data name="Defender_Copy.AccessKey" xml:space="preserve"><value>C</value></data>
+  <data name="Defender_No.AccessKey" xml:space="preserve"><value>N</value></data>
+  <data name="Deleted_Remove.AccessKey" xml:space="preserve"><value>R</value></data>
   <data name="Deleted_Message.Text" xml:space="preserve"><value>This folder was deleted in File Explorer. The encrypted files are safe. Bring the folder back?</value></data>
   <data name="Deleted_RemoveNote" xml:space="preserve"><value>If you remove the folder from Zamok, the encrypted files stay in the hidden folder “.{0}.zamok”, and the file “HOW TO OPEN {0}.txt” next to it explains how to open them.</value></data>
   <data name="Deleted_Restore.Content" xml:space="preserve"><value>Bring back</value></data>

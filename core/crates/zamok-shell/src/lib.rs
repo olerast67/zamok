@@ -8,6 +8,7 @@
 #![allow(non_snake_case)]
 
 use std::ffi::c_void;
+use std::sync::OnceLock;
 
 use windows::core::{w, Ref, Result, BOOL, GUID, HRESULT, HSTRING, PCWSTR};
 use windows::Win32::Foundation::{
@@ -61,10 +62,19 @@ pub fn blocked_by<'a>(src: &str, dest: &str, folders: &'a str) -> Option<&'a str
     })
 }
 
+/// Имя общей памяти. `ZAMOK_SHELL_MAP` задаёт своё имя для теста DLL (`tests/shell`), чтобы он
+/// не трогал список работающего core. Переменная читается из памяти процесса один раз.
+fn map_name() -> &'static HSTRING {
+    static NAME: OnceLock<HSTRING> = OnceLock::new();
+    NAME.get_or_init(|| match std::env::var_os("ZAMOK_SHELL_MAP") {
+        Some(n) if !n.is_empty() => HSTRING::from(n.as_os_str()),
+        _ => HSTRING::from("Local\\ZamokFolders"),
+    })
+}
+
 /// Прочитать список из общей памяти. Нет памяти (core не запущен): пустой список.
 fn read_folders() -> String {
-    let Ok(map) = (unsafe { OpenFileMappingW(FILE_MAP_READ.0, false, w!("Local\\ZamokFolders")) })
-    else {
+    let Ok(map) = (unsafe { OpenFileMappingW(FILE_MAP_READ.0, false, map_name()) }) else {
         return String::new();
     };
     let view = unsafe { MapViewOfFile(map, FILE_MAP_READ, 0, 0, SIZE) };

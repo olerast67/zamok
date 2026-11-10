@@ -92,8 +92,7 @@ public sealed partial class DeletedWindow : Window
 
     private void ShowError(string text)
     {
-        ErrorText.Text = text;
-        ErrorText.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+        WindowHelper.Announce(ErrorText, text);
         WindowHelper.FitHeight(this, Root, DialogWidth);
     }
 
