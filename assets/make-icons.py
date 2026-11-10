@@ -1,66 +1,78 @@
-"""Значки Zamok из кода: замок закрытый (zamok.ico) и с открытой дужкой (zamok-open.ico).
+"""Значок Zamok: синяя плитка, белый замок с корпусом-папкой (zamok.ico) и он же с поднятой
+дужкой для открытой папки (zamok-open.ico), плюс PNG 256 для баннера и сайта.
 
 Запуск: python assets/make-icons.py  (нужен Pillow)
-Каждый размер рисуется отдельно в 4 раза крупнее и уменьшается со сглаживанием;
-на 16 и 24 пикселях линии толще, чтобы замок читался в трее.
-Это временные значки альфы: настоящие (папка с замком в стиле Windows 11) рисуются на этапе 6.
+Каждый размер рисуется в 8 раз крупнее и уменьшается со сглаживанием; на 16 и 24 точках
+дужка и скважина толще, чтобы замок читался в трее и в заголовке окна.
+Рисунок задан в сетке 64 на 64, как в исходном SVG (docs/images/logo.svg).
 """
 import os
+import sys
 from PIL import Image, ImageDraw
 
 SIZES = [16, 20, 24, 32, 40, 48, 64, 256]
-BODY = (43, 58, 85, 255)        # тёмно-синий корпус
-EDGE = (232, 236, 241, 255)     # светлый край: виден и на тёмной панели задач
-SHACKLE = (150, 162, 176, 255)  # серая дужка
-KEYHOLE = (232, 236, 241, 255)
+TOP = (58, 111, 224)      # #3A6FE0
+BOTTOM = (29, 62, 158)    # #1D3E9E
+WHITE = (255, 255, 255, 255)
+HOLE = BOTTOM + (255,)
 
 
-def lock(size: int, open_: bool) -> Image.Image:
-    k = 4
+def gradient_tile(s: int, radius: float, inset: float) -> Image.Image:
+    """Плитка со скруглёнными углами и диагональным переходом цвета."""
+    grad = Image.new("RGBA", (s, s))
+    px = grad.load()
+    for y in range(s):
+        for x in range(s):
+            t = (x + y) / (2 * (s - 1))
+            px[x, y] = tuple(round(a + (b - a) * t) for a, b in zip(TOP, BOTTOM)) + (255,)
+    mask = Image.new("L", (s, s), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([inset, inset, s - 1 - inset, s - 1 - inset], radius, fill=255)
+    out = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    out.paste(grad, (0, 0), mask)
+    return out
+
+
+def logo(size: int, open_: bool) -> Image.Image:
+    k = 8
     s = size * k
-    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
+    u = s / 64  # единица сетки 64x64
     small = size <= 24
-    edge = max(k, round(s * (0.06 if small else 0.035)))
-    shackle_w = round(s * (0.13 if small else 0.10))
+    img = gradient_tile(s, 14 * u, 2 * u if size > 24 else 0.5 * u)
+    d = ImageDraw.Draw(img)
 
-    # Дужка: дуга над корпусом; у открытого замка поднята и сдвинута вправо
-    left, right = s * 0.27, s * 0.73
-    top = s * (0.04 if open_ else 0.08)
-    bottom = s * 0.58
-    dx = s * 0.16 if open_ else 0
-    box = [left + dx, top, right + dx, bottom]
-    d.arc(box, 180, 360, fill=EDGE, width=shackle_w + 2 * edge)
-    d.arc([box[0] + edge, box[1] + edge, box[2] - edge, box[3] - edge], 180, 360,
-          fill=SHACKLE, width=shackle_w)
-    leg_top = (top + bottom) / 2
-    leg_bottom = s * 0.50
-    for x in ([left + dx, right + dx] if not open_ else [right + dx]):
-        x0 = x if x == left + dx else x - shackle_w - 2 * edge
-        d.rectangle([x0, leg_top, x0 + shackle_w + 2 * edge, leg_bottom], fill=EDGE)
-        d.rectangle([x0 + edge, leg_top, x0 + edge + shackle_w, leg_bottom], fill=SHACKLE)
+    # Дужка: полукольцо радиуса 10 с центром (32, 23) и две ножки до корпуса
+    w = (7.5 if small else 5.5) * u
+    cx, cy, r = 32 * u, 23 * u, 10 * u
+    lift = 6 * u if open_ else 0
+    d.arc([cx - r, cy - r - lift, cx + r, cy + r - lift], 180, 360, fill=WHITE, width=round(w))
+    leg_bottom = 30 * u
+    # Левая ножка у открытого замка короче: дужка вышла из корпуса
+    d.rectangle([cx - r, cy - lift, cx - r + w, (cy - lift + 3 * u) if open_ else leg_bottom], fill=WHITE)
+    d.rectangle([cx + r - w, cy - lift, cx + r, leg_bottom], fill=WHITE)
 
-    # Корпус со светлым краем и закруглёнными углами
-    body = [s * 0.14, s * 0.44, s * 0.86, s * 0.96]
-    r = s * 0.10
-    d.rounded_rectangle(body, r, fill=EDGE)
-    d.rounded_rectangle([body[0] + edge, body[1] + edge, body[2] - edge, body[3] - edge],
-                        max(1, r - edge), fill=BODY)
+    # Корпус в форме папки: язычок слева сверху, затем прямоугольник
+    tab = [15 * u, 28 * u, 28 * u, 33 * u]
+    d.rounded_rectangle(tab, 2.5 * u, fill=WHITE)
+    body = [15 * u, 31 * u, 49 * u, 52 * u]
+    d.rounded_rectangle(body, 4 * u, fill=WHITE)
 
-    # Замочная скважина
-    cx, cy = s * 0.5, s * 0.66
-    hr = s * (0.085 if small else 0.065)
-    d.ellipse([cx - hr, cy - hr, cx + hr, cy + hr], fill=KEYHOLE)
-    if not small:
-        d.polygon([(cx - hr * 0.55, cy), (cx + hr * 0.55, cy),
-                   (cx + hr * 0.8, s * 0.84), (cx - hr * 0.8, s * 0.84)], fill=KEYHOLE)
+    # Скважина
+    hr = (4.2 if small else 3.2) * u
+    hx, hy = 32 * u, 40 * u
+    d.ellipse([hx - hr, hy - hr, hx + hr, hy + hr], fill=HOLE)
+    hw = (2.0 if small else 1.4) * u
+    d.rounded_rectangle([hx - hw, hy, hx + hw, 47.5 * u], 1.2 * u, fill=HOLE)
+
     return img.resize((size, size), Image.LANCZOS)
 
 
-here = os.path.dirname(os.path.abspath(__file__))
-for name, open_ in (("zamok.ico", False), ("zamok-open.ico", True)):
-    images = [lock(n, open_) for n in SIZES]
-    images[-1].save(os.path.join(here, name), sizes=[(n, n) for n in SIZES],
-                    append_images=images[:-1])
-    images[-1].save(os.path.join(here, name.replace(".ico", "-256.png")))
-print("ok")
+def build(out_dir: str) -> None:
+    for open_, name in ((False, "zamok"), (True, "zamok-open")):
+        frames = [logo(n, open_) for n in SIZES]
+        frames[-1].save(os.path.join(out_dir, f"{name}-256.png"))
+        frames[-1].save(os.path.join(out_dir, f"{name}.ico"), sizes=[(n, n) for n in SIZES],
+                        append_images=frames[:-1])
+
+
+if __name__ == "__main__":
+    build(sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.abspath(__file__)))

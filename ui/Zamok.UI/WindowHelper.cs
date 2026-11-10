@@ -96,9 +96,9 @@ internal static partial class WindowHelper
             size.Width, size.Height));
     }
 
-    /// <summary>Системный замок, собранный при установке, или запасной свой значок.</summary>
+    /// <summary>Значок программы (синяя плитка с замком, assets/make-icons.py).</summary>
     public static string? AppIconPath() =>
-        new[] { "open-item.ico", "zamok.ico" }
+        new[] { "zamok.ico" }
             .Select(n => Path.Combine(AppContext.BaseDirectory, n)).FirstOrDefault(File.Exists);
 
     /// <summary>Значок запертой папки Zamok (системная папка с замком), если он собран.</summary>

@@ -101,14 +101,14 @@ function SetKey([string]$path, [hashtable]$values) {
     foreach ($k in $values.Keys) { Set-ItemProperty -Path $path -Name $k -Value $values[$k] }
 }
 $nothing = 'System.ItemPathDisplay:="::zamok-none::"'
-SetKey "$cls\Directory\shell\ZamokEncrypt" @{ 'MUIVerb' = $verbText; 'Icon' = "$InstallDir\open-item.ico" }
+SetKey "$cls\Directory\shell\ZamokEncrypt" @{ 'MUIVerb' = $verbText; 'Icon' = "$InstallDir\zamok.ico" }
 SetKey "$cls\Directory\shell\ZamokEncrypt\command" @{ '(default)' = "`"$exe`" --encrypt `"%1`"" }
-SetKey "$cls\Directory\shell\ZamokLock" @{ 'MUIVerb' = $lockText; 'Icon' = "$InstallDir\open-item.ico"; 'AppliesTo' = $nothing }
+SetKey "$cls\Directory\shell\ZamokLock" @{ 'MUIVerb' = $lockText; 'Icon' = "$InstallDir\zamok.ico"; 'AppliesTo' = $nothing }
 SetKey "$cls\Directory\shell\ZamokLock\command" @{ '(default)' = "`"$exe`" --lock `"%1`"" }
-SetKey "$cls\Directory\shell\ZamokUnlock" @{ 'MUIVerb' = $unlockText; 'Icon' = "$InstallDir\open-item.ico"; 'AppliesTo' = $nothing }
+SetKey "$cls\Directory\shell\ZamokUnlock" @{ 'MUIVerb' = $unlockText; 'Icon' = "$InstallDir\zamok.ico"; 'AppliesTo' = $nothing }
 SetKey "$cls\Directory\shell\ZamokUnlock\command" @{ '(default)' = "`"$exe`" --unlock `"%1`"" }
 # Podmenyu "Zamok" na papkah Zamok: redkie deystviya, chtoby ne zagromozhdat menyu
-SetKey "$cls\Directory\shell\ZamokMore" @{ 'MUIVerb' = 'Zamok'; 'Icon' = "$InstallDir\open-item.ico"; 'SubCommands' = ''; 'AppliesTo' = $nothing }
+SetKey "$cls\Directory\shell\ZamokMore" @{ 'MUIVerb' = 'Zamok'; 'Icon' = "$InstallDir\zamok.ico"; 'SubCommands' = ''; 'AppliesTo' = $nothing }
 SetKey "$cls\Directory\shell\ZamokMore\shell\1ChangePassword" @{ 'MUIVerb' = $changeText }
 SetKey "$cls\Directory\shell\ZamokMore\shell\1ChangePassword\command" @{ '(default)' = "`"$exe`" --change-password `"%1`"" }
 SetKey "$cls\Directory\shell\ZamokMore\shell\2ShowKey" @{ 'MUIVerb' = $showKeyText }
@@ -117,7 +117,7 @@ SetKey "$cls\Directory\shell\ZamokMore\shell\3Decrypt" @{ 'MUIVerb' = $decryptTe
 SetKey "$cls\Directory\shell\ZamokMore\shell\3Decrypt\command" @{ '(default)' = "`"$exe`" --decrypt `"%1`"" }
 SetKey "$cls\.zamok" @{ '(default)' = 'Zamok.OpenItem' }
 SetKey "$cls\Zamok.OpenItem" @{ '(default)' = $typeText; 'FriendlyTypeName' = $typeText }
-SetKey "$cls\Zamok.OpenItem\DefaultIcon" @{ '(default)' = "$InstallDir\open-item.ico" }
+SetKey "$cls\Zamok.OpenItem\DefaultIcon" @{ '(default)' = "$InstallDir\zamok.ico" }
 SetKey "$cls\Zamok.OpenItem\shell\open\command" @{ '(default)' = "`"$exe`" --unlock `"%1`"" }
 # Avtozapusk cherez storozha: on perezapuskaet core, esli tot upal
 Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Zamok' -Value "`"$core`" --watch"
