@@ -23,6 +23,8 @@ public sealed partial class SettingsWindow : Window
     private bool _helloAvailable;
     private bool _coreDownShown;
     private string? _fitKey;
+    /// <summary>Хранилища из предложения про Defender, которое сейчас на экране.</summary>
+    private string[] _defenderOffer = [];
 
     public SettingsWindow()
     {
@@ -79,6 +81,8 @@ public sealed partial class SettingsWindow : Window
         try
         {
             ScreenLockSwitch.IsOn = status.Settings?.LockOnScreenLock ?? true;
+            _defenderOffer = status.Settings?.DefenderOffer ?? [];
+            DefenderCard.Visibility = _defenderOffer.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             _folders = status.Folders ?? [];
             // Пересобрать список, только если состав или состояния поменялись
             var shown = string.Join("|", _folders.Select(f => f.Id + f.State));
@@ -152,7 +156,7 @@ public sealed partial class SettingsWindow : Window
     /// <summary>Подогнать высоту, только если состав окна поменялся: иначе таймер двигал бы окно.</summary>
     private void FitToContent()
     {
-        var key = $"{_folders.Length}|{_selectedId}|{Selected?.State}|{Selected?.Error}|{HelloPanel.Visibility}|{ErrorText.Text}";
+        var key = $"{_folders.Length}|{_selectedId}|{Selected?.State}|{Selected?.Error}|{HelloPanel.Visibility}|{ErrorText.Text}|{DefenderCard.Visibility}|{StatusText.Text}";
         if (key == _fitKey) return;
         _fitKey = key;
         WindowHelper.FitHeight(this, Root, 680);
@@ -266,6 +270,101 @@ public sealed partial class SettingsWindow : Window
         catch (Exception ex) when (ex is CoreNotRunningException or CoreNotTrustedException) { ShowCoreError(ex); }
         await RefreshAsync();
         HelloSwitch.IsOn = Selected?.Hello ?? false;
+    }
+
+    private void ShowStatus(string text)
+    {
+        StatusText.Text = text;
+        StatusText.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+        FitToContent();
+    }
+
+    /// <summary>Исключить хранилища из проверки Defender: одна команда с запросом прав (UAC).</summary>
+    private async void OnDefenderExcludeClick(object sender, RoutedEventArgs e)
+    {
+        var vaults = _defenderOffer;
+        if (vaults.Length == 0) return;
+        ShowError("");
+        ShowStatus("");
+        SetDefenderBusy(true);
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("powershell.exe", DefenderCommand.ElevatedArguments(vaults))
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+            };
+            int code;
+            using (var p = System.Diagnostics.Process.Start(psi))
+            {
+                if (p is null) throw new InvalidOperationException();
+                await p.WaitForExitAsync();
+                code = p.ExitCode;
+            }
+            if (code != 0)
+            {
+                ShowError(Strings.Get("Defender_Failed"));
+                return;
+            }
+            await DefenderDoneAsync(vaults);
+            ShowStatus(Strings.Get("Defender_Done"));
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            // Отказ в окне UAC: предложение остаётся
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or ArgumentException)
+        {
+            ShowError(Strings.Get("Defender_Failed"));
+        }
+        finally
+        {
+            SetDefenderBusy(false);
+        }
+    }
+
+    /// <summary>Скопировать команду: человек выполнит её сам в PowerShell от имени администратора.</summary>
+    private async void OnDefenderCopyClick(object sender, RoutedEventArgs e)
+    {
+        var vaults = _defenderOffer;
+        if (vaults.Length == 0) return;
+        string command;
+        try { command = DefenderCommand.Text(vaults); }
+        catch (ArgumentException)
+        {
+            ShowError(Strings.Get("Defender_Failed"));
+            return;
+        }
+        var data = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        data.SetText(command);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(data);
+        Windows.ApplicationModel.DataTransfer.Clipboard.Flush();
+        await DefenderDoneAsync(vaults);
+        ShowStatus(Strings.Get("Defender_Copied"));
+    }
+
+    private async void OnDefenderNoClick(object sender, RoutedEventArgs e)
+    {
+        if (_defenderOffer.Length > 0) await DefenderDoneAsync(_defenderOffer);
+    }
+
+    private async Task DefenderDoneAsync(string[] vaults)
+    {
+        try
+        {
+            var r = await _client.DefenderOfferDoneAsync(vaults);
+            if (!r.Ok) ShowError(Strings.Error(r.Error));
+        }
+        catch (Exception ex) when (ex is CoreNotRunningException or CoreNotTrustedException) { ShowCoreError(ex); }
+        await RefreshAsync();
+    }
+
+    private void SetDefenderBusy(bool busy)
+    {
+        DefenderExclude.IsEnabled = !busy;
+        DefenderCopy.IsEnabled = !busy;
+        DefenderNo.IsEnabled = !busy;
     }
 
     private void OnCloseClick(object sender, RoutedEventArgs e) => Close();

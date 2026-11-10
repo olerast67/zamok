@@ -132,6 +132,30 @@ S = {
     "A11y_Progress": ("Ход работы", "Progress"),
     "A11y_Busy": ("Идёт проверка", "Checking"),
     "Settings_Open": ("Открыть", "Open"),
+    # Папку удалили в Проводнике
+    "Deleted_Message.Text": (
+        "Эту папку удалили в Проводнике. Зашифрованные файлы целы. Вернуть папку на место?",
+        "This folder was deleted in File Explorer. The encrypted files are safe. Bring the folder back?"),
+    "Deleted_RemoveNote": (
+        "Если убрать папку из Zamok, зашифрованные файлы останутся в скрытой папке «.{0}.zamok», а рядом появится файл «КАК ОТКРЫТЬ {0}.txt» с объяснением, как их открыть.",
+        "If you remove the folder from Zamok, the encrypted files stay in the hidden folder “.{0}.zamok”, and the file “HOW TO OPEN {0}.txt” next to it explains how to open them."),
+    "Deleted_Restore.Content": ("Вернуть", "Bring back"),
+    "Deleted_Remove.Content": ("Убрать из Zamok", "Remove from Zamok"),
+    # Defender в настройках
+    "Defender_Title.Text": ("Исключить зашифрованные данные из проверки Defender?",
+                            "Exclude the encrypted data from Defender scans?"),
+    "Defender_Text.Text": (
+        "Defender проверяет каждый файл дважды: открытым и в зашифрованном виде в скрытой папке рядом. Если исключить скрытые папки, работа с файлами станет быстрее. Открытые файлы Defender проверяет как прежде, а зашифрованные копии проверять не будет: вирус в них всё равно не распознать. Нужны права администратора.",
+        "Defender scans every file twice: as you open it and in encrypted form in the hidden folder next to it. Excluding the hidden folders makes working with files faster. Files you open are still scanned as before; the encrypted copies will not be, but a virus cannot be recognised in them anyway. Administrator rights are needed."),
+    "Defender_ExcludeText.Text": ("Исключить", "Exclude"),
+    "Defender_Copy.Content": ("Скопировать команду", "Copy the command"),
+    "Defender_No.Content": ("Не нужно", "No, thanks"),
+    "Defender_Done": ("Готово: Defender больше не проверяет зашифрованные данные Zamok.",
+                      "Done: Defender no longer scans the encrypted Zamok data."),
+    "Defender_Copied": ("Команда скопирована. Вставьте её в PowerShell, запущенный от имени администратора.",
+                        "The command is copied. Paste it into PowerShell run as administrator."),
+    "Defender_Failed": ("Не получилось изменить настройки Defender. Скопируйте команду и выполните её в PowerShell от имени администратора.",
+                        "Could not change the Defender settings. Copy the command and run it in PowerShell as administrator."),
     # Ошибки: Error_<код ответа core>
     "Error_core_not_running": ("Не удалось запустить фоновую программу Zamok. Перезагрузите компьютер.",
                                "Could not start the Zamok background program. Restart the computer."),

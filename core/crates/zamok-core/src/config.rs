@@ -54,6 +54,9 @@ pub struct Config {
     pub lock_on_screen_lock: bool,
     #[serde(default)]
     pub folders: Vec<FolderConfig>,
+    /// Хранилища, о которых уже предлагали исключение из проверки Defender (раз на хранилище).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub defender_offered: Vec<PathBuf>,
 }
 
 impl Default for Config {
@@ -62,6 +65,7 @@ impl Default for Config {
             version: 1,
             lock_on_screen_lock: true,
             folders: Vec::new(),
+            defender_offered: Vec::new(),
         }
     }
 }

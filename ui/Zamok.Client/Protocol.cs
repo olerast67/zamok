@@ -15,7 +15,8 @@ public sealed record Response(
     string[]? Examples,
     Settings? Settings = null);
 
-public sealed record Settings(bool LockOnScreenLock);
+/// <summary>Общие настройки; <c>DefenderOffer</c>: хранилища, которые ещё не предлагали исключить из проверки Defender.</summary>
+public sealed record Settings(bool LockOnScreenLock, string[]? DefenderOffer = null);
 
 public sealed record FolderInfo(
     string Id,
@@ -25,7 +26,8 @@ public sealed record FolderInfo(
     ulong IdleLockSecs,
     string? Error,
     bool Hello = false,
-    ulong OpenFiles = 0)
+    ulong OpenFiles = 0,
+    bool Asking = false)
 {
     public bool IsLocked => State == "locked";
     public bool IsUnlocked => State == "unlocked";

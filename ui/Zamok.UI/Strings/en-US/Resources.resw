@@ -105,6 +105,18 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="A11y_Progress" xml:space="preserve"><value>Progress</value></data>
   <data name="A11y_Busy" xml:space="preserve"><value>Checking</value></data>
   <data name="Settings_Open" xml:space="preserve"><value>Open</value></data>
+  <data name="Deleted_Message.Text" xml:space="preserve"><value>This folder was deleted in File Explorer. The encrypted files are safe. Bring the folder back?</value></data>
+  <data name="Deleted_RemoveNote" xml:space="preserve"><value>If you remove the folder from Zamok, the encrypted files stay in the hidden folder “.{0}.zamok”, and the file “HOW TO OPEN {0}.txt” next to it explains how to open them.</value></data>
+  <data name="Deleted_Restore.Content" xml:space="preserve"><value>Bring back</value></data>
+  <data name="Deleted_Remove.Content" xml:space="preserve"><value>Remove from Zamok</value></data>
+  <data name="Defender_Title.Text" xml:space="preserve"><value>Exclude the encrypted data from Defender scans?</value></data>
+  <data name="Defender_Text.Text" xml:space="preserve"><value>Defender scans every file twice: as you open it and in encrypted form in the hidden folder next to it. Excluding the hidden folders makes working with files faster. Files you open are still scanned as before; the encrypted copies will not be, but a virus cannot be recognised in them anyway. Administrator rights are needed.</value></data>
+  <data name="Defender_ExcludeText.Text" xml:space="preserve"><value>Exclude</value></data>
+  <data name="Defender_Copy.Content" xml:space="preserve"><value>Copy the command</value></data>
+  <data name="Defender_No.Content" xml:space="preserve"><value>No, thanks</value></data>
+  <data name="Defender_Done" xml:space="preserve"><value>Done: Defender no longer scans the encrypted Zamok data.</value></data>
+  <data name="Defender_Copied" xml:space="preserve"><value>The command is copied. Paste it into PowerShell run as administrator.</value></data>
+  <data name="Defender_Failed" xml:space="preserve"><value>Could not change the Defender settings. Copy the command and run it in PowerShell as administrator.</value></data>
   <data name="Error_core_not_running" xml:space="preserve"><value>Could not start the Zamok background program. Restart the computer.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>The other side is not this user's Zamok program. The password was not sent.</value></data>
   <data name="Error_vault_damaged" xml:space="preserve"><value>Some encrypted files are cut off from the folder tree. The folder stays encrypted and nothing was deleted.</value></data>

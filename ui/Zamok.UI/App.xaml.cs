@@ -6,6 +6,7 @@ namespace Zamok.UI;
 /// Zamok.exe запускается из Проводника с одним действием:
 /// <c>--unlock &lt;путь&gt;</c> (значок «Открыть Имя.zamok» или пункт меню) или
 /// <c>--encrypt &lt;путь&gt;</c> («Зашифровать паролем»). Без аргументов ничего не показывает.
+/// <c>--deleted &lt;путь&gt;</c> запускает сам core: папку удалили в Проводнике, вернуть или убрать.
 /// </summary>
 public partial class App : Application
 {
@@ -44,6 +45,7 @@ public partial class App : Application
             "--change-password" => new ManageWindow(ManageWindow.Mode.ChangePassword, path!),
             "--show-key" => new ManageWindow(ManageWindow.Mode.ShowKey, path!),
             "--decrypt" => new ManageWindow(ManageWindow.Mode.Decrypt, path!),
+            "--deleted" => new DeletedWindow(path!),
             "--settings" => new SettingsWindow(),
             _ => null,
         };
@@ -84,7 +86,7 @@ public partial class App : Application
     internal static (string? Action, string? Path) ParseArgs(string[] args)
     {
         if (args.Length == 1 && args[0] == "--settings") return (args[0], null);
-        if (args.Length == 2 && args[0] is "--unlock" or "--encrypt" or "--lock" or "--change-password" or "--show-key" or "--decrypt" or "--make-icons" && args[1].Length > 0)
+        if (args.Length == 2 && args[0] is "--unlock" or "--encrypt" or "--lock" or "--change-password" or "--show-key" or "--decrypt" or "--make-icons" or "--deleted" && args[1].Length > 0)
             return (args[0], args[1]);
         return (null, null);
     }

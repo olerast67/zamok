@@ -110,6 +110,32 @@
             <StackPanel Spacing="4">
                 <TextBlock x:Name="ErrorText" AutomationProperties.AutomationId="ErrorText" Visibility="Collapsed"
                            Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
+                <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="StatusText" Visibility="Collapsed"
+                           TextWrapping="Wrap" />
+                <!-- Предложение исключить скрытые хранилища из проверки Defender: раз на хранилище -->
+                <Border x:Name="DefenderCard" AutomationProperties.AutomationId="DefenderCard" Visibility="Collapsed"
+                        CornerRadius="6" Padding="12,10" Margin="0,0,0,4" BorderThickness="1"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                    <StackPanel Spacing="8">
+                        <TextBlock x:Uid="Defender_Title" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock x:Name="DefenderText" AutomationProperties.AutomationId="DefenderText"
+                                   x:Uid="Defender_Text" TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="DefenderExclude" AutomationProperties.AutomationId="DefenderExclude"
+                                    Style="{StaticResource AccentButtonStyle}" Click="OnDefenderExcludeClick">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xEA18;" FontSize="14" />
+                                    <TextBlock x:Uid="Defender_ExcludeText" />
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="DefenderCopy" AutomationProperties.AutomationId="DefenderCopy"
+                                    x:Uid="Defender_Copy" Click="OnDefenderCopyClick" />
+                            <Button x:Name="DefenderNo" AutomationProperties.AutomationId="DefenderNo"
+                                    x:Uid="Defender_No" Click="OnDefenderNoClick" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
                 <ToggleSwitch x:Name="ScreenLockSwitch" AutomationProperties.AutomationId="ScreenLockSwitch"
                               x:Uid="Settings_ScreenLock" Toggled="OnScreenLockToggled" />
 

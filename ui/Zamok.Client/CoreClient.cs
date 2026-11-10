@@ -151,6 +151,25 @@ public sealed partial class CoreClient
             w.WriteString("id", id);
         }, ct);
 
+    /// <summary>Ответ окна «папку удалили в Проводнике»: вернуть её или убрать из Zamok.</summary>
+    public Task<Response> AnswerDeletedAsync(string path, bool remove, CancellationToken ct = default) =>
+        SendAsync(w =>
+        {
+            w.WriteString("cmd", "answer_deleted");
+            w.WriteString("path", path);
+            w.WriteBoolean("remove", remove);
+        }, ct);
+
+    /// <summary>Предложение про Defender для этих хранилищ показано: больше не спрашивать.</summary>
+    public Task<Response> DefenderOfferDoneAsync(IEnumerable<string> vaults, CancellationToken ct = default) =>
+        SendAsync(w =>
+        {
+            w.WriteString("cmd", "defender_offer_done");
+            w.WriteStartArray("vaults");
+            foreach (var v in vaults) w.WriteStringValue(v);
+            w.WriteEndArray();
+        }, ct);
+
     private async Task<Response> SendOnceAsync(Action<Utf8JsonWriter> body, CancellationToken ct)
     {
         using var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut,
