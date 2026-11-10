@@ -2,7 +2,7 @@
 
 Changes to Zamok by version. Release notes on GitHub are taken from the section of that version.
 
-## 0.1.0-alpha (not released yet)
+## 0.1.0-alpha (2026-11-10)
 
 First alpha. Not audited by a third party. Keep a backup of important data outside Zamok.
 
