@@ -114,11 +114,11 @@ If you need an audited tool today, use VeraCrypt or Cryptomator. Zamok is writte
 
 ## Privacy
 
-Zamok has no telemetry, no accounts and no servers, and the programs make no network calls. Details in [PRIVACY.md](PRIVACY.md).
+Zamok has no telemetry, no accounts and no servers. The only network request is the "Check for updates" button in the settings: one request to GitHub with the program version in it, sent only when you press the button. Details in [PRIVACY.md](PRIVACY.md).
 
 ## Status
 
-Version 0.1.0-alpha. Open items that matter for your data, all from the [roadmap](ROADMAP.md): no third-party review, no fuzzing of format parsing yet, power-loss tests on a virtual machine not done, Windows 11 and cloud clients not tested. There is no update check; a new version is installed over the old one and keeps your folder list.
+Version 0.1.0-alpha. Open items that matter for your data, all from the [roadmap](ROADMAP.md): no third-party review, no fuzzing of format parsing yet, power-loss tests on a virtual machine not done, Windows 11 and cloud clients not tested. Updates are checked only with the button in the settings, and nothing is installed automatically: you download the new version yourself and install it over the old one, which keeps your folder list.
 
 ## Documents
 

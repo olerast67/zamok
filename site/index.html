@@ -129,7 +129,7 @@
     <div><dt>While the folder is open</dt><dd>Files are decrypted on read and encrypted on write. Zamok keeps the plaintext in memory.</dd></div>
     <div><dt>If the program crashes</dt><dd>Before the copy is verified, Zamok rolls the work back. After that, it finishes the work.</dd></div>
     <div><dt>Encryption</dt><dd>Cryptomator vault format 8 (AES-GCM, AES-SIV, scrypt) through the RustCrypto libraries. File contents and file names are encrypted. The name of the encrypted folder itself stays visible.</dd></div>
-    <div><dt>Network</dt><dd>The programs make no network calls. There is no telemetry, no analytics, no accounts, no servers and no update check. This was checked in the code of <span class="nw">0.1.0-alpha</span>: <code>core/Cargo.lock</code> has no HTTP, TLS, socket or async network crates, and the sources of <code>zamok-core</code>, <code>Zamok.exe</code> and <code>zamok-shell.dll</code> contain no sockets, HTTP clients or web addresses. Details in <a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">PRIVACY.md</a>.</dd></div>
+    <div><dt>Network</dt><dd>There is no telemetry, no analytics, no accounts and no servers. The only network request is the “Check for updates” button in the settings: one HTTPS request to the GitHub API, sent only when you press it. GitHub sees your IP address and <code>User-Agent: Zamok/&lt;version&gt;</code>; no cookies, identifiers, folder names or paths are sent, and nothing is downloaded. This was checked in the code of <span class="nw">0.1.0-alpha</span>: <code>core/Cargo.lock</code> has no HTTP, TLS, socket or async network crates, <code>zamok-core</code> and <code>zamok-shell.dll</code> contain no sockets, HTTP clients or web addresses, and in <code>Zamok.exe</code> only the button handler calls the HTTP client. Details in <a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">PRIVACY.md</a>.</dd></div>
   </dl>
 </section>
 
@@ -235,7 +235,7 @@
 <section id="status" class="final" aria-labelledby="status-h">
   <h2 id="status-h">Alpha version 0.1.0</h2>
   <div class="prose">
-    <p>Open items that matter for your data, all from the <a href="https://github.com/olerast67/zamok/blob/main/ROADMAP.md">roadmap</a>: no third-party review, no fuzzing of format parsing yet, power-loss tests on a virtual machine not done, Windows 11&nbsp;and cloud clients not tested. There is no update check; a new version is installed over the old one and keeps your folder list.</p>
+    <p>Open items that matter for your data, all from the <a href="https://github.com/olerast67/zamok/blob/main/ROADMAP.md">roadmap</a>: no third-party review, no fuzzing of format parsing yet, power-loss tests on a virtual machine not done, Windows 11&nbsp;and cloud clients not tested. Updates are checked only with the button in the settings, and nothing is installed automatically: you download the new version yourself and install it over the old one, which keeps your folder list.</p>
     <p>How this was made: the author designed the app, directed the work and checked it on a real computer. Much of the code was written with an AI coding assistant (Claude by Anthropic). It has not been audited by a third party.</p>
     <p>Found a vulnerability? Report it privately as described in <a href="https://github.com/olerast67/zamok/blob/main/SECURITY.md">SECURITY.md</a>.</p>
   </div>
