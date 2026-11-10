@@ -131,6 +131,16 @@ Get-FileHash .\Zamok-Setup-0.1.0.exe -Algorithm SHA256
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): компоненты и лицензии
 - [ROADMAP.md](ROADMAP.md), [docs/DESIGN.md](docs/DESIGN.md), [docs/STACK.md](docs/STACK.md), [docs/research](docs/research/)
 
+## Политика подписи кода (Code signing policy)
+
+Zamok подал заявку в SignPath Foundation на бесплатную подпись кода. Когда заявку одобрят, файлы релизов будут подписываться по этой политике: free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- Вносят и проверяют изменения: [olerast67](https://github.com/olerast67)
+- Одобряют подпись релиза: [olerast67](https://github.com/olerast67)
+- Каждый релиз собирает GitHub Actions из тега в этом репозитории (`.github/workflows/release.yml`), подпись каждого релиза одобряется вручную.
+
+Конфиденциальность: программа не передаёт данные другим системам в сети, пока об этом не попросит пользователь или тот, кто её устанавливает. Единственный такой запрос делает кнопка «Проверить обновления», подробности в [PRIVACY.md](PRIVACY.md).
+
 ## Лицензия
 
 GPL-3.0, текст в [LICENSE](LICENSE), с дополнительным разрешением для Windows App SDK: [LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md).

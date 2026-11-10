@@ -129,6 +129,16 @@ Version 0.1.0-alpha. Open items that matter for your data, all from the [roadmap
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), components and licenses
 - [ROADMAP.md](ROADMAP.md), [docs/DESIGN.md](docs/DESIGN.md), [docs/STACK.md](docs/STACK.md) and [docs/research](docs/research/), in Russian
 
+## Code signing policy
+
+Zamok has applied to SignPath Foundation for free code signing. Once the application is approved, release files are signed under this policy: free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- Committers and reviewers: [olerast67](https://github.com/olerast67)
+- Approvers: [olerast67](https://github.com/olerast67)
+- Every release is built by GitHub Actions from a tag in this repository (`.github/workflows/release.yml`) and approved by hand before signing.
+
+Privacy: this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. The only such request is the "Check for updates" button, see [PRIVACY.md](PRIVACY.md).
+
 ## License
 
 GPL-3.0, see [LICENSE](LICENSE), with an additional permission for the Windows App SDK: [LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md).
