@@ -223,6 +223,9 @@
     <p>The installer is not signed yet. SmartScreen shows “Windows protected your PC”. Check the <span class="nw">SHA-256</span> listed on the release page, then choose More info and Run anyway:</p>
     <pre><code>Get-FileHash .\Zamok-Setup-0.1.0.exe -Algorithm SHA256</code></pre>
     <p>Smart App Control on Windows 11&nbsp;blocks unsigned programs, so Zamok cannot be installed while it is turned on. On Windows 11&nbsp;the Zamok items are under “Show more options” in the right-click menu.</p>
+    <h3 id="signing">Code signing policy</h3>
+    <p>Zamok has applied to SignPath Foundation for free code signing. Once the application is approved, release files are signed under this policy: free code signing provided by <a href="https://about.signpath.io">SignPath.io</a>, certificate by <a href="https://signpath.org">SignPath Foundation</a>. Committers and reviewers: <a href="https://github.com/olerast67">olerast67</a>. Approvers: <a href="https://github.com/olerast67">olerast67</a>. Every release is built by GitHub Actions from a tag in the repository and approved by hand before signing.</p>
+    <p>Privacy: this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. The only such request is the “Check for updates” button, see <a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">PRIVACY.md</a>.</p>
   </div>
   <dl class="sheet">
     <div><dt>System</dt><dd>Windows 10&nbsp;or 11, x64</dd></div>

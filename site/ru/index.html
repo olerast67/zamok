@@ -224,6 +224,9 @@
     <p>Установщик пока без&nbsp;подписи. SmartScreen покажет «Система Windows защитила ваш компьютер». Сверьте <span class="nw">SHA-256</span> со&nbsp;страницей релиза, потом нажмите «Подробнее» и&nbsp;«Выполнить в&nbsp;любом случае»:</p>
     <pre><code>Get-FileHash .\Zamok-Setup-0.1.0.exe -Algorithm SHA256</code></pre>
     <p>Интеллектуальное управление приложениями в&nbsp;Windows 11&nbsp;блокирует неподписанные программы, поэтому при&nbsp;включённой защите Zamok не&nbsp;поставить. Меню правой кнопки в&nbsp;Windows 11&nbsp;прячет пункты Zamok в&nbsp;«Показать дополнительные параметры».</p>
+    <h3 id="signing" lang="en">Code signing policy</h3>
+    <p>Zamok подал заявку в&nbsp;SignPath Foundation на&nbsp;бесплатную подпись кода. Когда заявку одобрят, файлы релизов будут подписываться по&nbsp;этой политике: <span lang="en">free code signing provided by <a href="https://about.signpath.io">SignPath.io</a>, certificate by <a href="https://signpath.org">SignPath Foundation</a></span>. Вносят и&nbsp;проверяют изменения: <a href="https://github.com/olerast67">olerast67</a>. Одобряют подпись релиза: <a href="https://github.com/olerast67">olerast67</a>. Каждый релиз собирает GitHub Actions из&nbsp;тега в&nbsp;репозитории, подпись каждого релиза одобряется вручную.</p>
+    <p>Конфиденциальность: программа не&nbsp;передаёт данные другим системам в&nbsp;сети, пока об&nbsp;этом не&nbsp;попросит пользователь или&nbsp;тот, кто её&nbsp;устанавливает. Единственный такой запрос делает кнопка «Проверить обновления», подробности в&nbsp;<a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">PRIVACY.md</a>.</p>
   </div>
   <dl class="sheet">
     <div><dt>Система</dt><dd>Windows 10 или&nbsp;11, x64</dd></div>
