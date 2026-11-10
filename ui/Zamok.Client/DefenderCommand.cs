@@ -14,6 +14,9 @@ namespace Zamok.Client;
 /// типографские ‘ ’ ‚ ‛, а в двойных кавычках раскрывает <c>$(…)</c> и обратный апостроф.
 /// Поэтому пути идут данными: массив JSON в UTF-8, закодированный base64 (в нём только
 /// буквы, цифры, <c>+</c>, <c>/</c> и <c>=</c>), и разбираются уже внутри команды.
+/// Результат <c>ConvertFrom-Json</c> передаётся в скобках, без <c>@(…)</c>: в PowerShell 5.1
+/// <c>@(…)</c> завернул бы массив путей в массив из одного элемента, и Defender получил бы
+/// все пути одной строкой через пробел (это поймала проверка в <c>tests/ui/test-ui.ps1</c>).
 /// </remarks>
 public static class DefenderCommand
 {
@@ -30,7 +33,7 @@ public static class DefenderCommand
                 throw new ArgumentException("a vault path has control characters", nameof(vaults));
         var json = JsonSerializer.Serialize(list);
         var data = Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
-        return "Add-MpPreference -ExclusionPath @(ConvertFrom-Json ([Text.Encoding]::UTF8.GetString(" +
+        return "Add-MpPreference -ExclusionPath (ConvertFrom-Json ([Text.Encoding]::UTF8.GetString(" +
                "[Convert]::FromBase64String('" + data + "'))))";
     }
 

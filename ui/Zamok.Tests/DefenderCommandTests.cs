@@ -44,7 +44,7 @@ public class DefenderCommandTests
         Assert.StartsWith("-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ", args);
         var encoded = args[(args.LastIndexOf(' ') + 1)..];
         var script = System.Text.Encoding.Unicode.GetString(Convert.FromBase64String(encoded));
-        Assert.StartsWith("$ErrorActionPreference = 'Stop'; Add-MpPreference -ExclusionPath @(ConvertFrom-Json", script);
+        Assert.StartsWith("$ErrorActionPreference = 'Stop'; Add-MpPreference -ExclusionPath (ConvertFrom-Json", script);
         Assert.DoesNotContain(vault, script);
         Assert.Equal([vault], DefenderCommand.PathsIn(script));
     }
