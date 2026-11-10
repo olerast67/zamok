@@ -31,6 +31,7 @@ param(
 $ErrorActionPreference = 'Stop'
 # Through -File a list arrives as one string with commas
 $Skip = @($Skip | ForEach-Object { $_ -split ',' })
+$Variants = @($Variants | ForEach-Object { $_ -split ',' })
 $repo = (Resolve-Path "$PSScriptRoot/..").Path
 $root = "$repo\tests\tmp\bench"
 if ($MountExe -eq '') { $MountExe = "$repo\core\target\release\zamok-mount.exe" }

@@ -30,7 +30,7 @@ WinFsp - Windows File System Proxy, Copyright (C) Bill Zissimopoulos, https://gi
 
 ## Rust crates in `zamok-core`, `zamok-recover` and `zamok-shell.dll`
 
-Generated from `core/Cargo.lock` with `cargo tree -e normal --target x86_64-pc-windows-msvc` and the license fields in `cargo metadata`. Build-only and test-only crates are left out. 95 crates.
+Generated from `core/Cargo.lock` with `cargo tree -e normal --target x86_64-pc-windows-msvc` and the license fields in `cargo metadata`. Build-only and test-only crates are left out. 101 crates.
 
 | Crate | Version | License | Source |
 |---|---|---|---|
@@ -48,11 +48,15 @@ Generated from `core/Cargo.lock` with `cargo tree -e normal --target x86_64-pc-w
 | cmac | 0.7.2 | MIT OR Apache-2.0 | https://github.com/RustCrypto/MACs |
 | cpufeatures | 0.2.17 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils |
 | crc32fast | 1.5.4 | MIT OR Apache-2.0 | https://github.com/srijs/rust-crc32fast |
+| crossbeam-deque | 0.8.8 | MIT OR Apache-2.0 | https://github.com/crossbeam-rs/crossbeam |
+| crossbeam-epoch | 0.9.21 | MIT OR Apache-2.0 | https://github.com/crossbeam-rs/crossbeam |
+| crossbeam-utils | 0.8.23 | MIT OR Apache-2.0 | https://github.com/crossbeam-rs/crossbeam |
 | crypto-common | 0.1.7 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits |
 | ctr | 0.9.2 | MIT OR Apache-2.0 | https://github.com/RustCrypto/block-modes |
 | data-encoding | 2.11.1 | MIT | https://github.com/ia0/data-encoding |
 | dbl | 0.3.2 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils |
 | digest | 0.10.7 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits |
+| either | 1.19.0 | MIT OR Apache-2.0 | https://github.com/rayon-rs/either |
 | generic-array | 0.14.7 | MIT | https://github.com/fizyk20/generic-array |
 | getrandom | 0.2.17 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom |
 | ghash | 0.5.1 | Apache-2.0 OR MIT | https://github.com/RustCrypto/universal-hashes |
@@ -73,6 +77,8 @@ Generated from `core/Cargo.lock` with `cargo tree -e normal --target x86_64-pc-w
 | proc-macro2 | 1.0.107 | MIT OR Apache-2.0 | https://github.com/dtolnay/proc-macro2 |
 | quote | 1.0.47 | MIT OR Apache-2.0 | https://github.com/dtolnay/quote |
 | rand_core | 0.6.4 | MIT OR Apache-2.0 | https://github.com/rust-random/rand |
+| rayon | 1.12.0 | MIT OR Apache-2.0 | https://github.com/rayon-rs/rayon |
+| rayon-core | 1.13.0 | MIT OR Apache-2.0 | https://github.com/rayon-rs/rayon |
 | rpassword | 7.5.4 | Apache-2.0 | https://github.com/conradkleinespel/rpassword |
 | rtoolbox | 0.0.6 | Apache-2.0 | https://github.com/conradkleinespel/rtoolbox |
 | salsa20 | 0.10.2 | MIT OR Apache-2.0 | https://github.com/RustCrypto/stream-ciphers |
