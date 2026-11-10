@@ -27,6 +27,7 @@ Safety checks
 Install
 - `Zamok-Setup-<version>.exe` contains WinFsp and installs it only if absent. Zamok installs per user. Not signed.
 - Uninstalling leaves folders encrypted and writes a note next to each one about how to open it.
+- `SHA256SUMS.txt` next to the installer lists the SHA-256 of every release file. The Rust programs build bit for bit the same from any folder (RELEASING.md).
 
 Known limits
 - Dragging an open folder with the mouse in Explorer copies its files unencrypted and deletes them from the vault. See the warning in the README.

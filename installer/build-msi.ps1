@@ -7,19 +7,24 @@ $repo = (Resolve-Path "$PSScriptRoot\..").Path
 $out = "$repo\installer\out"
 $app = "$out\app"
 
-Push-Location "$repo\core"
-& "$env:USERPROFILE\.cargo\bin\cargo.exe" build -q --release -p zamok-core -p zamok-shell
-if ($LASTEXITCODE) { throw 'cargo build failed' }
-Pop-Location
+# Rust: zakreplennyy kompilyator, --locked, bez lokalnykh putey (RELEASING.md, vosproizvodimost)
+& "$repo\scripts\build-core-release.ps1" -Packages zamok-core, zamok-shell
 
 Remove-Item $app -Recurse -Force -ErrorAction SilentlyContinue
-& dotnet publish "$repo\ui\Zamok.UI\Zamok.UI.csproj" -c Release -o $app -v q | Out-Null
+# Deterministic: bez vremeni sborki v fayle; ContinuousIntegrationBuild: puti iskhodnikov
+# zamenyayutsya na /_/, v Zamok.exe ne popadaet papka repozitoriya
+& dotnet publish "$repo\ui\Zamok.UI\Zamok.UI.csproj" -c Release -o $app -v q `
+    -p:Deterministic=true -p:ContinuousIntegrationBuild=true | Out-Null
 if ($LASTEXITCODE) { throw 'dotnet publish failed' }
 Copy-Item "$repo\core\target\release\zamok-core.exe" $app
 Copy-Item "$repo\core\target\release\zamok_shell.dll" "$app\zamok-shell.dll"
 # Zapasnye znachki; nastoyashchie Zamok.exe sobiraet pri ustanovke iz znachkov Windows
 Copy-Item "$repo\assets\zamok.ico", "$repo\assets\zamok-open.ico" $app
 Get-ChildItem $app -Filter *.pdb | Remove-Item
+# Nashi fayly ne dolzhny soderzhat lichnykh putey sborochnoy mashiny
+$own = @('zamok-core.exe', 'zamok-shell.dll', 'Zamok.exe', 'Zamok.dll', 'Zamok.Client.dll') | ForEach-Object { "$app\$_" }
+& "$repo\scripts\check-paths.ps1" @own
+if ($LASTEXITCODE) { throw 'local paths found in release binaries' }
 
 Push-Location $repo
 & dotnet tool restore | Out-Null
@@ -70,3 +75,6 @@ $code = $LASTEXITCODE
 Pop-Location
 if ($code) { throw "wix bundle build failed ($code)" }
 Write-Host "Built $out\Zamok-Setup-$Version.exe"
+
+# Otpechatki vsekh faylov reliza v odnom fayle (format sha256sum)
+& "$repo\scripts\sha256sums.ps1" -Dir $out -Files "Zamok-Setup-$Version.exe", "Zamok-$Version.msi"

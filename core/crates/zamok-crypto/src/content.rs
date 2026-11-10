@@ -5,8 +5,8 @@
 //! - Кусок: nonce (12) ‖ AES-GCM(ключ файла, nonce, до 32 КиБ открытого текста, AAD = номер куска u64 BE ‖ nonce заголовка) ‖ тег (16).
 //!   Номер в AAD не даёт переставлять куски, nonce заголовка не даёт переносить куски между файлами.
 
-use aes_gcm::aead::{Aead, Payload};
-use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+use aes_gcm::aead::{Aead, AeadInPlace, Payload};
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce, Tag};
 use zeroize::Zeroizing;
 
 use crate::{random_bytes, Error, MasterKey, Result};
@@ -21,6 +21,9 @@ pub const CHUNK_LEN: usize = NONCE_LEN + PAYLOAD_LEN + TAG_LEN;
 pub struct FileHeader {
     pub nonce: [u8; NONCE_LEN],
     content_key: Zeroizing<[u8; 32]>,
+    /// Шифр с развёрнутым ключом файла: строится один раз, а не на каждый кусок.
+    /// Ключи раундов стираются при удалении (функция `zeroize` у aes и aes-gcm).
+    cipher: Aes256Gcm,
 }
 
 impl FileHeader {
@@ -29,7 +32,7 @@ impl FileHeader {
         random_bytes(&mut nonce)?;
         let mut content_key = Zeroizing::new([0u8; 32]);
         random_bytes(content_key.as_mut())?;
-        Ok(FileHeader { nonce, content_key })
+        Ok(Self::with_key(nonce, content_key))
     }
 
     pub fn encrypt(&self, key: &MasterKey) -> Result<[u8; HEADER_LEN]> {
@@ -59,11 +62,20 @@ impl FileHeader {
         );
         let mut content_key = Zeroizing::new([0u8; 32]);
         content_key.copy_from_slice(&pt[8..40]);
-        Ok(FileHeader { nonce, content_key })
+        Ok(Self::with_key(nonce, content_key))
     }
 
-    fn cipher(&self) -> Aes256Gcm {
-        Aes256Gcm::new_from_slice(self.content_key.as_ref()).expect("32-byte key")
+    fn with_key(nonce: [u8; NONCE_LEN], content_key: Zeroizing<[u8; 32]>) -> Self {
+        let cipher = Aes256Gcm::new_from_slice(content_key.as_ref()).expect("32-byte key");
+        FileHeader {
+            nonce,
+            content_key,
+            cipher,
+        }
+    }
+
+    fn cipher(&self) -> &Aes256Gcm {
+        &self.cipher
     }
 
     fn aad(&self, chunk: u64) -> [u8; 8 + NONCE_LEN] {
@@ -114,6 +126,33 @@ impl FileHeader {
             )
             .map_err(|_| Error::Authentication)?;
         Ok(Zeroizing::new(pt))
+    }
+
+    /// Расшифровать один кусок прямо в `out` без промежуточного буфера. Длина `out` должна быть
+    /// равна длине открытого текста (шифротекст без nonce и тега). При ошибке `out` обнуляется:
+    /// RustCrypto расшифровывает до сверки тега, и непроверенный текст не должен уйти дальше.
+    pub fn decrypt_chunk_into(&self, chunk: u64, ciphertext: &[u8], out: &mut [u8]) -> Result<()> {
+        if ciphertext.len() < NONCE_LEN + TAG_LEN
+            || ciphertext.len() > CHUNK_LEN
+            || out.len() != ciphertext.len() - NONCE_LEN - TAG_LEN
+        {
+            return Err(Error::BadLength);
+        }
+        let aad = self.aad(chunk);
+        let (nonce, rest) = ciphertext.split_at(NONCE_LEN);
+        let (body, tag) = rest.split_at(rest.len() - TAG_LEN);
+        out.copy_from_slice(body);
+        let r = self.cipher().decrypt_in_place_detached(
+            Nonce::from_slice(nonce),
+            &aad,
+            out,
+            Tag::from_slice(tag),
+        );
+        if r.is_err() {
+            out.fill(0);
+            return Err(Error::Authentication);
+        }
+        Ok(())
     }
 }
 
