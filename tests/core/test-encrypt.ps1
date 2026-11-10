@@ -41,6 +41,9 @@ function StartCore([string]$crash = '', [string]$pause = '') {
     if ($pause) { $psi.EnvironmentVariables['ZAMOK_TEST_PAUSE'] = $pause }
     $p = [Diagnostics.Process]::Start($psi)
     [void](WaitFor { (Test-Path "\\.\pipe\$pipeName") -or $p.HasExited } 60000)
+    # Kanal sozdaetsya do vosstanovleniya posle sboya, a otvechat core nachinaet tolko posle nego:
+    # pervyy otvet znachit, chto vosstanovlenie zakoncheno
+    if (-not $p.HasExited) { try { [void](Send '{"cmd":"status"}') } catch {} }
     $p
 }
 function Send([string]$json) {
