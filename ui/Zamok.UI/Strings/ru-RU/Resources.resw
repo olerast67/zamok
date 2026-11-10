@@ -148,6 +148,54 @@
   <data name="Defender_Done" xml:space="preserve"><value>Готово: Defender больше не проверяет зашифрованные данные Zamok.</value></data>
   <data name="Defender_Copied" xml:space="preserve"><value>Команда скопирована. Вставьте её в PowerShell, запущенный от имени администратора.</value></data>
   <data name="Defender_Failed" xml:space="preserve"><value>Не получилось изменить настройки Defender. Скопируйте команду и выполните её в PowerShell от имени администратора.</value></data>
+  <data name="Settings_Traces.Content" xml:space="preserve"><value>Проверка следов</value></data>
+  <data name="Settings_Traces.AccessKey" xml:space="preserve"><value>С</value></data>
+  <data name="Traces_Title.Text" xml:space="preserve"><value>Проверка следов</value></data>
+  <data name="Traces_Intro.Text" xml:space="preserve"><value>Что Windows может сохранить из открытых папок вне шифрования и что с этим сделать. Zamok здесь только смотрит и ничего не меняет.</value></data>
+  <data name="Traces_DiskTitle.Text" xml:space="preserve"><value>Шифрование системного диска</value></data>
+  <data name="Traces_HiberTitle.Text" xml:space="preserve"><value>Гибернация</value></data>
+  <data name="Traces_PageTitle.Text" xml:space="preserve"><value>Файл подкачки</value></data>
+  <data name="Traces_IndexTitle.Text" xml:space="preserve"><value>Индекс поиска Windows</value></data>
+  <data name="Traces_ThumbsTitle.Text" xml:space="preserve"><value>Кэш миниатюр</value></data>
+  <data name="Traces_Recheck.Content" xml:space="preserve"><value>Проверить ещё раз</value></data>
+  <data name="Traces_Recheck.AccessKey" xml:space="preserve"><value>П</value></data>
+  <data name="Traces_Close.Content" xml:space="preserve"><value>Закрыть</value></data>
+  <data name="Traces_Nothing" xml:space="preserve"><value>Ничего делать не нужно.</value></data>
+  <data name="Traces_Disk_On" xml:space="preserve"><value>Диск {0} зашифрован BitLocker или шифрованием устройства.</value></data>
+  <data name="Traces_DiskDo_On" xml:space="preserve"><value>Ничего делать не нужно: следы на этом диске с украденного компьютера не прочитать.</value></data>
+  <data name="Traces_Disk_Encrypting" xml:space="preserve"><value>Диск {0} сейчас шифруется.</value></data>
+  <data name="Traces_DiskDo_Encrypting" xml:space="preserve"><value>Дождитесь конца шифрования и проверьте ещё раз.</value></data>
+  <data name="Traces_Disk_Paused" xml:space="preserve"><value>Защита BitLocker на диске {0} приостановлена: ключ лежит на диске открыто.</value></data>
+  <data name="Traces_DiskDo_Paused" xml:space="preserve"><value>Возобновите защиту в панели управления, раздел «Шифрование диска BitLocker».</value></data>
+  <data name="Traces_Disk_Waiting" xml:space="preserve"><value>Диск {0} зашифрован, но защита ещё не включена: ключ лежит на диске открыто.</value></data>
+  <data name="Traces_DiskDo_Waiting" xml:space="preserve"><value>Включите шифрование устройства в Параметрах Windows или BitLocker в панели управления.</value></data>
+  <data name="Traces_Disk_Off" xml:space="preserve"><value>Диск {0} не зашифрован.</value></data>
+  <data name="Traces_DiskDo_Off" xml:space="preserve"><value>Включите BitLocker или шифрование устройства, если они есть в вашей Windows: без этого следы ниже можно прочитать с украденного ноутбука.</value></data>
+  <data name="Traces_Disk_Unknown" xml:space="preserve"><value>Не удалось узнать, зашифрован ли диск {0}.</value></data>
+  <data name="Traces_DiskDo_Unknown" xml:space="preserve"><value>Посмотрите в панели управления, раздел «Шифрование диска BitLocker».</value></data>
+  <data name="Traces_Hiber_Off" xml:space="preserve"><value>Гибернация выключена.</value></data>
+  <data name="Traces_Hiber_OnSafe" xml:space="preserve"><value>Гибернация включена, файл гибернации лежит на зашифрованном диске.</value></data>
+  <data name="Traces_Hiber_On" xml:space="preserve"><value>Гибернация включена: Windows записывает на диск содержимое памяти, в том числе открытые файлы из папок.</value></data>
+  <data name="Traces_HiberDo_On" xml:space="preserve"><value>Выключите гибернацию командой powercfg /h off в командной строке от имени администратора или включите шифрование диска.</value></data>
+  <data name="Traces_Hiber_Unknown" xml:space="preserve"><value>Не удалось узнать, включена ли гибернация.</value></data>
+  <data name="Traces_HiberDo_Unknown" xml:space="preserve"><value>Узнать можно командой powercfg /a.</value></data>
+  <data name="Traces_Page_Encrypted" xml:space="preserve"><value>Файл подкачки шифруется.</value></data>
+  <data name="Traces_Page_OnEncryptedDisk" xml:space="preserve"><value>Файл подкачки лежит на зашифрованном диске.</value></data>
+  <data name="Traces_Page_Plain" xml:space="preserve"><value>Файл подкачки не шифруется: Windows может записать в него куски открытых файлов.</value></data>
+  <data name="Traces_PageDo_Plain" xml:space="preserve"><value>Включите шифрование диска или выполните fsutil behavior set EncryptPagingFile 1 от имени администратора и перезагрузите компьютер.</value></data>
+  <data name="Traces_Page_Unknown" xml:space="preserve"><value>Не удалось узнать, шифруется ли файл подкачки: без прав администратора эта настройка не видна.</value></data>
+  <data name="Traces_PageDo_Unknown" xml:space="preserve"><value>Узнать можно командой fsutil behavior query EncryptPagingFile от имени администратора.</value></data>
+  <data name="Traces_Index_NoFolders" xml:space="preserve"><value>Зашифрованных папок пока нет.</value></data>
+  <data name="Traces_Index_SearchOff" xml:space="preserve"><value>Поиск Windows не индексирует файлы: служба поиска выключена.</value></data>
+  <data name="Traces_Index_Outside" xml:space="preserve"><value>Папки Zamok не входят в индекс поиска Windows.</value></data>
+  <data name="Traces_Index_Inside" xml:space="preserve"><value>В индекс поиска Windows входят папки: {0}.</value></data>
+  <data name="Traces_IndexDo_Inside" xml:space="preserve"><value>Уберите их в «Параметрах индексирования» кнопкой «Изменить», иначе поиск запомнит имена и свойства файлов.</value></data>
+  <data name="Traces_Index_Unknown" xml:space="preserve"><value>Не удалось проверить индекс поиска: фоновая программа Zamok не отвечает.</value></data>
+  <data name="Traces_IndexDo_Unknown" xml:space="preserve"><value>Войдите в Windows заново и проверьте ещё раз.</value></data>
+  <data name="Traces_Thumbs_IconsOnly" xml:space="preserve"><value>Проводник показывает значки вместо миниатюр, новые миниатюры не появляются.</value></data>
+  <data name="Traces_ThumbsDo_IconsOnly" xml:space="preserve"><value>Миниатюры, созданные раньше, остаются в кэше: удалить их можно в «Очистке диска», пункт «Эскизы».</value></data>
+  <data name="Traces_Thumbs_Cached" xml:space="preserve"><value>Миниатюры картинок и видео из папок остаются в кэше Windows и после запирания.</value></data>
+  <data name="Traces_ThumbsDo_Cached" xml:space="preserve"><value>Если это важно, включите «Всегда отображать значки, а не эскизы» в параметрах Проводника на вкладке «Вид» и удалите эскизы в «Очистке диска».</value></data>
   <data name="Error_core_not_running" xml:space="preserve"><value>Не удалось запустить фоновую программу Zamok. Перезагрузите компьютер.</value></data>
   <data name="Error_core_not_trusted" xml:space="preserve"><value>На связи не программа Zamok этого пользователя. Пароль не отправлен.</value></data>
   <data name="Error_vault_damaged" xml:space="preserve"><value>Часть зашифрованных файлов отрезана от дерева папок. Папка осталась зашифрованной, ничего не удалено.</value></data>

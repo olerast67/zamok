@@ -5,7 +5,9 @@
 # Menyu Provodnika snimaetsya v etom processe (IContextMenu ustanovlennoy versii), Provodnik
 # polzovatelya ne trogaetsya.
 # Zapusk: powershell -NoProfile -Sta -ExecutionPolicy Bypass -File tests\ui\screens.ps1 -Lang ru
-param([ValidateSet('ru', 'en')][string]$Lang = 'ru', [string]$Out = '')
+# -Theme light ili dark: tema okon nezavisimo ot Windows (ZAMOK_THEME), dlya proverki kontrasta;
+# s nim menyu Provodnika ne snimaetsya, snimki luchshe klast v svoyu papku (-Out).
+param([ValidateSet('ru', 'en')][string]$Lang = 'ru', [string]$Out = '', [ValidateSet('', 'light', 'dark')][string]$Theme = '')
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $repo = (Resolve-Path "$PSScriptRoot/../..").Path
@@ -117,14 +119,19 @@ function Send([string]$json) {
     $wr.WriteLine($json); $line = $r.ReadLine(); $c.Dispose(); $line | ConvertFrom-Json
 }
 function J([string]$s) { $s.Replace('\', '\\') }
-function StartUi([string]$a) {
+function StartUi([string]$a, [string]$pipe = $pipeName) {
     $p = New-Object Diagnostics.ProcessStartInfo $uiExe; $p.UseShellExecute = $false; $p.Arguments = $a
-    $p.EnvironmentVariables['ZAMOK_PIPE'] = $pipeName; $p.EnvironmentVariables['ZAMOK_LANG'] = $Lang
+    $p.EnvironmentVariables['ZAMOK_PIPE'] = $pipe; $p.EnvironmentVariables['ZAMOK_LANG'] = $Lang
+    if ($Theme) { $p.EnvironmentVariables['ZAMOK_THEME'] = $Theme }
     [Diagnostics.Process]::Start($p)
 }
 function Snap($w, [string]$name) {
     Start-Sleep -Milliseconds 800
-    [Shot]::Window([IntPtr]$w.Current.NativeWindowHandle, "$Out\$name.png")
+    # Okno eshche ne poluchilo razmer (pustoy pryamougolnik): eshche raz cherez polsekundy
+    foreach ($i in 1..10) {
+        try { [Shot]::Window([IntPtr]$w.Current.NativeWindowHandle, "$Out\$name.png"); break }
+        catch { if ($i -eq 10) { throw }; Start-Sleep -Milliseconds 500 }
+    }
     "saved $Lang/$name.png"
 }
 function Sample([string]$dir) {
@@ -151,7 +158,7 @@ try {
     foreach ($n in 'Documents', 'Projects', 'Photos') { Sample "$demo\$n" }
 
     # Menyu Provodnika (tolko russkiy snimok, kak ran'she): punkt ustanovlennoy versii
-    if ($Lang -eq 'ru' -and (Test-Path 'HKCU:\Software\Classes\Directory\shell\ZamokEncrypt')) {
+    if ($Lang -eq 'ru' -and -not $Theme -and (Test-Path 'HKCU:\Software\Classes\Directory\shell\ZamokEncrypt')) {
         $form = New-Object Windows.Forms.Form -Property @{ ShowInTaskbar = $false; Opacity = 0; StartPosition = 'Manual'; Location = '300,300'; Size = '10,10' }
         $form.Show()
         "menu: $([Shot]::MenuItem($doc, 'ZamokEncrypt', $form.Handle, 320, 320, "$Out\explorer-menu.png"))"
@@ -164,6 +171,7 @@ try {
     SetValue $w 'Password1' $pw; SetValue $w 'Password2' $pw
     (El $w 'Password2').SetFocus()
     Snap $w 'encrypt-password'
+    WaitFor { (El $w 'NextButton').Current.IsEnabled }
     Press $w 'NextButton'
     WaitFor { (El $w 'KeyWords').Current.Name -match '44\.' }
     # Klyuch sluchaynyy: slovo, kotoroe otvlekalo by na snimke, daet novyy klyuch
@@ -191,6 +199,33 @@ try {
     WaitFor { (El $w 'DetailName').Current.Name -eq 'Documents' }
     (El $w 'ToggleButton').SetFocus()
     Snap $w 'settings'
+    $ui.Kill()
+
+    # Proverka sledov: zhdem, poka stroki zapolnyatsya
+    $ui = StartUi '--traces'
+    $w = Window $ui.Id
+    WaitFor { (El $w 'ThumbsStatus').Current.Name -and (El $w 'RecheckButton').Current.IsEnabled }
+    Snap $w 'traces'
+    $ui.Kill()
+
+    # Smena parolya i rasshifrovka: pervyy shag
+    $ui = StartUi "--change-password `"$doc`""
+    $w = Window $ui.Id
+    WaitFor { El $w 'OkButton' }
+    Snap $w 'change-password'
+    $ui.Kill()
+    $ui = StartUi "--decrypt `"$doc`""
+    $w = Window $ui.Id
+    WaitFor { El $w 'OkButton' }
+    Snap $w 'decrypt'
+    $ui.Kill()
+
+    # Vopros posle udaleniya papki: core o papke ne sprashivaet, i okno zakrylos by samo, poetomu
+    # kanal bez core, okno ostaetsya so strokoy oshibki (zaodno ee cvet na snimke)
+    $ui = StartUi "--deleted `"$doc`"" 'zamok-nobody-listens-here'
+    $w = Window $ui.Id
+    WaitFor { (El $w 'ErrorText').Current.Name }
+    Snap $w 'deleted'
     $ui.Kill()
 
     # Okno parolya na zapertoy papke
@@ -224,6 +259,6 @@ finally {
 }
 # Novyy klyuch: vsyo snachala (C:\Demo uzhe ubrana)
 if ($script:again) {
-    & powershell -NoProfile -Sta -ExecutionPolicy Bypass -File $PSCommandPath -Lang $Lang -Out $Out
+    & powershell -NoProfile -Sta -ExecutionPolicy Bypass -File $PSCommandPath -Lang $Lang -Out $Out @(if ($Theme) { '-Theme', $Theme })
     exit $LASTEXITCODE
 }

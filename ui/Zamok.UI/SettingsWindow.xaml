@@ -142,8 +142,12 @@
                               x:Uid="Settings_ScreenLock" Toggled="OnScreenLockToggled" />
 
             </StackPanel>
-            <Button Grid.Column="1" AutomationProperties.AutomationId="CloseButton" x:Uid="Settings_Close"
-                    MinWidth="96" VerticalAlignment="Bottom" Click="OnCloseClick" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
+                <Button AutomationProperties.AutomationId="TracesButton" x:Uid="Settings_Traces"
+                        Click="OnTracesClick" />
+                <Button AutomationProperties.AutomationId="CloseButton" x:Uid="Settings_Close"
+                        MinWidth="96" Click="OnCloseClick" />
+            </StackPanel>
         </Grid>
     </Grid>
 </Window>

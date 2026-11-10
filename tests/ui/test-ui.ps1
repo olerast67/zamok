@@ -199,6 +199,31 @@ function A11y([string]$label, $w, $proc) {
 # LiveSetting: 1 Polite, 2 Assertive (ekrannyy diktor chitaet stroku sam, bez perehoda k ney)
 function Live($w, [string]$id) { [ZLive]::Of([IntPtr]$w.Current.NativeWindowHandle, $id) }
 
+# Okno "Proverka sledov" sredi okon processa (ono otkryvaetsya iz nastroek, okon dva)
+function TracesWindow([int]$procId) {
+    $cond = New-Object Windows.Automation.PropertyCondition ($AE::ProcessIdProperty), $procId
+    foreach ($c in @($AE::RootElement.FindAll('Children', $cond))) { if (El $c 'RecheckButton') { return $c } }
+    $null
+}
+# Tekst sovpadaet so strokoy iz fayla strok (podstanovka {0} lyubaya)
+function IsTextLike([string]$prefix, [string]$shown) {
+    foreach ($k in @($strings.Keys | Where-Object { $_.StartsWith($prefix) })) {
+        foreach ($v in $strings[$k]) { if ($shown -match ('^' + (([regex]::Escape($v)) -replace '\\\{\d\}', '.*') + '$')) { return $true } }
+    }
+    $false
+}
+# V kazhdoy stroke sostoyanie i sovet, oba iz fayla strok; Zamok nichego ne menyaet
+function TracesRows($tw) {
+    $rows = @()
+    foreach ($r in 'Disk', 'Hiber', 'Page', 'Index', 'Thumbs') {
+        $st = Text $tw "${r}Status"; $ad = Text $tw "${r}Advice"
+        if (-not (IsTextLike "Traces_${r}_" $st)) { throw "${r}: status is not a string: $st" }
+        if (-not ((IsTextLike "Traces_${r}Do_" $ad) -or (IsText 'Traces_Nothing' $ad))) { throw "${r}: advice is not a string: $ad" }
+        $rows += "${r}: $st"
+    }
+    $rows -join ' | '
+}
+
 function StartCore {
     $psi = New-Object Diagnostics.ProcessStartInfo $coreExe
     $psi.UseShellExecute = $false
@@ -276,7 +301,8 @@ try {
         -not (Enabled $w 'NextButton')
     }
     Check 'wizard: strength text is a real string' {
-        SetValue $w 'Password2' $pw; Start-Sleep -Milliseconds 300
+        # Na zanyatoy mashine okno inogda ne uspevaet za vvodom: zhdem, pri nuzhde vvodim eshche raz
+        foreach ($try in 1..3) { SetValue $w 'Password2' $pw; if (WaitFor { Enabled $w 'NextButton' } 3000) { break } }
         (IsText 'Encrypt_Strength4' (Text $w 'StrengthText')) -and (Enabled $w 'NextButton')
     }
     A11y 'wizard password step' $w $ui
@@ -510,6 +536,24 @@ try {
         Press $w 'ToggleButton'
         WaitFor { (Folder $dir).state -eq 'locked' } 10000
     }
+    # Proverka sledov: knopka v nastroykah otkryvaet vtoroe okno togo zhe processa
+    Check 'traces: Settings button opens the check, every row has a status and advice from the string file' {
+        Press $w 'TracesButton'
+        if (-not (WaitFor { $script:tw = TracesWindow $ui.Id; $script:tw -and (El $script:tw 'RecheckButton').Current.IsEnabled -and (Text $script:tw 'ThumbsStatus') } 20000)) { throw 'no traces window' }
+        TracesRows $script:tw
+    }
+    Check 'traces: test folders outside the profile are not in the search index' {
+        $s = Text $script:tw 'IndexStatus'
+        if ($s -ne $byLang['ru-RU']['Traces_Index_Outside'] -and $s -ne $byLang['ru-RU']['Traces_Index_SearchOff']) { throw "index: $s" }
+        $s
+    }
+    if ($script:tw) { A11y 'traces' $script:tw $ui }
+    Check 'traces: Check again runs the check again, Close closes only this window' {
+        Press $script:tw 'RecheckButton'
+        if (-not (WaitFor { (El $script:tw 'RecheckButton').Current.IsEnabled } 20000)) { throw 'still checking' }
+        Press $script:tw 'CloseButton'
+        (WaitFor { -not (TracesWindow $ui.Id) } 5000) -and -not $ui.HasExited -and (Text $w 'DetailName')
+    }
     $ui.Kill()
 
     # 4. Oshibki
@@ -636,6 +680,12 @@ try {
     }
     Check 'language en: settings have no Russian text' { NoRussian $w }
     A11y 'settings in English' $w $ui
+    $ui.Kill()
+    $ui = StartUi '--traces' $pipeName 'en'
+    $w = Window $ui.Id
+    [void](WaitFor { (El $w 'RecheckButton').Current.IsEnabled -and (Text $w 'ThumbsStatus') } 20000)
+    Check 'language en: the traces check has no Russian text' { (NoRussian $w) -and (TracesRows $w) }
+    A11y 'traces in English' $w $ui
     $ui.Kill()
     $dir4 = "$root\english"; MakeSample $dir4
     $ui = StartUi '--encrypt', $dir4 $pipeName 'en'
