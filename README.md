@@ -61,13 +61,13 @@ Zamok writes no decrypted data to disk itself. Windows and other programs leave 
 | Where | What happens |
 |---|---|
 | Windows Search index | Files are marked "do not index" |
-| Thumbnail cache | Explorer may store small copies of pictures on the system drive; this cannot be turned off for a single folder |
+| Thumbnail cache | Explorer stores small copies of pictures and videos in `thumbcache_*.db` on the system drive, and they stay there after the folder is locked (checked, [research 05](docs/research/05-thumbnail-cache.md), in Russian). Windows cannot turn this off for a single folder, and Zamok has no safe way to do it from the file system. If it matters to you: File Explorer Options, View tab, "Always show icons, never thumbnails", then remove "Thumbnails" in Disk Cleanup. This turns thumbnails off in every folder |
 | Recent files | Shortcuts to the folder's files are removed on lock; taskbar jump lists stay for now |
 | Autosave and temporary files | Word, Photoshop and others write them to their own folders outside Zamok |
 | Page file and hibernation file | Contents of memory may end up there, including keys: locking keys in memory is not done yet |
 | Recycle Bin | There is none: a file deleted from an open folder is gone at once |
 
-Encrypting the system drive (BitLocker or Device Encryption) covers almost all of these traces if the laptop is stolen.
+Encrypting the system drive (BitLocker or Device Encryption) covers almost all of these traces if the laptop is stolen. "Traces check" in Zamok settings shows whether the system drive is encrypted, whether hibernation is on, whether the page file is encrypted, whether your folders are in the search index and whether Explorer makes thumbnails. It only looks and changes nothing.
 
 ## Install
 

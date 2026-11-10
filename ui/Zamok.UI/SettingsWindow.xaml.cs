@@ -376,5 +376,8 @@ public sealed partial class SettingsWindow : Window
         DefenderNo.IsEnabled = !busy;
     }
 
+    /// <summary>«Проверка следов» (DESIGN.md, раздел 6) в своём окне.</summary>
+    private void OnTracesClick(object sender, RoutedEventArgs e) => new TracesWindow().Activate();
+
     private void OnCloseClick(object sender, RoutedEventArgs e) => Close();
 }

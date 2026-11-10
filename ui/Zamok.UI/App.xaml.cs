@@ -6,6 +6,7 @@ namespace Zamok.UI;
 /// Zamok.exe запускается из Проводника с одним действием:
 /// <c>--unlock &lt;путь&gt;</c> (значок «Открыть Имя.zamok» или пункт меню) или
 /// <c>--encrypt &lt;путь&gt;</c> («Зашифровать паролем»). Без аргументов ничего не показывает.
+/// <c>--traces</c>: «Проверка следов» (её же открывает кнопка в настройках).
 /// <c>--deleted &lt;путь&gt;</c> запускает сам core: папку удалили в Проводнике, вернуть или убрать.
 /// </summary>
 public partial class App : Application
@@ -19,6 +20,9 @@ public partial class App : Application
         // по-русски (язык сборки по умолчанию), а трей по-английски
         Microsoft.Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = Lang.Code;
         InitializeComponent();
+        // Тема по настройке Windows; ZAMOK_THEME=light или dark задаёт её для проверки окон и снимков
+        var theme = Environment.GetEnvironmentVariable("ZAMOK_THEME");
+        if (theme is "light" or "dark") RequestedTheme = theme == "dark" ? ApplicationTheme.Dark : ApplicationTheme.Light;
         // Последняя страховка: неожиданная ошибка показывается, а окно остаётся
         UnhandledException += (_, e) =>
         {
@@ -51,6 +55,7 @@ public partial class App : Application
             "--decrypt" => new ManageWindow(ManageWindow.Mode.Decrypt, path!),
             "--deleted" => new DeletedWindow(path!),
             "--settings" => new SettingsWindow(),
+            "--traces" => new TracesWindow(),
             _ => null,
         };
         if (_window is null)
@@ -89,7 +94,7 @@ public partial class App : Application
 
     internal static (string? Action, string? Path) ParseArgs(string[] args)
     {
-        if (args.Length == 1 && args[0] == "--settings") return (args[0], null);
+        if (args.Length == 1 && args[0] is "--settings" or "--traces") return (args[0], null);
         if (args.Length == 2 && args[0] is "--unlock" or "--encrypt" or "--lock" or "--change-password" or "--show-key" or "--decrypt" or "--make-icons" or "--deleted" && args[1].Length > 0)
             return (args[0], args[1]);
         return (null, null);
