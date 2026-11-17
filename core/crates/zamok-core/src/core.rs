@@ -1708,6 +1708,9 @@ impl Core {
             Err(ErrorCode::AlreadyAdded) => return self.unlock(path, password),
             other => other?,
         };
+        // Папки ещё нет в списке, её эпохи запирания нет: Win+L, сон или «запереть всё» во
+        // время проверки пароля (scrypt, около секунды) видны только по счётчику
+        let lock_alls = self.lock_all_count();
         let json = zamok_crypto::read_meta_text(&vault.join("masterkey.cryptomator"))
             .map_err(|_| ErrorCode::BadVault)?;
         let mk = zamok_crypto::masterkey::MasterkeyFile::from_json(&json)
@@ -1720,7 +1723,13 @@ impl Core {
         let e = self.add_entry(folder, vault, DEFAULT_IDLE_LOCK_SECS, true)?;
         tracing::info!(folder = %e.cfg().id, "folder from another computer added");
         let epoch = e.lock_epoch.load(Ordering::SeqCst);
-        Self::open_letter(&e, epoch, key, &|| true, "unlocked after adding")
+        Self::open_letter(
+            &e,
+            epoch,
+            key,
+            &|| self.lock_all_count() == lock_alls,
+            "unlocked after adding",
+        )
     }
 
     pub fn remove(&self, path: &str) -> Result<(), ErrorCode> {
