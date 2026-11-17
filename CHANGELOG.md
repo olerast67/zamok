@@ -12,6 +12,9 @@ USB sticks and memory cards
 - On FAT32, folders with a file that would exceed 4 GB once encrypted are refused before copying.
 - Tested on NTFS with a test switch and on a real exFAT stick. Not tested yet: a file over 4 GB on exFAT, FAT32, physically unplugging a stick.
 
+Fixes
+- After Zamok stopped without a clean shutdown, the folder could stay "unavailable" with "the path is occupied": the leftover empty folder had the read-only attribute, so Windows refused to remove it. Zamok now clears the attribute and removes such an empty folder.
+
 ## 0.1.0-alpha (2026-11-10)
 
 First alpha. Not audited by a third party. Keep a backup of important data outside Zamok.

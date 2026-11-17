@@ -33,6 +33,9 @@ pub enum PathState {
     LiveMount,
     /// Мёртвая точка подключения тома WinFsp.
     StaleMount,
+    /// Пустая папка с атрибутом «только чтение» или «системный» без метки: остаток мёртвой
+    /// точки подключения, с которой метку сняли, а папку убрать не смогли.
+    Leftover,
     /// Обычная папка или файл: не трогаем.
     Occupied,
 }
@@ -209,7 +212,11 @@ pub fn state(path: &Path) -> PathState {
     let reparse_dir =
         attrs & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 && attrs & FILE_ATTRIBUTE_DIRECTORY.0 != 0;
     if !reparse_dir {
-        return PathState::Occupied;
+        return if is_leftover(path, attrs) {
+            PathState::Leftover
+        } else {
+            PathState::Occupied
+        };
     }
     match mount_target(path) {
         Some(t) if is_volume_target(&t) => {
@@ -222,6 +229,33 @@ pub fn state(path: &Path) -> PathState {
         // Чужая метка (ссылка OneDrive, символьная ссылка и т. п.): не наша, не трогаем
         _ => PathState::Occupied,
     }
+}
+
+const FILE_ATTRIBUTE_READONLY: u32 = 0x1;
+const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
+
+/// Папка без метки, пустая, с атрибутом «только чтение» или «системный». Такие атрибуты
+/// WinFsp оставляет на точке подключения от корня тома, а папке, на которой стоит «только
+/// чтение», Windows отказывает в удалении. Пустая: внутри нечего терять.
+fn is_leftover(path: &Path, attrs: u32) -> bool {
+    attrs & FILE_ATTRIBUTE_DIRECTORY.0 != 0
+        && attrs & (FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM) != 0
+        && std::fs::read_dir(path).is_ok_and(|mut d| d.next().is_none())
+}
+
+/// Убрать пустую папку: снять «только чтение» (иначе Windows её не удалит) и удалить.
+/// `RemoveDirectoryW` удаляет только пустую папку: если в ней вдруг что-то появилось, откажет.
+fn remove_empty_dir(path: &Path) -> anyhow::Result<()> {
+    zamok_fs::attrs::set_attributes(path, 0)?;
+    let w = wide(path);
+    unsafe { RemoveDirectoryW(PCWSTR(w.as_ptr())) }?;
+    Ok(())
+}
+
+/// Убрать остаток точки подключения (`PathState::Leftover`).
+fn remove_leftover(path: &Path) -> anyhow::Result<()> {
+    anyhow::ensure!(state(path) == PathState::Leftover, "not a leftover folder");
+    remove_empty_dir(path)
 }
 
 /// Снять мёртвую точку подключения: удалить метку и пустую папку.
@@ -249,10 +283,7 @@ pub fn remove_stale(path: &Path) -> anyhow::Result<()> {
             )
         }?;
     }
-    // RemoveDirectoryW удаляет только пустую папку: если в ней вдруг что-то есть, откажет
-    let w = wide(path);
-    unsafe { RemoveDirectoryW(PCWSTR(w.as_ptr())) }?;
-    Ok(())
+    remove_empty_dir(path)
 }
 
 /// Подготовить путь к подключению: свободен или мёртвая точка снята.
@@ -264,6 +295,13 @@ pub fn prepare(path: &Path) -> Result<(), PathState> {
                 Ok(())
             } else {
                 Err(PathState::StaleMount)
+            }
+        }
+        PathState::Leftover => {
+            if remove_leftover(path).is_ok() && state(path) == PathState::Free {
+                Ok(())
+            } else {
+                Err(PathState::Leftover)
             }
         }
         other => Err(other),
@@ -303,5 +341,41 @@ mod tests {
         assert!(remove_stale(&dir).is_err());
         assert_eq!(prepare(&dir), Err(PathState::Occupied));
         assert!(dir.join("f.txt").exists());
+    }
+
+    #[test]
+    fn empty_read_only_system_folder_is_a_leftover_and_is_removed() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("Папка");
+        std::fs::create_dir(&dir).unwrap();
+        zamok_fs::attrs::set_attributes(&dir, FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM)
+            .unwrap();
+        assert_eq!(state(&dir), PathState::Leftover);
+        assert_eq!(prepare(&dir), Ok(()));
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn plain_empty_folder_and_non_empty_system_folder_stay() {
+        let d = tempfile::tempdir().unwrap();
+        // Пустую папку без атрибутов мог создать человек: не трогаем
+        let plain = d.path().join("Пустая");
+        std::fs::create_dir(&plain).unwrap();
+        assert_eq!(prepare(&plain), Err(PathState::Occupied));
+        assert!(plain.exists());
+        // Системная папка с файлом внутри: не трогаем
+        let full = d.path().join("Системная");
+        std::fs::create_dir(&full).unwrap();
+        std::fs::write(full.join("desktop.ini"), b"x").unwrap();
+        zamok_fs::attrs::set_attributes(&full, FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM)
+            .unwrap();
+        assert_eq!(prepare(&full), Err(PathState::Occupied));
+        assert!(full.join("desktop.ini").exists());
+        // Файл «только чтение» на пути: тоже не остаток
+        let file = d.path().join("файл");
+        std::fs::write(&file, b"x").unwrap();
+        zamok_fs::attrs::set_attributes(&file, FILE_ATTRIBUTE_READONLY).unwrap();
+        assert_eq!(prepare(&file), Err(PathState::Occupied));
+        zamok_fs::attrs::set_attributes(&file, 0).unwrap();
     }
 }
