@@ -353,6 +353,11 @@ pub fn dispatch(line: &[u8], core: &Arc<Core>) -> Response {
         Request::UnlockHello { path, wrap_key } => one(core.unlock_hello(&path, &wrap_key)),
         Request::AnswerDeleted { path, remove } => one(core.answer_deleted(&path, remove)),
         Request::AnswerIdle { path, lock } => one(core.answer_idle(&path, lock)),
+        Request::AdoptCheck { path } => match core.adopt_check(&path) {
+            Ok(_) => Response::ok(),
+            Err(code) => Response::err(code),
+        },
+        Request::Adopt { path, password } => one(core.adopt(&path, &password)),
         Request::DefenderOfferDone { vaults } => match core.defender_offer_done(&vaults) {
             Ok(()) => Response::ok(),
             Err(code) => Response::err(code),

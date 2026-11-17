@@ -39,6 +39,12 @@ While the folder is locked, the virtual folder shows one icon that opens the pas
 
 The folder locks when you press Win+L, when the computer goes to sleep or hibernates, when you sign out, and after 30 minutes without work in it. The timeout is set per folder in Settings. If it is time to lock by timeout but files in the folder are open, Zamok asks whether to lock now or postpone for 10 minutes, and shows which program holds the files. Ctrl+Alt+Shift+L locks all folders at once.
 
+### USB sticks and memory cards (exFAT, FAT32)
+
+WinFsp can present a folder at its own path only on NTFS, so on exFAT and FAT32 drives Zamok works a little differently. Encryption is the same checked copy. Afterwards the folder on the stick holds one file, `Открыть Name.zamok` ("Open Name"), and the encrypted data sits next to it in the hidden `.Name.zamok` folder. Double-click the file and enter the password: the folder opens as a separate drive, from Z: downwards, labelled with the folder name, in a new Explorer window. Locking wipes the keys and the drive letter disappears. All auto-lock rules apply. If you pull the stick out or press "Eject" while the folder is open, Zamok locks it at once. A folder whose stick is not plugged in stays in the list as "not connected" and comes back by itself, even under another drive letter.
+
+Move or copy the folder and the hidden `.Name.zamok` together: the folder alone holds only the opener file. On another computer with Zamok, double-click the opener file and enter the password: the folder is added to that computer's list and opens. On FAT32 a file larger than 4 GB cannot be stored, and Zamok refuses to encrypt a folder with a file that would exceed the limit once encrypted; exFAT has no such limit. Tested on a real exFAT stick, except a file larger than 4 GB; FAT32 and physically unplugging the stick are not tested yet.
+
 File contents and file names are encrypted with the Cryptomator vault format 8 (AES-GCM, AES-SIV, scrypt), through the RustCrypto libraries. The name of the encrypted folder itself stays visible.
 
 ## What it protects against
@@ -83,7 +89,7 @@ Smart App Control on Windows 11 blocks unsigned programs, so Zamok cannot be ins
 
 On Windows 11 the Zamok items are under "Show more options" in the right-click menu, because the short menu accepts only signed packages.
 
-Requirements: Windows 10 or 11, x64, a folder on an NTFS drive. USB sticks with exFAT or FAT32 are not supported yet. Zamok refuses folders inside OneDrive, Dropbox and Yandex Disk until cloud clients are tested with an open folder. Development and testing so far were on Windows 10; the Windows 11 run in a virtual machine is on the roadmap.
+Requirements: Windows 10 or 11, x64, a folder on an NTFS, exFAT or FAT32 drive. On exFAT and FAT32 (USB sticks, memory cards) an open folder appears as a separate drive letter. Network drives are not supported. Zamok refuses folders inside OneDrive, Dropbox and Yandex Disk until cloud clients are tested with an open folder. Development and testing so far were on Windows 10; the Windows 11 run in a virtual machine is on the roadmap.
 
 ## Recovery without Zamok
 

@@ -33,6 +33,17 @@ pub struct FolderConfig {
     /// родителя, в том числе пока core не работал. В записях старых версий его нет.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vault_file_id: Option<i64>,
+    /// Папка на флешке или диске exFAT/FAT32: на пути обычная папка с файлом открытия,
+    /// открытая папка подключается на букву диска (`letter.rs`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub letter: bool,
+    /// Путь папки от корня тома (`Фото\Отпуск`): по нему и серийному номеру тома папка
+    /// находится, когда флешку вставили под другой буквой.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rel_path: Option<String>,
+    /// Путь хранилища от корня тома.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rel_vault: Option<String>,
 }
 
 /// Предел размера файла со списком папок.
@@ -173,7 +184,29 @@ mod tests {
             idle_lock_secs: DEFAULT_IDLE_LOCK_SECS,
             volume_serial: None,
             vault_file_id: None,
+            letter: false,
+            rel_path: None,
+            rel_vault: None,
         }
+    }
+
+    #[test]
+    fn letter_fields_round_trip_and_are_absent_for_ntfs_folders() {
+        let d = tempfile::tempdir().unwrap();
+        let mut c = Config::default();
+        c.folders.push(folder(r"C:\Работа\Клиенты"));
+        c.folders.push(FolderConfig {
+            letter: true,
+            rel_path: Some("Фото".into()),
+            rel_vault: Some(".Фото.zamok".into()),
+            volume_serial: Some(0x6E76_5056),
+            ..folder(r"G:\Фото")
+        });
+        c.save(d.path()).unwrap();
+        let text = std::fs::read_to_string(Config::file(d.path())).unwrap();
+        // Старые версии не видят новых полей у папок NTFS
+        assert_eq!(text.matches("\"letter\"").count(), 1);
+        assert_eq!(Config::load(d.path()).unwrap(), c);
     }
 
     #[test]

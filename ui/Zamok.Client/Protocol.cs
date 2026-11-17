@@ -29,10 +29,14 @@ public sealed record FolderInfo(
     ulong OpenFiles = 0,
     bool Asking = false,
     string[]? OpenIn = null,
-    bool IdleAsking = false)
+    bool IdleAsking = false,
+    bool Letter = false,
+    string? Drive = null)
 {
     public bool IsLocked => State == "locked";
     public bool IsUnlocked => State == "unlocked";
+    /// <summary>Папка на флешке, а флешки сейчас нет.</summary>
+    public bool IsDisconnected => State == "disconnected";
 }
 
 public sealed record JobInfo(

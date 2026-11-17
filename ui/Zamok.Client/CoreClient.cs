@@ -57,6 +57,23 @@ public sealed partial class CoreClient
             w.WriteString("words", words);
         }, ct);
 
+    /// <summary>Можно ли добавить папку с флешки, которой нет в списке (файл открытия, хранилище рядом).</summary>
+    public Task<Response> AdoptCheckAsync(string path, CancellationToken ct = default) =>
+        SendAsync(w =>
+        {
+            w.WriteString("cmd", "adopt_check");
+            w.WriteString("path", path);
+        }, ct);
+
+    /// <summary>Добавить папку с флешки в список после проверки пароля и открыть её с буквой диска.</summary>
+    public Task<Response> AdoptAsync(string path, string password, CancellationToken ct = default) =>
+        SendAsync(w =>
+        {
+            w.WriteString("cmd", "adopt");
+            w.WriteString("path", path);
+            w.WriteString("password", password);
+        }, ct);
+
     public Task<Response> LockAsync(string path, CancellationToken ct = default) =>
         SendAsync(w =>
         {

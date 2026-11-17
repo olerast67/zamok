@@ -16,6 +16,7 @@
   <data name="Unlock_UseRecovery.Content" xml:space="preserve"><value>Забыли пароль? Открыть ключом восстановления</value></data>
   <data name="Unlock_UsePassword.Content" xml:space="preserve"><value>Открыть паролем</value></data>
   <data name="Unlock_Open.Content" xml:space="preserve"><value>Открыть</value></data>
+  <data name="Unlock_AdoptPrompt" xml:space="preserve"><value>Этой папки ещё нет в Zamok на этом компьютере. Введите её пароль: Zamok добавит папку и откроет её отдельным диском.</value></data>
   <data name="Encrypt_Heading" xml:space="preserve"><value>Зашифровать «{0}»</value></data>
   <data name="Encrypt_StepPassword" xml:space="preserve"><value>Придумайте пароль: он нужен каждый раз, чтобы открыть папку</value></data>
   <data name="Encrypt_StepKey" xml:space="preserve"><value>Ключ восстановления</value></data>
@@ -59,6 +60,7 @@
   <data name="Encrypt_Cancelling" xml:space="preserve"><value>Отмена…</value></data>
   <data name="Encrypt_TooLate" xml:space="preserve"><value>Отменить уже нельзя: папка заменяется зашифрованной. Сохраните ключ.</value></data>
   <data name="Encrypt_Done" xml:space="preserve"><value>Папка «{0}» зашифрована и открыта. Запираться она будет сама, как задано в настройках Zamok.</value></data>
+  <data name="Encrypt_DoneLetter" xml:space="preserve"><value>Папка «{0}» зашифрована и открыта как диск {1}. На флешке на её месте файл «Открыть {0}.zamok»: двойной щелчок по нему открывает папку.</value></data>
   <data name="Encrypt_Failed" xml:space="preserve"><value>Папка не зашифрована. Все файлы на месте.</value></data>
   <data name="Manage_Password.Header" xml:space="preserve"><value>Текущий пароль</value></data>
   <data name="Manage_NewPassword1.Header" xml:space="preserve"><value>Новый пароль</value></data>
@@ -102,6 +104,8 @@
   <data name="Settings_StateOpen" xml:space="preserve"><value>открыта</value></data>
   <data name="Settings_StateLocked" xml:space="preserve"><value>заперта</value></data>
   <data name="Settings_StateUnavailable" xml:space="preserve"><value>недоступна</value></data>
+  <data name="Settings_StateDisconnected" xml:space="preserve"><value>не подключена</value></data>
+  <data name="Settings_StateOpenDrive" xml:space="preserve"><value>открыта, диск {0}</value></data>
   <data name="Settings_Lock" xml:space="preserve"><value>Запереть</value></data>
   <data name="Lock_OpenFiles" xml:space="preserve"><value>В папке «{0}» открыты файлы, файлов: {1}. Несохранённые изменения пропадут: программа не сможет их записать. Запереть всё равно?</value></data>
   <data name="Lock_OpenFilesIn" xml:space="preserve"><value>В папке «{0}» открыты файлы, файлов: {1}. Открыто в: {2}. Несохранённые изменения пропадут: программа не сможет их записать. Запереть всё равно?</value></data>
@@ -222,7 +226,9 @@
   <data name="Error_not_a_plain_folder" xml:space="preserve"><value>Это не обычная папка: файл, ссылка или уже зашифрованная папка.</value></data>
   <data name="Error_system_folder" xml:space="preserve"><value>Системные папки, корень диска, папку профиля и папки вроде «Документы» целиком шифровать нельзя. Выберите папку внутри них.</value></data>
   <data name="Error_cloud_folder" xml:space="preserve"><value>Папки OneDrive, Dropbox и Яндекс.Диска пока не шифруются: облако могло бы забрать открытые файлы.</value></data>
-  <data name="Error_not_ntfs" xml:space="preserve"><value>Папка лежит не на диске NTFS. Флешки и карты памяти пока не поддерживаются.</value></data>
+  <data name="Error_not_ntfs" xml:space="preserve"><value>Папка лежит на диске, который Zamok не поддерживает. Подходят диски NTFS, exFAT и FAT32; сетевые диски нет.</value></data>
+  <data name="Error_file_too_large" xml:space="preserve"><value>На флешке с FAT32 файл не может быть больше 4 ГБ, а в зашифрованном виде эти файлы больше. Перенесите их или отформатируйте флешку в exFAT.</value></data>
+  <data name="Error_not_connected" xml:space="preserve"><value>Флешки или диска с этой папкой сейчас нет. Вставьте его и попробуйте ещё раз.</value></data>
   <data name="Error_vault_exists" xml:space="preserve"><value>Рядом с папкой уже лежат данные Zamok с таким именем:</value></data>
   <data name="Error_unsupported_items" xml:space="preserve"><value>В папке есть ссылки, файлы «только в облаке», файлы с несколькими жёсткими ссылками или неподходящими именами:</value></data>
   <data name="Error_files_in_use" xml:space="preserve"><value>Эти файлы открыты в других программах. Закройте их и попробуйте снова:</value></data>

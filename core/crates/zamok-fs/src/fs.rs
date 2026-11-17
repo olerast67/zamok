@@ -63,7 +63,28 @@ fn cerr(e: CipherError) -> FspError {
 }
 
 fn ioerr(e: std::io::Error) -> FspError {
+    if is_device_gone(&e) {
+        if let Some(hook) = DEVICE_GONE_HOOK.get() {
+            hook();
+        }
+    }
     e.into()
+}
+
+/// Ошибки чтения и записи, после которых диска с хранилищем, скорее всего, больше нет
+/// (флешку вынули): не готов, устройство отключено или не существует.
+fn is_device_gone(e: &std::io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(21 | 55 | 1117 | 1167))
+}
+
+/// Кого позвать при такой ошибке: core проверяет, на месте ли хранилища папок с буквой
+/// диска, и сразу запирает пропавшие. Запасной путь на случай, если сообщение Windows
+/// о выключении устройства не пришло.
+static DEVICE_GONE_HOOK: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+
+/// Задать один раз при старте программы.
+pub fn set_device_gone_hook(hook: fn()) {
+    let _ = DEVICE_GONE_HOOK.set(hook);
 }
 
 /// Узел на диске для расшифрованного пути.
@@ -118,6 +139,11 @@ static FOLDER_ICON_OPEN: std::sync::OnceLock<String> = std::sync::OnceLock::new(
 /// Задать значок запертой папки один раз при старте программы.
 pub fn set_folder_icon(path: &str) {
     let _ = FOLDER_ICON.set(path.to_string());
+}
+
+/// Значок запертой папки, если он задан (для `desktop.ini` папки с буквой диска).
+pub fn folder_icon() -> Option<&'static str> {
+    FOLDER_ICON.get().map(String::as_str)
 }
 
 /// Задать значок открытой папки один раз при старте программы.
@@ -237,13 +263,29 @@ pub struct Control {
 pub struct ZamokFs {
     root: PathBuf,
     display_name: String,
+    /// Метка тома: её видно у диска с буквой (папки на флешках).
+    label: String,
     ctl: Arc<Control>,
     security: Vec<u8>,
 }
 
 /// Значок запертой папки: `Открыть <Имя>.zamok`.
-fn open_item_name(display_name: &str) -> String {
+pub fn open_item_name(display_name: &str) -> String {
     format!("Открыть {display_name}.zamok")
+}
+
+/// Метка тома из имени папки: не больше 32 знаков UTF-16, суррогатные пары не разрываются.
+pub fn label_of(name: &str) -> String {
+    let mut out = String::new();
+    let mut units = 0;
+    for ch in name.chars() {
+        units += ch.len_utf16();
+        if units > 32 {
+            break;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 fn split(path: &str) -> Vec<&str> {
@@ -469,9 +511,20 @@ impl ZamokFs {
         Ok(ZamokFs {
             root: root.to_path_buf(),
             display_name: display_name.to_string(),
+            label: "Zamok".to_string(),
             ctl,
             security: security::owner_only_descriptor()?,
         })
+    }
+
+    /// Метка тома. Длиннее 32 знаков UTF-16 Windows не принимает: лишнее отрезается
+    /// целыми символами.
+    pub fn with_label(mut self, label: &str) -> Self {
+        let label = label_of(label);
+        if !label.trim().is_empty() {
+            self.label = label;
+        }
+        self
     }
 
     /// Управление состоянием (запереть, открыть) из другого потока.
@@ -1618,7 +1671,7 @@ impl FileSystemContext for ZamokFs {
         let (total, free) = crate::attrs::disk_space(&self.root).unwrap_or((0, 0));
         out.total_size = total;
         out.free_size = free;
-        out.set_volume_label("Zamok");
+        out.set_volume_label(&self.label);
         Ok(())
     }
 }
@@ -1662,6 +1715,25 @@ mod tests {
     use super::*;
     use std::os::windows::fs::OpenOptionsExt;
     use widestring::U16CString;
+
+    #[test]
+    fn volume_label_is_cut_to_32_utf16_units_without_splitting_characters() {
+        assert_eq!(label_of("Фото"), "Фото");
+        let long = "а".repeat(40);
+        assert_eq!(label_of(&long).chars().count(), 32);
+        // Символ вне BMP занимает два знака UTF-16: на границе он не разрывается
+        let emoji = format!("{}\u{1F512}", "б".repeat(31));
+        assert_eq!(label_of(&emoji), "б".repeat(31));
+    }
+
+    #[test]
+    fn errors_of_a_removed_drive_are_recognised() {
+        for code in [21, 55, 1117, 1167] {
+            assert!(is_device_gone(&std::io::Error::from_raw_os_error(code)));
+        }
+        assert!(!is_device_gone(&std::io::Error::from_raw_os_error(5)));
+        assert!(!is_device_gone(&std::io::Error::from_raw_os_error(2)));
+    }
 
     /// Файловая система над пустым хранилищем, уже открытая.
     fn open_fs(root: &Path) -> ZamokFs {

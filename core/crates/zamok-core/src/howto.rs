@@ -137,6 +137,9 @@ mod tests {
             volume_serial: None,
             vault_file_id: None,
             idle_lock_secs: 0,
+            letter: false,
+            rel_path: None,
+            rel_vault: None,
         });
         cfg.folders.push(FolderConfig {
             id: "b".into(),
@@ -146,6 +149,9 @@ mod tests {
             volume_serial: None,
             vault_file_id: None,
             idle_lock_secs: 0,
+            letter: false,
+            rel_path: None,
+            rel_vault: None,
         });
         cfg.save(d.path()).unwrap();
 
@@ -174,6 +180,9 @@ mod tests {
             volume_serial: None,
             vault_file_id: None,
             idle_lock_secs: 0,
+            letter: false,
+            rel_path: None,
+            rel_vault: None,
         };
         assert!(write_note(&folder, false, Why::Removed));
         let text = std::fs::read_to_string(d.path().join("HOW TO OPEN Docs.txt")).unwrap();

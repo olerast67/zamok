@@ -14,6 +14,7 @@
 //! - [`search`]: путь папки вне индекса поиска Windows.
 //! - [`howto`]: памятка «КАК ОТКРЫТЬ» рядом с хранилищем.
 //! - [`processes`]: имена программ, которые держат файлы папки открытыми.
+//! - [`letter`]: папки на флешках exFAT и FAT32, подключение с буквой диска.
 
 pub mod autolock;
 pub mod clipguard;
@@ -22,6 +23,7 @@ pub mod core;
 pub mod decrypt;
 pub mod encrypt;
 pub mod howto;
+pub mod letter;
 pub mod mountpoint;
 pub mod pipe;
 pub mod preflight;

@@ -94,6 +94,11 @@ pub struct Journal {
     /// подсказка, что можно не копировать заново.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub done: Vec<DoneFile>,
+    /// Папка на флешке (exFAT, FAT32): в конце на пути ставится папка с файлом открытия,
+    /// открытая папка подключается на букву диска. Номера файлов FAT не сверяются: они
+    /// выводятся из места записи в каталоге и для узнавания файла не годятся.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub letter: bool,
 }
 
 /// Файл, записанный в копию и сверенный. По размеру, времени и номеру файла видно, что
@@ -498,16 +503,27 @@ fn plan_resume(
     r
 }
 
+/// Номер файла оригинала для отметки в журнале. На флешке (FAT, exFAT) номер выводится из
+/// места записи в каталоге и меняется при переносе, поэтому там всегда 0 и файл узнаётся
+/// только по размеру и времени изменения (у FAT32 точность времени 2 секунды, у exFAT 10 мс).
+fn source_file_id(path: &Path, letter: bool) -> Option<u64> {
+    if letter {
+        Some(0)
+    } else {
+        preflight::file_id(path)
+    }
+}
+
 /// Оставшийся в копии файл всё ещё годится: оригинал тот же, шифротекст расшифровывается
 /// в тот же SHA-256, что был у оригинала при записи.
-fn kept_still_good(vault: &Vault, src: &Path, k: &KeptFile) -> bool {
+fn kept_still_good(vault: &Vault, src: &Path, k: &KeptFile, letter: bool) -> bool {
     let path = src.join(&k.done.rel);
     let Ok(m) = std::fs::metadata(&path) else {
         return false;
     };
     if m.len() != k.done.size
         || file_mtime(&m) != k.done.mtime
-        || preflight::file_id(&path) != Some(k.done.file_id)
+        || source_file_id(&path, letter) != Some(k.done.file_id)
     {
         return false;
     }
@@ -629,7 +645,7 @@ fn copy_and_verify(
             }
             Kind::File { size, mtime } => {
                 if let Some(k) = resume.files.get(&item.rel) {
-                    if kept_still_good(vault, src, k) {
+                    if kept_still_good(vault, src, k, ck.j.letter) {
                         keep_meta(&k.ciphertext, &item.meta, &mut attrs_later)?;
                         progress.bytes_done.fetch_add(*size, Ordering::Relaxed);
                         progress.files_done.fetch_add(1, Ordering::Relaxed);
@@ -653,7 +669,11 @@ fn copy_and_verify(
                 if before.len() != *size || file_mtime(&before) != *mtime {
                     return Err(ErrorCode::ChangedDuringCopy);
                 }
-                let file_id = preflight::file_id_of(&f).ok_or(ErrorCode::CopyFailed)?;
+                let file_id = if ck.j.letter {
+                    0
+                } else {
+                    preflight::file_id_of(&f).ok_or(ErrorCode::CopyFailed)?
+                };
                 let mut reader = std::io::BufReader::with_capacity(256 * 1024, &mut f);
                 let (ct, digest) = vault
                     .add_file(&parent_id, name, &mut reader)
@@ -771,7 +791,9 @@ fn rollback_copy(j: &Journal, data_dir: &Path) {
 fn original_is_back(j: &Journal) -> bool {
     matches_plan(j, &j.path) == Some(true)
         || (j.rolling_back
-            && crate::mountpoint::state(&j.path) == crate::mountpoint::PathState::Occupied)
+            && crate::mountpoint::state(&j.path) == crate::mountpoint::PathState::Occupied
+            // Заглушка с файлом открытия не оригинал
+            && !crate::letter::is_placeholder(&j.path))
 }
 
 /// Откат после переименования оригинала: вернуть оригинал на место, затем как
@@ -785,7 +807,13 @@ fn rollback_aside(j: &Journal, data_dir: &Path) {
             tracing::error!(job = %j.id, "rollback: cannot update the journal; nothing moved");
             return;
         }
-        if crate::mountpoint::prepare(&j.path).is_err() {
+        // На флешке на пути может стоять наша заглушка с файлом открытия: её можно убрать
+        let freed = if j.letter {
+            crate::letter::free_path(&j.path)
+        } else {
+            crate::mountpoint::prepare(&j.path).is_ok()
+        };
+        if !freed {
             tracing::error!(job = %j.id, "rollback: folder path is occupied; journal kept");
             return;
         }
@@ -880,7 +908,7 @@ fn finish_from(
     if j.phase == Phase::OriginalAside {
         check_aside(core, j, data_dir)?;
         crash_point("aside_checked");
-        if let Err(code) = core.register_encrypted(&j.path, &j.vault, j.idle_lock_secs) {
+        if let Err(code) = core.register_encrypted(&j.path, &j.vault, j.idle_lock_secs, j.letter) {
             tracing::error!(job = %j.id, ?code, "cannot mount the encrypted folder, rolling back");
             rollback_aside(j, data_dir);
             return Err(code);
@@ -991,6 +1019,7 @@ pub fn start(
         plan_sha256: Some(plan_digest(&plan)),
         rolling_back: false,
         done: Vec::new(),
+        letter: plan.letter,
     };
     // Журнал раньше копии: сбой во время создания хранилища откатится при старте
     journal
@@ -1149,8 +1178,9 @@ fn resume_copy(
             clear_attrs(ciphertext);
         }
     }
+    j.letter = plan.letter;
     let resume = plan_resume(&plan, entries, &j.done, |rel| {
-        preflight::file_id(&path.join(rel))
+        source_file_id(&path.join(rel), j.letter)
     });
     for e in &resume.remove {
         if vault.remove_entry(e).is_err() {
@@ -1440,6 +1470,7 @@ mod tests {
             plan_sha256: None,
             rolling_back: false,
             done: Vec::new(),
+            letter: false,
         };
         let data = d.path().join("data");
         j.save(&data).unwrap();
@@ -1476,6 +1507,7 @@ mod tests {
             plan_sha256: None,
             rolling_back: false,
             done: Vec::new(),
+            letter: false,
         };
         assert!(delete_aside(&j).is_err());
         assert!(src.join("а.txt").exists());
@@ -1498,6 +1530,7 @@ mod tests {
             plan_sha256: Some(plan_digest(plan)),
             rolling_back: false,
             done: Vec::new(),
+            letter: false,
         }
     }
 
@@ -1606,6 +1639,7 @@ mod tests {
             plan_sha256: None,
             rolling_back: false,
             done: Vec::new(),
+            letter: false,
         };
         // Смена пароля меняет masterkey.cryptomator, настройки хранилища остаются
         let json = zamok_crypto::masterkey::MasterkeyFile::lock_with(v.key(), "new", 1 << 10)
@@ -1654,6 +1688,7 @@ mod tests {
             plan_sha256: None,
             rolling_back: false,
             done: Vec::new(),
+            letter: false,
         };
         j.save(&data).unwrap();
         rollback_copy(&j, &data);

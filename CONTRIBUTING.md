@@ -35,6 +35,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-dev.ps1
 | `dotnet test ui\Zamok.Tests` | клиент канала, нужен собранный `cargo build --release -p zamok-core` |
 | `tests\core\test-core.ps1` | фоновая программа на настоящей системе |
 | `tests\core\test-encrypt.ps1`, `test-decrypt.ps1` | шифрование и расшифровка, авария на каждом шаге |
+| `tests\core\test-letter.ps1` | папки на флешках exFAT и FAT32 с буквой диска; на NTFS через `ZAMOK_FORCE_LETTER_MODE`, с `-Drive G:` на настоящей флешке |
 | `tests\fs\test-fs.ps1` | операции с файлами, результат читает Cryptomator |
 | `tests\ui\test-ui.ps1` | окна через UI Automation, клавиатура и экранный диктор, оба языка |
 | `tests\shell\test-shell.ps1` | DLL Проводника без диска и сети, 1000 меню папки подряд |

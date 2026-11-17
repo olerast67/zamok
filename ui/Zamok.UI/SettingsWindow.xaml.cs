@@ -94,7 +94,7 @@ public sealed partial class SettingsWindow : Window
             DefenderCard.Visibility = _defenderOffer.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             _folders = status.Folders ?? [];
             // Пересобрать список, только если состав или состояния поменялись
-            var shown = string.Join("|", _folders.Select(f => f.Id + f.State));
+            var shown = string.Join("|", _folders.Select(f => f.Id + f.State + f.Drive));
             if ((string?)FolderList.Tag != shown)
             {
                 FolderList.Tag = shown;
@@ -122,12 +122,15 @@ public sealed partial class SettingsWindow : Window
         }
     }
 
-    private static string StateText(FolderInfo f) => Strings.Get(f.State switch
+    /// <summary>Состояние словами. Открытая папка на флешке называет свою букву диска.</summary>
+    internal static string StateText(FolderInfo f) => f.State switch
     {
-        "unlocked" => "Settings_StateOpen",
-        "locked" => "Settings_StateLocked",
-        _ => "Settings_StateUnavailable",
-    });
+        "unlocked" when f.Drive is not null => Strings.Format("Settings_StateOpenDrive", f.Drive),
+        "unlocked" => Strings.Get("Settings_StateOpen"),
+        "locked" => Strings.Get("Settings_StateLocked"),
+        "disconnected" => Strings.Get("Settings_StateDisconnected"),
+        _ => Strings.Get("Settings_StateUnavailable"),
+    };
 
     private FolderInfo? Selected => _folders.FirstOrDefault(f => f.Id == _selectedId);
 
@@ -152,7 +155,7 @@ public sealed partial class SettingsWindow : Window
             : StateText(f);
         ToggleButton.Content = Strings.Get(f.IsUnlocked ? "Settings_Lock" : "Settings_Open");
         ToggleButton.AccessKey = Strings.Get(f.IsUnlocked ? "Access_Lock" : "Access_Open");
-        ToggleButton.IsEnabled = f.State != "unavailable";
+        ToggleButton.IsEnabled = f.State is not ("unavailable" or "disconnected");
         PropPath.Text = Strings.Format("Settings_PropPath", f.Path);
         PropVault.Text = Strings.Format("Settings_PropVault", VaultPath(f.Path));
         HelloPanel.Visibility = _helloAvailable ? Visibility.Visible : Visibility.Collapsed;
@@ -210,8 +213,10 @@ public sealed partial class SettingsWindow : Window
 
     private void OnShowClick(object sender, RoutedEventArgs e)
     {
-        if (Selected is { } f)
-            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{f.Path}\"");
+        if (Selected is not { } f) return;
+        // Открытая папка на флешке: её содержимое на отдельном диске
+        if (f.IsUnlocked && f.Drive is not null) UnlockWindow.OpenDrive(f.Drive);
+        else System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{f.Path}\"");
     }
 
     private async void OnIdleChanged(object sender, SelectionChangedEventArgs e)

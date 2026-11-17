@@ -31,6 +31,15 @@ use crate::core::Core;
 pub const WINDOW_CLASS: PCWSTR = w!("ZamokCoreWindow");
 /// Попросить цикл сообщений завершиться (из потока канала по команде `quit`).
 pub const WM_ZAMOK_QUIT: u32 = WM_APP + 1;
+/// Ошибка «устройство отключено» при чтении хранилища: проверить флешки сейчас.
+/// (`WM_APP + 2` занят значком в трее.)
+const WM_ZAMOK_DEVICE: u32 = WM_APP + 3;
+const WM_DEVICECHANGE: u32 = 0x0219;
+const DBT_DEVICEARRIVAL: usize = 0x8000;
+const DBT_DEVICEQUERYREMOVE: usize = 0x8001;
+const DBT_DEVICEREMOVEPENDING: usize = 0x8003;
+const DBT_DEVICEREMOVECOMPLETE: usize = 0x8004;
+const DBT_DEVTYP_HANDLE: u32 = 6;
 
 const WTS_CONSOLE_DISCONNECT: usize = 0x2;
 const WTS_REMOTE_DISCONNECT: usize = 0x4;
@@ -45,6 +54,46 @@ const CLIP_DELAY_MS: u32 = 150;
 static CORE: OnceLock<Arc<Core>> = OnceLock::new();
 static HWND_VALUE: AtomicIsize = AtomicIsize::new(0);
 static IDLE_CHECK_RUNNING: AtomicBool = AtomicBool::new(false);
+static DEVICE_CHECK_POSTED: AtomicBool = AtomicBool::new(false);
+
+/// Окно core (0, пока не создано): ему Windows шлёт «устройство сейчас извлекут».
+pub fn window() -> isize {
+    HWND_VALUE.load(Ordering::SeqCst)
+}
+
+/// Файловая система получила ошибку «устройство отключено»: попросить окно проверить флешки.
+/// Одно сообщение на пачку ошибок.
+fn post_device_check() {
+    let h = window();
+    if h != 0 && !DEVICE_CHECK_POSTED.swap(true, Ordering::SeqCst) {
+        unsafe {
+            let _ = PostMessageW(
+                Some(HWND(h as *mut _)),
+                WM_ZAMOK_DEVICE,
+                WPARAM(0),
+                LPARAM(0),
+            );
+        }
+    }
+}
+
+/// Дескриптор из `DEV_BROADCAST_HANDLE`, если сообщение о нём. `lparam` от Windows указывает
+/// на заголовок `DEV_BROADCAST_HDR`; ноль (так шлёт тест) значит «без подробностей».
+fn broadcast_handle(lparam: LPARAM) -> Option<isize> {
+    use windows::Win32::UI::WindowsAndMessaging::{DEV_BROADCAST_HANDLE, DEV_BROADCAST_HDR};
+    if lparam.0 == 0 {
+        return None;
+    }
+    // SAFETY: для WM_DEVICECHANGE с этими кодами Windows передаёт указатель на заголовок
+    unsafe {
+        let hdr = &*(lparam.0 as *const DEV_BROADCAST_HDR);
+        if hdr.dbch_devicetype.0 != DBT_DEVTYP_HANDLE {
+            return None;
+        }
+        let h = &*(lparam.0 as *const DEV_BROADCAST_HANDLE);
+        Some(h.dbch_handle.0 as isize)
+    }
+}
 
 /// Стереть ключи сразу, а ожидание сброса кэша ядра увести в отдельный поток,
 /// чтобы не держать Windows (перед сном на всё около двух секунд).
@@ -74,7 +123,14 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             unsafe {
                 let _ = KillTimer(Some(hwnd), CLIP_TIMER);
             }
-            let folders: Vec<String> = core.status().into_iter().map(|f| f.path).collect();
+            // Папки на флешках не в счёт: на их пути только файл открытия, перенос ничего не
+            // расшифровывает (DESIGN.md, раздел 3.6)
+            let folders: Vec<String> = core
+                .status()
+                .into_iter()
+                .filter(|f| !f.letter)
+                .map(|f| f.path)
+                .collect();
             if let Some(path) = crate::clipguard::on_update(hwnd, &folders) {
                 tracing::info!("cut of a zamok folder cancelled");
                 crate::tray::notify_cut(&crate::clipguard::display_name(&path));
@@ -133,6 +189,29 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             }
             LRESULT(0)
         }
+        WM_DEVICECHANGE => {
+            match wparam.0 {
+                // «Извлечь»: Windows ждёт ответа, поэтому запираем здесь же. Дескриптор папки
+                // хранилища закрывается вместе с подпиской, и извлечение проходит
+                DBT_DEVICEQUERYREMOVE => core.drive_query_remove(broadcast_handle(lparam)),
+                DBT_DEVICEREMOVEPENDING | DBT_DEVICEREMOVECOMPLETE => {
+                    let core = core.clone();
+                    std::thread::spawn(move || core.drives_changed(false));
+                }
+                DBT_DEVICEARRIVAL => {
+                    let core = core.clone();
+                    std::thread::spawn(move || core.drives_changed(true));
+                }
+                _ => {}
+            }
+            LRESULT(1)
+        }
+        WM_ZAMOK_DEVICE => {
+            DEVICE_CHECK_POSTED.store(false, Ordering::SeqCst);
+            let core = core.clone();
+            std::thread::spawn(move || core.drives_changed(false));
+            LRESULT(0)
+        }
         WM_ZAMOK_QUIT => {
             crate::tray::remove(hwnd);
             unsafe { PostQuitMessage(0) };
@@ -180,6 +259,7 @@ pub fn install(core: Arc<Core>) -> anyhow::Result<()> {
             None,
         )?;
         HWND_VALUE.store(hwnd.0 as isize, Ordering::SeqCst);
+        zamok_fs::fs::set_device_gone_hook(post_device_check);
         // Блокировка экрана и выход из учётной записи
         WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION)?;
         crate::clipguard::register(hwnd);

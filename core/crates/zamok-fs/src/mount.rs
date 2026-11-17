@@ -86,7 +86,19 @@ impl Mounted {
     /// Подключить хранилище `vault` на путь `path` (пути не должно существовать) в запертом
     /// состоянии. `name` показывается в запертой папке: `Открыть <name>.zamok`.
     pub fn mount(vault: &Path, path: &Path, name: &str) -> anyhow::Result<Self> {
-        let fs = ZamokFs::new(vault, name)?;
+        Self::mount_inner(ZamokFs::new(vault, name)?, path, true)
+    }
+
+    /// Подключить хранилище на букву диска `letter` (`Z`) в запертом состоянии: так
+    /// подключаются папки на флешках с exFAT и FAT32, где точку подключения на путь папки
+    /// поставить нельзя. Метка тома: имя папки.
+    pub fn mount_letter(vault: &Path, letter: char, name: &str) -> anyhow::Result<Self> {
+        anyhow::ensure!(letter.is_ascii_uppercase(), "bad drive letter");
+        let fs = ZamokFs::new(vault, name)?.with_label(name);
+        Self::mount_inner(fs, Path::new(&format!("{letter}:")), false)
+    }
+
+    fn mount_inner(fs: ZamokFs, path: &Path, system_attr: bool) -> anyhow::Result<Self> {
         let control = fs.control();
         let mut vp = VolumeParams::new();
         vp.filesystem_name("Zamok")
@@ -118,9 +130,11 @@ impl Mounted {
         }
         // Атрибут «системный» на точке подключения: Проводник читает desktop.ini (иконка замка).
         // WinFsp создаёт точку заново при каждом подключении, поэтому ставим каждый раз.
-        if let Ok(m) = std::fs::metadata(path) {
-            use std::os::windows::fs::MetadataExt;
-            let _ = crate::attrs::set_attributes(path, (m.file_attributes() | 0x4) & 0x7);
+        if system_attr {
+            if let Ok(m) = std::fs::metadata(path) {
+                use std::os::windows::fs::MetadataExt;
+                let _ = crate::attrs::set_attributes(path, (m.file_attributes() | 0x4) & 0x7);
+            }
         }
         Ok(Mounted {
             host,

@@ -44,6 +44,10 @@ pub struct Journal {
     pub tmp: PathBuf,
     pub idle_lock_secs: u64,
     pub masterkey_sha256: String,
+    /// Папка на флешке: на пути стоит заглушка с файлом открытия, её убираем перед тем,
+    /// как поставить на место расшифрованную копию; откат возвращает её.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub letter: bool,
 }
 
 fn dir(data_dir: &Path) -> PathBuf {
@@ -120,7 +124,7 @@ fn rollback(core: &Core, j: &Journal, data_dir: &Path) {
     }
     let tmp_removed = remove_tmp(&j);
     if core
-        .register_encrypted(&j.path, &j.vault, j.idle_lock_secs)
+        .register_encrypted(&j.path, &j.vault, j.idle_lock_secs, j.letter)
         .is_err()
     {
         tracing::error!(job = %j.id, "rollback: cannot mount the folder again; journal kept");
@@ -236,9 +240,12 @@ fn finish(core: &Core, j: &mut Journal, data_dir: &Path) -> Result<(), ErrorCode
     }
     if j.step == Step::Unmounted {
         if std::fs::symlink_metadata(&j.tmp).is_ok() {
-            if crate::mountpoint::prepare(&j.path).is_err()
-                || rename_retry(&j.tmp, &j.path, 20).is_err()
-            {
+            let freed = if j.letter {
+                crate::letter::free_path(&j.path)
+            } else {
+                crate::mountpoint::prepare(&j.path).is_ok()
+            };
+            if !freed || rename_retry(&j.tmp, &j.path, 20).is_err() {
                 tracing::error!(job = %j.id, "cannot put the decrypted copy in place, rolling back");
                 rollback(core, j, data_dir);
                 return Err(ErrorCode::FolderInUse);
@@ -315,6 +322,7 @@ pub fn start(
         tmp,
         idle_lock_secs: idle,
         masterkey_sha256: masterkey_digest(&vault).ok_or(ErrorCode::BadVault)?,
+        letter: core.folder_is_letter(&p),
     };
     j.save(data_dir).map_err(|_| ErrorCode::Internal)?;
     let progress = Progress::with_totals(&id, &path, files, bytes);
@@ -397,6 +405,7 @@ mod tests {
             tmp: other.clone(),
             idle_lock_secs: 0,
             masterkey_sha256: "ab".into(),
+            letter: false,
         };
         // Чужое имя: отказ, папка цела
         assert!(remove_tmp(&j).is_err());
