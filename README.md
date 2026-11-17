@@ -82,7 +82,7 @@ Download `Zamok-Setup-<version>.exe` from [Releases](https://github.com/olerast6
 The installer is not signed yet, because a code signing certificate is still ahead on the [roadmap](ROADMAP.md). SmartScreen shows "Windows protected your PC". Check the SHA-256 listed on the release page, then choose **More info** and **Run anyway**:
 
 ```powershell
-Get-FileHash .\Zamok-Setup-0.1.0.exe -Algorithm SHA256
+Get-FileHash .\Zamok-Setup-0.2.0.exe -Algorithm SHA256
 ```
 
 Smart App Control on Windows 11 blocks unsigned programs, so Zamok cannot be installed while it is turned on.
@@ -124,7 +124,7 @@ Zamok has no telemetry, no accounts and no servers. The only network request is 
 
 ## Status
 
-Version 0.1.0-alpha. Open items that matter for your data, all from the [roadmap](ROADMAP.md): no third-party review, no fuzzing of format parsing yet, power-loss tests on a virtual machine not done, Windows 11 and cloud clients not tested. Updates are checked only with the button in the settings, and nothing is installed automatically: you download the new version yourself and install it over the old one, which keeps your folder list.
+Version 0.2.0-alpha. Open items that matter for your data, all from the [roadmap](ROADMAP.md): no third-party review, no fuzzing of format parsing yet, power-loss tests on a virtual machine not done, Windows 11 and cloud clients not tested. Updates are checked only with the button in the settings, and nothing is installed automatically: you download the new version yourself and install it over the old one, which keeps your folder list.
 
 ## Documents
 

@@ -29,7 +29,7 @@
   "description": "Folder encryption for Windows 10 and 11 from File Explorer. The folder stays at its path. Cryptomator vault format 8.",
   "applicationCategory": "SecurityApplication",
   "operatingSystem": "Windows 10, Windows 11",
-  "softwareVersion": "0.1.0-alpha",
+  "softwareVersion": "0.2.0-alpha",
   "inLanguage": ["en", "ru"],
   "isAccessibleForFree": true,
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
@@ -75,7 +75,7 @@
     <a class="button" data-cta href="https://github.com/olerast67/zamok/releases">Download Zamok for Windows</a>
     <a href="https://github.com/olerast67/zamok">Source on GitHub</a>
   </div>
-  <p class="status"><strong>Version <span class="nw">0.1.0-alpha</span>, not audited by a third party.</strong> Keep a backup of important data outside Zamok. Free, <span class="nw">GPL-3.0</span>.</p>
+  <p class="status"><strong>Version <span class="nw">0.2.0-alpha</span>, not audited by a third party.</strong> Keep a backup of important data outside Zamok. Free, <span class="nw">GPL-3.0</span>.</p>
   <div class="hero-object">
     <figure class="shot">
       <img class="window" src="images/screens/en/unlock.png" alt="Zamok password window for the folder Documents in C:\Demo, with a password field, a recovery key link and the Open button" width="527" height="411" fetchpriority="high">
@@ -130,7 +130,7 @@
     <div><dt>On a USB stick</dt><dd>On exFAT and FAT32 a folder cannot be presented at its own path, so the folder on the stick holds one file, “Открыть Name.zamok”. Double-click it and enter the password: the folder opens as a separate drive letter in a new Explorer window, and the letter disappears on lock. Pulling the stick out or pressing “Eject” locks the folder at once. Move the folder together with the hidden <code>.Name.zamok</code> next to it; on another computer with Zamok, the same double-click and password add the folder there. FAT32 cannot hold files over 4&nbsp;GB, so Zamok refuses folders with such files; exFAT can. Tested on a real exFAT stick, except a file larger than 4&nbsp;GB; FAT32 and physically unplugging the stick are not tested yet.</dd></div>
     <div><dt>If the program crashes</dt><dd>If it happens while copying, the files already verified are kept, and encrypting again with the same password continues where it stopped. After the copy is verified, Zamok finishes the work.</dd></div>
     <div><dt>Encryption</dt><dd>Cryptomator vault format 8 (AES-GCM, AES-SIV, scrypt) through the RustCrypto libraries. File contents and file names are encrypted. The name of the encrypted folder itself stays visible.</dd></div>
-    <div><dt>Network</dt><dd>There is no telemetry, no analytics, no accounts and no servers. The only network request is the “Check for updates” button in the settings: one HTTPS request to the GitHub API, sent only when you press it. GitHub sees your IP address and <code>User-Agent: Zamok/&lt;version&gt;</code>; no cookies, identifiers, folder names or paths are sent, and nothing is downloaded. This was checked in the code of <span class="nw">0.1.0-alpha</span>: <code>core/Cargo.lock</code> has no HTTP, TLS, socket or async network crates, <code>zamok-core</code> and <code>zamok-shell.dll</code> contain no sockets, HTTP clients or web addresses, and in <code>Zamok.exe</code> only the button handler calls the HTTP client. Details in <a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">PRIVACY.md</a>.</dd></div>
+    <div><dt>Network</dt><dd>There is no telemetry, no analytics, no accounts and no servers. The only network request is the “Check for updates” button in the settings: one HTTPS request to the GitHub API, sent only when you press it. GitHub sees your IP address and <code>User-Agent: Zamok/&lt;version&gt;</code>; no cookies, identifiers, folder names or paths are sent, and nothing is downloaded. This was checked in the code of <span class="nw">0.2.0-alpha</span>: <code>core/Cargo.lock</code> has no HTTP, TLS, socket or async network crates, <code>zamok-core</code> and <code>zamok-shell.dll</code> contain no sockets or HTTP clients (the only web address is the project link written as text into the opener file on a USB stick), and in <code>Zamok.exe</code> only the button handler calls the HTTP client. Details in <a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">PRIVACY.md</a>.</dd></div>
   </dl>
 </section>
 
@@ -222,7 +222,7 @@
   <div class="prose">
     <p>Download <code>Zamok-Setup-&lt;version&gt;.exe</code> from <a href="https://github.com/olerast67/zamok/releases">Releases</a>. The setup program contains the WinFsp driver and installs it only if WinFsp is absent. Windows asks for administrator rights for the driver. Zamok itself installs for your user account into <code>%LOCALAPPDATA%\Programs\Zamok</code>.</p>
     <p>The installer is not signed yet. SmartScreen shows “Windows protected your PC”. Check the <span class="nw">SHA-256</span> listed on the release page, then choose More info and Run anyway:</p>
-    <pre><code>Get-FileHash .\Zamok-Setup-0.1.0.exe -Algorithm SHA256</code></pre>
+    <pre><code>Get-FileHash .\Zamok-Setup-0.2.0.exe -Algorithm SHA256</code></pre>
     <p>Smart App Control on Windows 11&nbsp;blocks unsigned programs, so Zamok cannot be installed while it is turned on. On Windows 11&nbsp;the Zamok items are under “Show more options” in the right-click menu.</p>
     <h3 id="signing">Code signing policy</h3>
     <p>Zamok has applied to SignPath Foundation for free code signing. Once the application is approved, release files are signed under this policy: free code signing provided by <a href="https://about.signpath.io">SignPath.io</a>, certificate by <a href="https://signpath.org">SignPath Foundation</a>. Committers and reviewers: <a href="https://github.com/olerast67">olerast67</a>. Approvers: <a href="https://github.com/olerast67">olerast67</a>. Every release is built by GitHub Actions from a tag in the repository and approved by hand before signing.</p>
@@ -237,7 +237,7 @@
 </section>
 
 <section id="status" class="final" aria-labelledby="status-h">
-  <h2 id="status-h">Alpha version 0.1.0</h2>
+  <h2 id="status-h">Alpha version 0.2.0</h2>
   <div class="prose">
     <p>Open items that matter for your data, all from the <a href="https://github.com/olerast67/zamok/blob/main/ROADMAP.md">roadmap</a>: no third-party review, no fuzzing of format parsing yet, power-loss tests on a virtual machine not done, Windows 11&nbsp;and cloud clients not tested. Updates are checked only with the button in the settings, and nothing is installed automatically: you download the new version yourself and install it over the old one, which keeps your folder list.</p>
     <p>How this was made: the author designed the app, directed the work and checked it on a real computer. Much of the code was written with an AI coding assistant (Claude by Anthropic). It has not been audited by a third party.</p>
@@ -245,7 +245,7 @@
   </div>
   <div class="actions">
     <a class="button" href="https://github.com/olerast67/zamok/releases">Download Zamok for Windows</a>
-    <a href="https://github.com/olerast67/zamok/blob/main/CHANGELOG.md">What is in 0.1.0</a>
+    <a href="https://github.com/olerast67/zamok/blob/main/CHANGELOG.md">What is in 0.2.0</a>
   </div>
 </section>
 

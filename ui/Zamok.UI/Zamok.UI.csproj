@@ -10,7 +10,7 @@
     <AssemblyName>Zamok</AssemblyName>
     <!-- Версия программы: окно настроек показывает её и сравнивает с выпусками на GitHub.
          Меняется при каждом выпуске (RELEASING.md, шаг 1) -->
-    <Version>0.1.0-alpha</Version>
+    <Version>0.2.0-alpha</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>..\..\assets\zamok.ico</ApplicationIcon>
     <Platforms>x64</Platforms>

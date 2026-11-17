@@ -2,7 +2,9 @@
 
 Changes to Zamok by version. Release notes on GitHub are taken from the section of that version.
 
-## Unreleased
+## 0.2.0-alpha (2026-11-17)
+
+Second alpha. Not audited by a third party. Keep a backup of important data outside Zamok.
 
 USB sticks and memory cards
 - Folders on exFAT and FAT32 drives can be encrypted. The folder on the stick keeps one file, `Открыть Name.zamok`; double-clicking it and entering the password opens the folder as a separate drive letter (from Z: downwards, labelled with the folder name) in a new Explorer window. Locking wipes the keys and removes the letter. All auto-lock rules apply.
@@ -10,7 +12,7 @@ USB sticks and memory cards
 - A folder whose stick is not plugged in stays in the list as "not connected" and is found again under another drive letter by the volume serial number.
 - On another computer with Zamok, double-clicking the opener file and entering the password adds the folder to that computer's list.
 - On FAT32, folders with a file that would exceed 4 GB once encrypted are refused before copying.
-- Tested on NTFS with a test switch and on a real exFAT stick. Not tested yet: a file over 4 GB on exFAT, FAT32, physically unplugging a stick.
+- Tested on NTFS with a test switch and on a real exFAT stick, including "Eject" and pulling the stick out by hand with the folder open. Not tested yet: FAT32, a file over 4 GB on exFAT, a different drive letter on a real stick, a second computer.
 
 Fixes
 - After Zamok stopped without a clean shutdown, the folder could stay "unavailable" with "the path is occupied": the leftover empty folder had the read-only attribute, so Windows refused to remove it. Zamok now clears the attribute and removes such an empty folder.
