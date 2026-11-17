@@ -1,7 +1,7 @@
 # Sobrat ustanovshchik Zamok (MSI): zamok-core (Rust release), Zamok.exe (C# publish) i WiX 5
 # (lokalnyy instrument repozitoriya, dotnet-tools.json). Rezultat: installer\out\Zamok-<versiya>.msi
 # Zapusk: powershell -NoProfile -ExecutionPolicy Bypass -File installer\build-msi.ps1
-param([string]$Version = '0.1.0')
+param([string]$Version = '0.2.0')
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path "$PSScriptRoot\..").Path
 $out = "$repo\installer\out"

@@ -29,7 +29,7 @@
   "description": "Шифрование папок в Windows 10 и 11 из Проводника. Папка остаётся на своём пути. Формат Cryptomator vault format 8.",
   "applicationCategory": "SecurityApplication",
   "operatingSystem": "Windows 10, Windows 11",
-  "softwareVersion": "0.1.0-alpha",
+  "softwareVersion": "0.2.0-alpha",
   "inLanguage": ["ru", "en"],
   "isAccessibleForFree": true,
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
@@ -75,7 +75,7 @@
     <a class="button" data-cta href="https://github.com/olerast67/zamok/releases">Скачать Zamok для&nbsp;Windows</a>
     <a href="https://github.com/olerast67/zamok">Исходники на&nbsp;GitHub</a>
   </div>
-  <p class="status"><strong>Версия <span class="nw">0.1.0-alpha</span>, сторонний аудит не&nbsp;проводился.</strong> Держите копию важных данных вне Zamok. Бесплатно, <span class="nw">GPL-3.0</span>.</p>
+  <p class="status"><strong>Версия <span class="nw">0.2.0-alpha</span>, сторонний аудит не&nbsp;проводился.</strong> Держите копию важных данных вне Zamok. Бесплатно, <span class="nw">GPL-3.0</span>.</p>
   <div class="hero-object">
     <figure class="shot">
       <img class="window" src="../images/screens/ru/unlock.png" alt="Окно пароля Zamok для папки Documents в C:\Demo: поле пароля, ссылка на ключ восстановления и кнопка «Открыть»" width="527" height="411" fetchpriority="high">
@@ -131,7 +131,7 @@
     <div><dt>На флешке</dt><dd>На&nbsp;exFAT и&nbsp;FAT32 показать папку на&nbsp;её&nbsp;собственном пути нельзя, поэтому в&nbsp;папке на&nbsp;флешке лежит один файл «Открыть Имя.zamok». Двойной щелчок по&nbsp;нему и&nbsp;пароль: папка открывается отдельным диском в&nbsp;новом окне Проводника, при&nbsp;запирании диск пропадает. Если выдернуть флешку или нажать «Извлечь», папка сразу запирается. Переносите папку вместе со&nbsp;скрытой <code>.Имя.zamok</code> рядом; на&nbsp;другом компьютере с&nbsp;Zamok тот же двойной щелчок и&nbsp;пароль добавят папку туда. На&nbsp;FAT32 не&nbsp;помещаются файлы больше 4&nbsp;ГБ, такие папки Zamok не&nbsp;шифрует; на&nbsp;exFAT можно. Проверено на&nbsp;настоящей флешке exFAT, кроме файла больше 4&nbsp;ГБ; FAT32 и&nbsp;настоящее извлечение флешки ещё не&nbsp;проверялись.</dd></div>
     <div><dt>Если&nbsp;программа упадёт</dt><dd>Если&nbsp;сбой случился во&nbsp;время копирования, проверенные файлы сохраняются, и&nbsp;повторное «Зашифровать» с&nbsp;тем&nbsp;же паролем продолжит с&nbsp;места остановки. После проверки копии Zamok доводит работу до&nbsp;конца.</dd></div>
     <div><dt>Шифрование</dt><dd>Формат Cryptomator vault format 8 (AES-GCM, AES-SIV, scrypt), библиотеки RustCrypto. Шифруются содержимое и&nbsp;имена файлов. Имя самой зашифрованной папки остаётся видимым.</dd></div>
-    <div><dt>Сеть</dt><dd>Телеметрии, аналитики, аккаунтов и&nbsp;серверов&nbsp;нет. Единственный запрос в&nbsp;сеть делает кнопка «Проверить обновления» в&nbsp;настройках: один запрос HTTPS к&nbsp;API GitHub, только когда вы&nbsp;её&nbsp;нажали. GitHub видит ваш IP-адрес и&nbsp;<code>User-Agent: Zamok/&lt;версия&gt;</code>; cookie, идентификаторы, имена папок и&nbsp;пути не&nbsp;отправляются, ничего не&nbsp;скачивается. Это проверено по&nbsp;коду версии <span class="nw">0.1.0-alpha</span>: в&nbsp;<code>core/Cargo.lock</code> нет библиотек HTTP, TLS, сокетов и&nbsp;сетевого async, в&nbsp;<code>zamok-core</code> и&nbsp;<code>zamok-shell.dll</code> нет сокетов, HTTP-клиентов и&nbsp;веб-адресов, а&nbsp;в&nbsp;<code>Zamok.exe</code> HTTP-клиент вызывает только обработчик кнопки. Подробности в&nbsp;<a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">PRIVACY.md</a>.</dd></div>
+    <div><dt>Сеть</dt><dd>Телеметрии, аналитики, аккаунтов и&nbsp;серверов&nbsp;нет. Единственный запрос в&nbsp;сеть делает кнопка «Проверить обновления» в&nbsp;настройках: один запрос HTTPS к&nbsp;API GitHub, только когда вы&nbsp;её&nbsp;нажали. GitHub видит ваш IP-адрес и&nbsp;<code>User-Agent: Zamok/&lt;версия&gt;</code>; cookie, идентификаторы, имена папок и&nbsp;пути не&nbsp;отправляются, ничего не&nbsp;скачивается. Это проверено по&nbsp;коду версии <span class="nw">0.2.0-alpha</span>: в&nbsp;<code>core/Cargo.lock</code> нет библиотек HTTP, TLS, сокетов и&nbsp;сетевого async, в&nbsp;<code>zamok-core</code> и&nbsp;<code>zamok-shell.dll</code> нет сокетов и&nbsp;HTTP-клиентов (единственный веб-адрес: ссылка на&nbsp;проект, которую Zamok пишет текстом в&nbsp;файл открытия на&nbsp;флешке), а&nbsp;в&nbsp;<code>Zamok.exe</code> HTTP-клиент вызывает только обработчик кнопки. Подробности в&nbsp;<a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">PRIVACY.md</a>.</dd></div>
   </dl>
 </section>
 
@@ -223,7 +223,7 @@
   <div class="prose">
     <p>Скачайте <code>Zamok-Setup-&lt;версия&gt;.exe</code> со&nbsp;страницы <a href="https://github.com/olerast67/zamok/releases">Releases</a>. Внутри лежит драйвер WinFsp: он&nbsp;ставится, только если&nbsp;его ещё нет, и&nbsp;ради него Windows спросит права администратора. Сам Zamok ставится для&nbsp;вашего пользователя в&nbsp;<code>%LOCALAPPDATA%\Programs\Zamok</code>.</p>
     <p>Установщик пока без&nbsp;подписи. SmartScreen покажет «Система Windows защитила ваш компьютер». Сверьте <span class="nw">SHA-256</span> со&nbsp;страницей релиза, потом нажмите «Подробнее» и&nbsp;«Выполнить в&nbsp;любом случае»:</p>
-    <pre><code>Get-FileHash .\Zamok-Setup-0.1.0.exe -Algorithm SHA256</code></pre>
+    <pre><code>Get-FileHash .\Zamok-Setup-0.2.0.exe -Algorithm SHA256</code></pre>
     <p>Интеллектуальное управление приложениями в&nbsp;Windows 11&nbsp;блокирует неподписанные программы, поэтому при&nbsp;включённой защите Zamok не&nbsp;поставить. Меню правой кнопки в&nbsp;Windows 11&nbsp;прячет пункты Zamok в&nbsp;«Показать дополнительные параметры».</p>
     <h3 id="signing" lang="en">Code signing policy</h3>
     <p>Zamok подал заявку в&nbsp;SignPath Foundation на&nbsp;бесплатную подпись кода. Когда заявку одобрят, файлы релизов будут подписываться по&nbsp;этой политике: <span lang="en">free code signing provided by <a href="https://about.signpath.io">SignPath.io</a>, certificate by <a href="https://signpath.org">SignPath Foundation</a></span>. Вносят и&nbsp;проверяют изменения: <a href="https://github.com/olerast67">olerast67</a>. Одобряют подпись релиза: <a href="https://github.com/olerast67">olerast67</a>. Каждый релиз собирает GitHub Actions из&nbsp;тега в&nbsp;репозитории, подпись каждого релиза одобряется вручную.</p>
@@ -238,7 +238,7 @@
 </section>
 
 <section id="status" class="final" aria-labelledby="status-h">
-  <h2 id="status-h">Альфа-версия 0.1.0</h2>
+  <h2 id="status-h">Альфа-версия 0.2.0</h2>
   <div class="prose">
     <p>Что не&nbsp;сделано и&nbsp;важно для&nbsp;ваших данных, по&nbsp;<a href="https://github.com/olerast67/zamok/blob/main/ROADMAP.md">дорожной карте</a>: нет проверки посторонним человеком, нет fuzzing разбора формата, тестов с&nbsp;отключением питания не&nbsp;было, Windows 11 и&nbsp;облачные клиенты не&nbsp;проверены. Обновления проверяются только кнопкой в&nbsp;настройках, сами ничего не&nbsp;ставят: новую версию вы&nbsp;скачиваете и&nbsp;ставите поверх старой, список папок сохраняется.</p>
     <p>Как&nbsp;это сделано: автор придумал программу, руководил работой и&nbsp;проверял её&nbsp;на&nbsp;настоящем компьютере. Большую часть кода написал ИИ-ассистент (Claude от&nbsp;Anthropic). Независимого аудита не&nbsp;было.</p>
@@ -246,7 +246,7 @@
   </div>
   <div class="actions">
     <a class="button" href="https://github.com/olerast67/zamok/releases">Скачать Zamok для&nbsp;Windows</a>
-    <a href="https://github.com/olerast67/zamok/blob/main/CHANGELOG.md">Что вошло в&nbsp;0.1.0</a>
+    <a href="https://github.com/olerast67/zamok/blob/main/CHANGELOG.md">Что вошло в&nbsp;0.2.0</a>
   </div>
 </section>
 

@@ -35,6 +35,38 @@ git grep -I -i -E 'Users[\\/]+olerast|@gmail|S-1-5-21-[0-9]|ghp_|github_pat_|sk-
 
 Источник: GitHub Actions (сценарий `.github/workflows/pages.yml` уже в репозитории, пока репозиторий приватный, он пропускается). Адрес: https://olerast67.github.io/zamok/
 
+## Текст релиза 0.2.0-alpha
+
+Релиз собирает `.github/workflows/release.yml` по тегу `v0.2.0-alpha` как черновик. Текст ниже вставить в черновик, вместо `<SHA-256>` подставить отпечаток из `SHA256SUMS.txt`:
+
+```markdown
+Second alpha of Zamok, folder encryption for Windows 10 and 11 from File Explorer.
+
+It has not been audited by a third party. Keep a backup of important data outside Zamok.
+
+New: folders on USB sticks and memory cards (exFAT, FAT32). The folder on the stick keeps one file, `Открыть Name.zamok`. Double-click it and enter the password: the folder opens as a separate drive letter. Pulling the stick out or pressing Eject locks it at once. Move or copy the folder together with the hidden `.Name.zamok` next to it.
+
+Fixed: after Zamok stopped without a clean shutdown, a folder could stay "unavailable" because of a leftover read-only empty folder.
+
+Not tested yet: FAT32, a file over 4 GB on exFAT, a different drive letter on a real stick, a second computer.
+
+Download `Zamok-Setup-0.2.0.exe`. It contains the WinFsp driver and installs it only if absent. Install it over 0.1.0: the folder list is kept.
+
+SHA-256: `<SHA-256>`
+
+The installer is not signed, so SmartScreen shows "Windows protected your PC". Check the SHA-256, then choose More info and Run anyway.
+
+Do not drag an open folder to another place with the mouse: Explorer copies the files unencrypted and deletes them from the vault. Lock the folder first.
+
+Without Zamok, Cryptomator opens the folder on Windows, macOS, Linux, iOS or Android.
+
+Full list of changes: [CHANGELOG.md](https://github.com/olerast67/zamok/blob/main/CHANGELOG.md).
+
+## Code signing policy
+
+This release is not signed. Zamok has applied to SignPath Foundation for free code signing. Once approved, release files are signed under this policy: free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). Committers and reviewers: [olerast67](https://github.com/olerast67). Approvers: [olerast67](https://github.com/olerast67). Privacy: this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it ([PRIVACY.md](https://github.com/olerast67/zamok/blob/main/PRIVACY.md)).
+```
+
 ## Текст релиза 0.1.0-alpha
 
 Сохранить в `release-notes.md`, вместо `<SHA-256>` подставить отпечаток:

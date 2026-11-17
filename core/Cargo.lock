@@ -1424,7 +1424,7 @@ dependencies = [
 
 [[package]]
 name = "zamok-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -1443,7 +1443,7 @@ dependencies = [
 
 [[package]]
 name = "zamok-crypto"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "zamok-fs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "rayon",
@@ -1488,7 +1488,7 @@ dependencies = [
 
 [[package]]
 name = "zamok-recover"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rpassword",
  "zamok-crypto",
@@ -1496,7 +1496,7 @@ dependencies = [
 
 [[package]]
 name = "zamok-shell"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "windows 0.62.2",
  "windows-core 0.62.2",
