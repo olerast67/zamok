@@ -120,6 +120,23 @@ fn data(hwnd: HWND, open: bool, tip: &str) -> NOTIFYICONDATAW {
     nid
 }
 
+/// Состояние папки в меню трея. Открытая папка на флешке называет свою букву диска.
+fn state_text(f: &crate::protocol::FolderInfo) -> String {
+    match (f.state, &f.drive) {
+        (FolderState::Unlocked, Some(d)) => {
+            if russian() {
+                format!("открыта, диск {d}")
+            } else {
+                format!("open, drive {d}")
+            }
+        }
+        (FolderState::Unlocked, None) => t("открыта", "open").into(),
+        (FolderState::Locked, _) => t("заперта", "locked").into(),
+        (FolderState::Unavailable, _) => t("недоступна", "unavailable").into(),
+        (FolderState::Disconnected, _) => t("не подключена", "not connected").into(),
+    }
+}
+
 fn summary(core: &Core) -> (bool, String) {
     let folders = core.status();
     let open = folders
@@ -362,12 +379,7 @@ pub fn on_message(hwnd: HWND, lparam: LPARAM, core: &Arc<Core>) {
             let _ = AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, PCWSTR(s.as_ptr()));
         }
         for f in &folders {
-            let state = match f.state {
-                FolderState::Unlocked => t("открыта", "open"),
-                FolderState::Locked => t("заперта", "locked"),
-                FolderState::Unavailable => t("недоступна", "unavailable"),
-            };
-            let s = wide(&format!("{}: {}", f.name, state));
+            let s = wide(&format!("{}: {}", f.name, state_text(f)));
             let _ = AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, PCWSTR(s.as_ptr()));
         }
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());

@@ -17,6 +17,16 @@ public sealed partial class UnlockWindow : Window
     private readonly CoreClient _client = new();
     private bool _recoveryMode;
     private string? _folderId;
+    /// <summary>Папки нет в списке этого компьютера, рядом настоящее хранилище: после пароля она добавится.</summary>
+    private bool _adopt;
+
+    /// <summary>Папка на флешке открывается отдельным диском: показать его в новом окне Проводника.</summary>
+    internal static void OpenDrive(string? drive)
+    {
+        if (string.IsNullOrEmpty(drive)) return;
+        try { System.Diagnostics.Process.Start("explorer.exe", drive.TrimEnd('\\') + "\\"); }
+        catch (System.ComponentModel.Win32Exception) { }
+    }
 
     private async void OnHelloClick(object sender, RoutedEventArgs e) => await TryHelloAsync();
 
@@ -30,7 +40,7 @@ public sealed partial class UnlockWindow : Window
             var key = await Hello.WrapKeyAsync(_folderId, create: false);
             if (key is null) { ShowError(Strings.Error("hello_failed")); return false; }
             var r = await _client.UnlockHelloAsync(_path, key);
-            if (r.Ok) { Close(); return true; }
+            if (r.Ok) { OpenDrive(r.Folder?.Drive); Close(); return true; }
             ShowError(Strings.Error(r.Error));
         }
         catch (CoreNotRunningException) { ShowError(Strings.Error("core_not_running")); }
@@ -82,11 +92,15 @@ public sealed partial class UnlockWindow : Window
             var folder = FindFolder(status.Folders, _path);
             if (folder is null)
             {
+                // Папка с флешки с другого компьютера: рядом хранилище, после пароля добавим
+                if ((await _client.AdoptCheckAsync(_path)).Ok) { EnterAdoptMode(); return; }
                 ShowFatal(Strings.Error("not_found"));
                 return;
             }
             ShowFolder(folder.Path, folder.Name);
-            if (folder.IsUnlocked) { Close(); return; } // уже открыта: окно не нужно
+            // Уже открыта: окно не нужно; папка на флешке показывается своим диском
+            if (folder.IsUnlocked) { OpenDrive(folder.Drive); Close(); return; }
+            if (folder.IsDisconnected) { ShowFatal(Strings.Error("not_connected")); return; }
             if (folder.Hello && await Hello.IsAvailableAsync())
             {
                 _folderId = folder.Id;
@@ -102,6 +116,17 @@ public sealed partial class UnlockWindow : Window
         {
             ShowFatal(Strings.Error("core_not_trusted"));
         }
+    }
+
+    /// <summary>Добавление папки с флешки: только пароль, без ключа восстановления и Windows Hello.</summary>
+    private void EnterAdoptMode()
+    {
+        _adopt = true;
+        Prompt.Text = Strings.Get("Unlock_AdoptPrompt");
+        ModeLink.Visibility = Visibility.Collapsed;
+        HelloButton.Visibility = Visibility.Collapsed;
+        WindowHelper.FitHeight(this, Root, 420);
+        Password.Focus(FocusState.Programmatic);
     }
 
     /// <summary>Папка, к которой относится путь (сама папка или значок внутри неё).</summary>
@@ -162,11 +187,14 @@ public sealed partial class UnlockWindow : Window
         SetBusy(true);
         try
         {
-            var r = _recoveryMode
-                ? await _client.UnlockRecoveryAsync(_path, secret)
-                : await _client.UnlockAsync(_path, secret);
+            var r = _adopt
+                ? await _client.AdoptAsync(_path, secret)
+                : _recoveryMode
+                    ? await _client.UnlockRecoveryAsync(_path, secret)
+                    : await _client.UnlockAsync(_path, secret);
             if (r.Ok)
             {
+                OpenDrive(r.Folder?.Drive);
                 Close();
                 return;
             }

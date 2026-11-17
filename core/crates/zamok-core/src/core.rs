@@ -47,6 +47,12 @@ pub struct Entry {
     idle_asking: Mutex<Option<Asking>>,
     /// «Отложить» в этом окне: до этого времени по бездействию не запираем.
     postponed_until: Mutex<Option<std::time::Instant>>,
+    /// Папка на флешке: буква диска, на которую она сейчас подключена.
+    drive: Mutex<Option<char>>,
+    /// Папка на флешке: хранилище на месте и на том же томе (флешка вставлена).
+    connected: AtomicBool,
+    /// Папка на флешке открыта: подписка на «устройство сейчас извлекут».
+    watch: Mutex<Option<crate::letter::Watch>>,
 }
 
 /// Открытый вопрос о папке, удалённой в Проводнике.
@@ -98,7 +104,22 @@ impl Entry {
             asking: Mutex::new(None),
             idle_asking: Mutex::new(None),
             postponed_until: Mutex::new(None),
+            drive: Mutex::new(None),
+            connected: AtomicBool::new(false),
+            watch: Mutex::new(None),
         })
+    }
+
+    fn is_letter(&self) -> bool {
+        self.cfg.lock().unwrap().letter
+    }
+
+    /// Где человек видит содержимое: буква диска у открытой папки на флешке, иначе путь папки.
+    fn view_path(&self) -> PathBuf {
+        match *self.drive.lock().unwrap() {
+            Some(d) => PathBuf::from(format!("{d}:\\")),
+            None => self.cfg().path,
+        }
     }
 
     fn cfg(&self) -> FolderConfig {
@@ -111,11 +132,21 @@ impl Entry {
 
     fn info(&self) -> FolderInfo {
         let cfg = self.cfg();
+        let error = *self.error.lock().unwrap();
         let state = match self.control() {
+            // Папка на флешке без подключённого тома: заперта, если флешка на месте
+            None if cfg.letter && !self.connected.load(Ordering::SeqCst) => {
+                FolderState::Disconnected
+            }
+            None if cfg.letter && error.is_none() => FolderState::Locked,
             None => FolderState::Unavailable,
             Some(c) if c.is_locked() => FolderState::Locked,
             Some(_) => FolderState::Unlocked,
         };
+        let drive = (state == FolderState::Unlocked)
+            .then(|| *self.drive.lock().unwrap())
+            .flatten()
+            .map(|d| format!("{d}:"));
         FolderInfo {
             id: cfg.id.clone(),
             name: cfg.name(),
@@ -136,17 +167,92 @@ impl Entry {
                 .is_some_and(|p| p.is_file()),
             asking: self.asking.lock().unwrap().is_some(),
             idle_asking: self.idle_asking.lock().unwrap().is_some(),
-            error: *self.error.lock().unwrap(),
+            letter: cfg.letter,
+            drive,
+            error,
         }
     }
 
-    /// Подключить запертой, если ещё не подключена.
+    /// Хранилище папки на флешке на месте и на том же томе.
+    fn vault_reachable(cfg: &FolderConfig) -> bool {
+        vault_looks_valid(&cfg.vault)
+            && (cfg.volume_serial.is_none()
+                || crate::preflight::volume_serial(&cfg.vault) == cfg.volume_serial)
+    }
+
+    /// Папка готова к работе. На NTFS: подключена запертой на свой путь. На флешке: флешка
+    /// вставлена, на пути папка с файлом открытия (заглушка создаётся, если её нет);
+    /// подключается папка только при открытии.
+    fn ensure_ready(&self) -> Result<(), ErrorCode> {
+        let cfg = self.cfg();
+        if !cfg.letter {
+            return self.ensure_mounted().map(|_| ());
+        }
+        if !Self::vault_reachable(&cfg) {
+            self.connected.store(false, Ordering::SeqCst);
+            return Err(ErrorCode::NotConnected);
+        }
+        self.connected.store(true, Ordering::SeqCst);
+        let placed = crate::letter::ensure_placeholder(&cfg.path, &cfg.name());
+        *self.error.lock().unwrap() = None;
+        crate::encrypt::set_hidden(&cfg.vault);
+        if placed.is_err() {
+            tracing::warn!(folder = %cfg.id, "cannot create the folder with the opener file");
+        }
+        placed
+    }
+
+    /// Подключить папку на флешке на свободную букву диска, запертой. Уже подключена: та же.
+    fn mount_letter(&self) -> Result<Arc<Control>, ErrorCode> {
+        let mut mounted = self.mounted.lock().unwrap();
+        if let Some(m) = mounted.as_ref() {
+            return Ok(m.control().clone());
+        }
+        let cfg = self.cfg();
+        if !Self::vault_reachable(&cfg) {
+            self.connected.store(false, Ordering::SeqCst);
+            return Err(ErrorCode::NotConnected);
+        }
+        let (m, letter) = crate::letter::mount(&cfg.vault, &cfg.name()).map_err(|e| {
+            tracing::warn!(folder = %cfg.id, error = %e, "mount at a drive letter failed");
+            ErrorCode::MountFailed
+        })?;
+        let control = m.control().clone();
+        *self.control.lock().unwrap() = Some(control.clone());
+        *self.drive.lock().unwrap() = Some(letter);
+        *self.watch.lock().unwrap() =
+            crate::letter::Watch::new(crate::autolock::window(), &cfg.vault);
+        *mounted = Some(m);
+        tracing::info!(folder = %cfg.id, "mounted at a drive letter (locked)");
+        Ok(control)
+    }
+
+    /// Папка на флешке так и не открылась (неверный ключ, заперли посреди открытия): букву
+    /// отключить, чтобы пустой диск не висел в Проводнике.
+    fn unmount_if_locked(&self) {
+        if self.is_letter() && self.control().is_some_and(|c| c.is_locked()) {
+            self.unmount();
+        }
+    }
+
+    /// Вторая половина запирания: ждать сброса кэша ядра нужно только папке на своём пути;
+    /// у папки на флешке том уже отключён.
+    fn settle(&self, c: &Control) {
+        if !self.is_letter() {
+            settle_lock(c, &self.cfg().path);
+        }
+    }
+
+    /// Подключить запертой, если ещё не подключена (только папки на NTFS).
     fn ensure_mounted(&self) -> Result<Arc<Control>, ErrorCode> {
         let mut mounted = self.mounted.lock().unwrap();
         if let Some(m) = mounted.as_ref() {
             return Ok(m.control().clone());
         }
         let cfg = self.cfg();
+        if cfg.letter {
+            return Err(ErrorCode::NotConnected);
+        }
         let result = mount_folder(&cfg);
         *self.error.lock().unwrap() = result.as_ref().err().copied();
         let m = result?;
@@ -220,21 +326,34 @@ impl Entry {
 
     /// Запереть и отменить идущие открытия. `true`, если папка была открыта.
     /// Отсрочка запирания по бездействию тоже снимается: после нового открытия она не нужна.
+    /// Папка на флешке после запирания отключается: буква диска исчезает.
     fn lock_now(&self) -> Option<Arc<Control>> {
         self.lock_epoch.fetch_add(1, Ordering::SeqCst);
         *self.postponed_until.lock().unwrap() = None;
         let c = self.control()?;
-        c.lock().then_some(c)
+        let was_open = c.lock();
+        if self.is_letter() {
+            self.unmount();
+        }
+        was_open.then_some(c)
     }
 
     fn unmount(&self) {
         *self.control.lock().unwrap() = None;
+        drop(self.watch.lock().unwrap().take());
+        let drive = self.drive.lock().unwrap().take();
         // Drop стирает ключи и отключает том
         drop(self.mounted.lock().unwrap().take());
+        if let Some(d) = drive {
+            // Ярлыки «Недавних» на файлы с этой буквы: после отключения они только выдают имена
+            std::thread::spawn(move || {
+                crate::recent::clean(Path::new(&format!("{d}:\\")));
+            });
+        }
     }
 }
 
-fn vault_looks_valid(vault: &Path) -> bool {
+pub(crate) fn vault_looks_valid(vault: &Path) -> bool {
     vault.join("masterkey.cryptomator").is_file() && vault.join("vault.cryptomator").is_file()
 }
 
@@ -280,6 +399,10 @@ pub struct Core {
     lock_alls: AtomicU64,
     /// Счётчик проверок: повторные уборки идут не на каждой.
     ticks: AtomicU64,
+    /// Вставили диск: при следующей проверке поискать пропавшие флешки под другими буквами.
+    rescan: AtomicBool,
+    /// Счётчик проверок папок на флешках: поиск по буквам не на каждой.
+    letter_ticks: AtomicU64,
 }
 
 /// Занятое начало работы; отпускается при удалении.
@@ -308,6 +431,14 @@ const VAULT_GONE_TICKS: u32 = 3;
 /// Повторные уборки раз в столько проверок (проверка идёт раз в 2 секунды).
 const RETRY_EVERY_TICKS: u64 = 15;
 
+/// Итог проверки папки на флешке.
+enum LetterCheck {
+    Same,
+    /// Флешка нашлась под другой буквой, пути в списке обновлены.
+    Changed,
+    Deleted,
+}
+
 /// Что случилось с хранилищем, которого нет на старом месте.
 enum VaultMissing {
     Deleted,
@@ -318,7 +449,7 @@ enum VaultMissing {
 /// Удалено ли хранилище наверняка: ошибка именно «не найдено», родитель на месте, это тот же
 /// том, на котором хранилище лежало, и так несколько проверок подряд. Иначе запись остаётся:
 /// букву диска могла занять другая флешка.
-fn certainly_deleted(
+pub(crate) fn certainly_deleted(
     kind: std::io::ErrorKind,
     parent_exists: bool,
     stored_serial: Option<u32>,
@@ -357,6 +488,8 @@ impl Core {
             starting: AtomicBool::new(false),
             lock_alls: AtomicU64::new(0),
             ticks: AtomicU64::new(0),
+            rescan: AtomicBool::new(true),
+            letter_ticks: AtomicU64::new(0),
         });
         let entries = core.entries.lock().unwrap().clone();
         for e in entries {
@@ -364,7 +497,7 @@ impl Core {
             if file.is_file() {
                 *e.hello_file.lock().unwrap() = Some(file);
             }
-            let _ = e.ensure_mounted();
+            let _ = e.ensure_ready();
         }
         // Шифрования, прерванные сбоем: довести до конца или откатить
         crate::encrypt::recover(&core, data_dir);
@@ -403,18 +536,30 @@ impl Core {
     }
 
     /// Добавить папку, зашифрованную на месте. Уже в списке: только подключить.
+    /// `letter`: папка на флешке, на пути ставится папка с файлом открытия.
     pub fn register_encrypted(
         &self,
         path: &Path,
         vault: &Path,
         idle_lock_secs: u64,
+        letter: bool,
     ) -> Result<(), ErrorCode> {
         let p = path.to_string_lossy();
         if let Ok(e) = self.find(&p) {
-            return e.ensure_mounted().map(|_| ());
+            return e.ensure_ready();
         }
-        self.add(&p, &vault.to_string_lossy(), Some(idle_lock_secs))
-            .map(|_| ())
+        self.add_entry(
+            path.to_path_buf(),
+            vault.to_path_buf(),
+            idle_lock_secs,
+            letter,
+        )
+        .map(|_| ())
+    }
+
+    /// Папка на флешке ли (для журналов расшифровки).
+    pub fn folder_is_letter(&self, path: &str) -> bool {
+        self.find(path).is_ok_and(|e| e.is_letter())
     }
 
     pub fn add_job(&self, p: Arc<Progress>) {
@@ -524,6 +669,11 @@ impl Core {
             return Err(ErrorCode::JobRunning);
         }
         let epoch = e.lock_epoch.load(Ordering::SeqCst);
+        if e.is_letter() {
+            // Сначала пароль, потом буква: при неверном пароле пустой диск не мелькает
+            let (_, key) = self.master_key(path, password)?;
+            return Self::open_letter(&e, epoch, key, also_wanted, "unlocked with password");
+        }
         let control = e.ensure_mounted()?;
         let id = e.cfg().id;
         let still_wanted = || e.lock_epoch.load(Ordering::SeqCst) == epoch && also_wanted();
@@ -548,6 +698,41 @@ impl Core {
         }
     }
 
+    /// Открыть папку на флешке ключом: подключить на свободную букву и открыть, если с начала
+    /// открытия папку не запирали. Не вышло: буква отключается.
+    fn open_letter(
+        e: &Arc<Entry>,
+        epoch: u64,
+        key: zamok_crypto::MasterKey,
+        also_wanted: &dyn Fn() -> bool,
+        what: &'static str,
+    ) -> Result<FolderInfo, ErrorCode> {
+        let control = e.mount_letter()?;
+        let id = e.cfg().id;
+        let still_wanted = || e.lock_epoch.load(Ordering::SeqCst) == epoch && also_wanted();
+        match control.unlock_with_key_if(key, &still_wanted) {
+            Ok(()) => {
+                settle_unlock(&control, &e.view_path());
+                tracing::info!(folder = %id, "{what}");
+                Ok(e.info())
+            }
+            Err(err) => {
+                e.unmount_if_locked();
+                Err(match err {
+                    UnlockError::Cancelled => ErrorCode::UnlockCancelled,
+                    // Подпись настроек хранилища не сошлась: ключ от другой папки
+                    UnlockError::Crypto(zamok_crypto::Error::BadVaultConfig) => {
+                        ErrorCode::WrongRecoveryKey
+                    }
+                    other => {
+                        tracing::warn!(folder = %id, error = %other, "unlock at a drive letter failed");
+                        ErrorCode::BadVault
+                    }
+                })
+            }
+        }
+    }
+
     pub fn unlock_recovery(&self, path: &str, words: &str) -> Result<FolderInfo, ErrorCode> {
         let e = self.find(path)?;
         if self.is_busy(&e) {
@@ -555,6 +740,9 @@ impl Core {
         }
         let epoch = e.lock_epoch.load(Ordering::SeqCst);
         let key = zamok_crypto::recovery::decode(words).map_err(|_| ErrorCode::WrongRecoveryKey)?;
+        if e.is_letter() {
+            return Self::open_letter(&e, epoch, key, &|| true, "unlocked with recovery key");
+        }
         let control = e.ensure_mounted()?;
         let id = e.cfg().id;
         let still_wanted = || e.lock_epoch.load(Ordering::SeqCst) == epoch;
@@ -641,6 +829,13 @@ impl Core {
             zamok_crypto::read_meta(&self.hello_path(&e)).map_err(|_| ErrorCode::HelloFailed)?;
         let key = zamok_crypto::masterkey::unwrap_with(&blob, &kek)
             .map_err(|_| ErrorCode::HelloFailed)?;
+        if e.is_letter() {
+            return Self::open_letter(&e, epoch, key, &|| true, "unlocked with windows hello")
+                .map_err(|code| match code {
+                    ErrorCode::BadVault | ErrorCode::WrongRecoveryKey => ErrorCode::HelloFailed,
+                    other => other,
+                });
+        }
         let control = e.ensure_mounted()?;
         let still_wanted = || e.lock_epoch.load(Ordering::SeqCst) == epoch;
         match control.unlock_with_key_if(key, &still_wanted) {
@@ -711,7 +906,11 @@ impl Core {
         password: &str,
     ) -> Result<(Arc<Entry>, zamok_crypto::MasterKey), ErrorCode> {
         let e = self.find(path)?;
-        let file = e.cfg().vault.join("masterkey.cryptomator");
+        let cfg = e.cfg();
+        if cfg.letter && !Entry::vault_reachable(&cfg) {
+            return Err(ErrorCode::NotConnected);
+        }
+        let file = cfg.vault.join("masterkey.cryptomator");
         let json = zamok_crypto::read_meta_text(&file).map_err(|_| ErrorCode::BadVault)?;
         let mk = zamok_crypto::masterkey::MasterkeyFile::from_json(&json)
             .map_err(|_| ErrorCode::BadVault)?;
@@ -772,7 +971,7 @@ impl Core {
     pub fn lock(&self, path: &str) -> Result<FolderInfo, ErrorCode> {
         let e = self.find(path)?;
         if let Some(c) = e.lock_now() {
-            settle_lock(&c, &e.cfg().path);
+            e.settle(&c);
             tracing::info!(folder = %e.cfg().id, "locked by request");
         }
         Ok(e.info())
@@ -784,14 +983,19 @@ impl Core {
         self.lock_alls.fetch_add(1, Ordering::SeqCst);
         let entries = self.entries.lock().unwrap().clone();
         let mut locked = Vec::new();
+        let mut count = 0;
         for e in entries {
             // Всем папкам, и запертым тоже: к ним сейчас может проверяться пароль
             if let Some(c) = e.lock_now() {
-                locked.push((c, e.cfg().path));
+                count += 1;
+                // Папка на флешке уже отключена, ждать сброса кэша не нужно
+                if !e.is_letter() {
+                    locked.push((c, e.cfg().path));
+                }
             }
         }
-        if !locked.is_empty() {
-            tracing::info!(count = locked.len(), reason, "locked all folders");
+        if count > 0 {
+            tracing::info!(count, reason, "locked all folders");
         }
         locked
     }
@@ -950,8 +1154,21 @@ impl Core {
         let entries = self.entries.lock().unwrap().clone();
         let mut gone = Vec::new();
         let mut moved_any = false;
+        let rescan = self.rescan.swap(false, Ordering::SeqCst)
+            || self
+                .letter_ticks
+                .fetch_add(1, Ordering::SeqCst)
+                .is_multiple_of(RETRY_EVERY_TICKS);
         for e in entries {
             let cfg = e.cfg();
+            if cfg.letter {
+                match self.check_letter(&e, &cfg, rescan) {
+                    LetterCheck::Same => {}
+                    LetterCheck::Changed => moved_any = true,
+                    LetterCheck::Deleted => gone.push(e),
+                }
+                continue;
+            }
             if let Err(err) = std::fs::symlink_metadata(&cfg.vault) {
                 match self.vault_missing(&e, &cfg, err.kind()) {
                     VaultMissing::Deleted => gone.push(e),
@@ -1039,6 +1256,115 @@ impl Core {
         }
     }
 
+    /// Проверка папки на флешке (раз в 2 секунды):
+    /// - флешка на месте: папка «заперта» или «открыта», при появлении ставится заглушка;
+    /// - флешки нет, а папка открыта: запереть сразу (ключи стираются), букву отключить;
+    /// - флешки нет: папка остаётся в списке «не подключена» и никогда не считается удалённой;
+    ///   при `rescan` она ищется на других буквах по серийному номеру тома;
+    /// - флешка на месте, а хранилища нет несколько проверок подряд: удалили, как на NTFS.
+    fn check_letter(&self, e: &Arc<Entry>, cfg: &FolderConfig, rescan: bool) -> LetterCheck {
+        let found = std::fs::symlink_metadata(&cfg.vault)
+            .map(|_| ())
+            .map_err(|err| err.kind());
+        let parent = cfg.vault.parent().is_some_and(|p| p.is_dir());
+        let serial = parent
+            .then(|| crate::preflight::volume_serial(&cfg.vault))
+            .flatten();
+        let ticks = if found.is_err() {
+            e.missing_ticks.fetch_add(1, Ordering::SeqCst) + 1
+        } else {
+            e.missing_ticks.store(0, Ordering::SeqCst);
+            0
+        };
+        let presence = crate::letter::presence(found, parent, cfg.volume_serial, serial, ticks);
+        if presence == crate::letter::Presence::Connected && vault_looks_valid(&cfg.vault) {
+            if !e.connected.load(Ordering::SeqCst) && e.ensure_ready().is_ok() {
+                tracing::info!(folder = %cfg.id, "drive with the folder is connected");
+            }
+            return LetterCheck::Same;
+        }
+        if e.control().is_some() {
+            self.lock_gone(e, "drive with the folder is gone");
+        }
+        e.connected.store(false, Ordering::SeqCst);
+        if presence == crate::letter::Presence::Deleted {
+            return LetterCheck::Deleted;
+        }
+        if rescan && self.relocate_letter(e, cfg) {
+            return LetterCheck::Changed;
+        }
+        LetterCheck::Same
+    }
+
+    /// Флешку вставили под другой буквой: найти том с тем же серийным номером и хранилищем по
+    /// тому же пути от корня, запомнить новые пути.
+    fn relocate_letter(&self, e: &Arc<Entry>, cfg: &FolderConfig) -> bool {
+        let (Some(serial), Some(rel_path), Some(rel_vault)) =
+            (cfg.volume_serial, &cfg.rel_path, &cfg.rel_vault)
+        else {
+            return false;
+        };
+        let Some(root) = crate::letter::find_volume(serial, rel_vault) else {
+            return false;
+        };
+        let (path, vault) = (root.join(rel_path), root.join(rel_vault));
+        if config::normalize(&vault) == config::normalize(&cfg.vault) {
+            return false;
+        }
+        {
+            let mut c = e.cfg.lock().unwrap();
+            c.path = path;
+            c.vault = vault;
+        }
+        e.missing_ticks.store(0, Ordering::SeqCst);
+        let ready = e.ensure_ready().is_ok();
+        tracing::info!(folder = %cfg.id, ready, "drive with the folder has a new letter, list updated");
+        true
+    }
+
+    /// Флешку вынимают или уже вынули: запереть папку и отключить букву.
+    fn lock_gone(&self, e: &Arc<Entry>, why: &'static str) {
+        let was_open = e.lock_now().is_some();
+        e.unmount();
+        tracing::info!(folder = %e.cfg().id, was_open, why);
+    }
+
+    /// Сообщение Windows о дисках или ошибка чтения хранилища: открытые папки, чьей флешки
+    /// больше нет, запираются сразу, не дожидаясь проверки раз в 2 секунды. `arrival`:
+    /// вставили диск, при следующей проверке поискать пропавшие флешки под другими буквами.
+    pub fn drives_changed(&self, arrival: bool) {
+        if arrival {
+            self.rescan.store(true, Ordering::SeqCst);
+        }
+        let entries = self.entries.lock().unwrap().clone();
+        for e in entries {
+            let cfg = e.cfg();
+            if cfg.letter && e.control().is_some() && !Entry::vault_reachable(&cfg) {
+                e.connected.store(false, Ordering::SeqCst);
+                self.lock_gone(&e, "drive removed, folder locked");
+            }
+        }
+    }
+
+    /// Windows спрашивает, можно ли извлечь устройство, на котором открыт этот дескриптор:
+    /// человек нажал «Извлечь». Папку запереть и отключить (дескриптор закрывается вместе с
+    /// подпиской), тогда извлечение пройдёт. Дескриптор не наш: проверить все папки.
+    pub fn drive_query_remove(&self, handle: Option<isize>) {
+        let entries = self.entries.lock().unwrap().clone();
+        let mut any = false;
+        for e in entries {
+            let ours =
+                handle.is_some() && e.watch.lock().unwrap().as_ref().map(|w| w.handle()) == handle;
+            if ours {
+                any = true;
+                self.lock_gone(&e, "drive is being removed, folder locked");
+            }
+        }
+        if !any {
+            self.drives_changed(false);
+        }
+    }
+
     /// Спросить в окне, вернуть ли удалённую в Проводнике папку или убрать её из Zamok. Окно
     /// отвечает по каналу ([`Core::answer_deleted`]). `false`: окна нет или оно не запустилось,
     /// тогда папка сразу возвращается, как без вопроса.
@@ -1082,7 +1408,7 @@ impl Core {
             tracing::info!(folder = %cfg.id, note, "deleted folder removed from the list, vault kept");
             return Ok(info);
         }
-        e.ensure_mounted()?;
+        e.ensure_ready()?;
         zamok_fs::mount::notify_parent(&cfg.path);
         tracing::info!(folder = %cfg.id, "deleted folder brought back locked");
         Ok(e.info())
@@ -1121,7 +1447,11 @@ impl Core {
             }
             e.end_idle_question(false);
             if c.lock() {
-                settle_lock(&c, &cfg.path);
+                if cfg.letter {
+                    e.unmount();
+                } else {
+                    settle_lock(&c, &cfg.path);
+                }
                 e.waiting_told.store(false, Ordering::SeqCst);
                 tracing::info!(folder = %cfg.id, "locked after idle timeout");
                 events.push(IdleEvent::Locked {
@@ -1166,7 +1496,7 @@ impl Core {
         e.waiting_told.store(false, Ordering::SeqCst);
         if lock {
             if let Some(c) = e.lock_now() {
-                settle_lock(&c, &e.cfg().path);
+                e.settle(&c);
                 tracing::info!(folder = %e.cfg().id, "locked from the idle question");
             }
         } else {
@@ -1245,6 +1575,30 @@ impl Core {
     ) -> Result<FolderInfo, ErrorCode> {
         let path = PathBuf::from(path);
         let vault = PathBuf::from(vault);
+        if !vault.is_absolute() {
+            return Err(ErrorCode::BadRequest);
+        }
+        // На флешке точку подключения не поставить: папка с буквой диска
+        let letter = matches!(
+            crate::letter::mode_for(&vault),
+            Some(crate::letter::Mode::Letter { .. })
+        );
+        let entry = self.add_entry(
+            path,
+            vault,
+            idle_lock_secs.unwrap_or(DEFAULT_IDLE_LOCK_SECS),
+            letter,
+        )?;
+        Ok(entry.info())
+    }
+
+    fn add_entry(
+        &self,
+        path: PathBuf,
+        vault: PathBuf,
+        idle_lock_secs: u64,
+        letter: bool,
+    ) -> Result<Arc<Entry>, ErrorCode> {
         if !path.is_absolute() || !vault.is_absolute() || path.parent().is_none() {
             return Err(ErrorCode::BadRequest);
         }
@@ -1265,25 +1619,117 @@ impl Core {
                 return Err(ErrorCode::AlreadyAdded);
             }
         }
+        // Папка на флешке: номер файла FAT меняется при переносе и не годится для поиска,
+        // флешку узнаём по серийному номеру тома и путям от его корня
+        let (rel_path, rel_vault) = if letter {
+            let (Some((_, rp)), Some((_, rv))) = (
+                crate::letter::split_volume(&path),
+                crate::letter::split_volume(&vault),
+            ) else {
+                return Err(ErrorCode::BadRequest);
+            };
+            (Some(rp), Some(rv))
+        } else {
+            (None, None)
+        };
         let cfg = FolderConfig {
             id: config::new_id().map_err(|_| ErrorCode::Internal)?,
             volume_serial: crate::preflight::volume_serial(&vault),
-            vault_file_id: mountpoint::file_id(&vault),
+            vault_file_id: if letter {
+                None
+            } else {
+                mountpoint::file_id(&vault)
+            },
             path,
             vault,
             vault_prev: None,
-            idle_lock_secs: idle_lock_secs.unwrap_or(DEFAULT_IDLE_LOCK_SECS),
+            idle_lock_secs,
+            letter,
+            rel_path,
+            rel_vault,
         };
         let entry = Entry::new(cfg);
-        entry.ensure_mounted()?;
+        entry.ensure_ready()?;
         entries.push(entry.clone());
         if let Err(code) = self.save(&entries) {
             entries.pop();
             entry.unmount();
             return Err(code);
         }
-        tracing::info!(folder = %entry.cfg().id, "folder added");
-        Ok(entry.info())
+        tracing::info!(folder = %entry.cfg().id, letter, "folder added");
+        Ok(entry)
+    }
+
+    /// Папка с флешки, которой нет в списке этого компьютера: папка (или файл открытия в ней)
+    /// и хранилище рядом. Хранилище должно быть настоящим: обе служебные папки без ссылок,
+    /// `masterkey.cryptomator` разбирается, `vault.cryptomator` на месте.
+    pub fn adopt_check(&self, path: &str) -> Result<(PathBuf, PathBuf), ErrorCode> {
+        let p = PathBuf::from(path);
+        if !p.is_absolute() {
+            return Err(ErrorCode::BadRequest);
+        }
+        let is_opener = p
+            .extension()
+            .is_some_and(|x| x.eq_ignore_ascii_case("zamok"))
+            && std::fs::symlink_metadata(&p).is_ok_and(|m| m.is_file());
+        let folder = if is_opener {
+            p.parent().ok_or(ErrorCode::BadRequest)?.to_path_buf()
+        } else {
+            p
+        };
+        if self.find(&folder.to_string_lossy()).is_ok() {
+            return Err(ErrorCode::AlreadyAdded);
+        }
+        let plain_dir = |d: &Path| {
+            use std::os::windows::fs::MetadataExt;
+            std::fs::symlink_metadata(d)
+                .is_ok_and(|m| m.is_dir() && m.file_attributes() & 0x400 == 0)
+        };
+        if !plain_dir(&folder) {
+            return Err(ErrorCode::NotFound);
+        }
+        let vault = crate::preflight::siblings(&folder)
+            .ok_or(ErrorCode::BadRequest)?
+            .vault;
+        if !plain_dir(&vault) || !vault_looks_valid(&vault) {
+            return Err(ErrorCode::BadVault);
+        }
+        let json = zamok_crypto::read_meta_text(&vault.join("masterkey.cryptomator"))
+            .map_err(|_| ErrorCode::BadVault)?;
+        zamok_crypto::masterkey::MasterkeyFile::from_json(&json)
+            .map_err(|_| ErrorCode::BadVault)?;
+        Ok((folder, vault))
+    }
+
+    /// Добавить папку с флешки (другой компьютер) после проверки пароля и открыть её с буквой
+    /// диска. Уже в списке: просто открыть.
+    pub fn adopt(&self, path: &str, password: &str) -> Result<FolderInfo, ErrorCode> {
+        let (folder, vault) = match self.adopt_check(path) {
+            Err(ErrorCode::AlreadyAdded) => return self.unlock(path, password),
+            other => other?,
+        };
+        // Папки ещё нет в списке, её эпохи запирания нет: Win+L, сон или «запереть всё» во
+        // время проверки пароля (scrypt, около секунды) видны только по счётчику
+        let lock_alls = self.lock_all_count();
+        let json = zamok_crypto::read_meta_text(&vault.join("masterkey.cryptomator"))
+            .map_err(|_| ErrorCode::BadVault)?;
+        let mk = zamok_crypto::masterkey::MasterkeyFile::from_json(&json)
+            .map_err(|_| ErrorCode::BadVault)?;
+        let key = match mk.unlock(password) {
+            Ok(key) => key,
+            Err(zamok_crypto::Error::WrongPassword) => return Err(ErrorCode::WrongPassword),
+            Err(_) => return Err(ErrorCode::BadVault),
+        };
+        let e = self.add_entry(folder, vault, DEFAULT_IDLE_LOCK_SECS, true)?;
+        tracing::info!(folder = %e.cfg().id, "folder from another computer added");
+        let epoch = e.lock_epoch.load(Ordering::SeqCst);
+        Self::open_letter(
+            &e,
+            epoch,
+            key,
+            &|| self.lock_all_count() == lock_alls,
+            "unlocked after adding",
+        )
     }
 
     pub fn remove(&self, path: &str) -> Result<(), ErrorCode> {

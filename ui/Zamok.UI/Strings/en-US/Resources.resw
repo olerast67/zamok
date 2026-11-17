@@ -16,6 +16,7 @@
   <data name="Unlock_UseRecovery.Content" xml:space="preserve"><value>Forgot the password? Use the recovery key</value></data>
   <data name="Unlock_UsePassword.Content" xml:space="preserve"><value>Use the password</value></data>
   <data name="Unlock_Open.Content" xml:space="preserve"><value>Open</value></data>
+  <data name="Unlock_AdoptPrompt" xml:space="preserve"><value>This folder is not in Zamok on this computer yet. Enter its password: Zamok adds the folder and opens it as a separate drive.</value></data>
   <data name="Encrypt_Heading" xml:space="preserve"><value>Encrypt “{0}”</value></data>
   <data name="Encrypt_StepPassword" xml:space="preserve"><value>Choose a password: you will need it every time you open the folder</value></data>
   <data name="Encrypt_StepKey" xml:space="preserve"><value>Recovery key</value></data>
@@ -59,6 +60,7 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Encrypt_Cancelling" xml:space="preserve"><value>Cancelling…</value></data>
   <data name="Encrypt_TooLate" xml:space="preserve"><value>It can no longer be cancelled: the folder is being replaced. Save the key.</value></data>
   <data name="Encrypt_Done" xml:space="preserve"><value>The folder “{0}” is encrypted and open. It locks by itself as set in the Zamok settings.</value></data>
+  <data name="Encrypt_DoneLetter" xml:space="preserve"><value>The folder “{0}” is encrypted and open as drive {1}. On the stick, the folder now holds one .zamok file: double-click it to open the folder.</value></data>
   <data name="Encrypt_Failed" xml:space="preserve"><value>The folder was not encrypted. All files are in place.</value></data>
   <data name="Manage_Password.Header" xml:space="preserve"><value>Current password</value></data>
   <data name="Manage_NewPassword1.Header" xml:space="preserve"><value>New password</value></data>
@@ -102,6 +104,8 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Settings_StateOpen" xml:space="preserve"><value>open</value></data>
   <data name="Settings_StateLocked" xml:space="preserve"><value>locked</value></data>
   <data name="Settings_StateUnavailable" xml:space="preserve"><value>unavailable</value></data>
+  <data name="Settings_StateDisconnected" xml:space="preserve"><value>not connected</value></data>
+  <data name="Settings_StateOpenDrive" xml:space="preserve"><value>open, drive {0}</value></data>
   <data name="Settings_Lock" xml:space="preserve"><value>Lock</value></data>
   <data name="Lock_OpenFiles" xml:space="preserve"><value>Files are open in the folder “{0}”, count: {1}. Unsaved changes will be lost: the program will not be able to save them. Lock anyway?</value></data>
   <data name="Lock_OpenFilesIn" xml:space="preserve"><value>Files are open in the folder “{0}”, count: {1}. Open in: {2}. Unsaved changes will be lost: the program will not be able to save them. Lock anyway?</value></data>
@@ -222,7 +226,9 @@ How to open the folder with the key: in the locked folder double-click the padlo
   <data name="Error_not_a_plain_folder" xml:space="preserve"><value>This is not a regular folder: a file, a link or an already encrypted folder.</value></data>
   <data name="Error_system_folder" xml:space="preserve"><value>System folders, drive roots, the profile folder and folders like Documents cannot be encrypted as a whole. Choose a folder inside them.</value></data>
   <data name="Error_cloud_folder" xml:space="preserve"><value>OneDrive, Dropbox and Yandex Disk folders are not supported yet: the cloud could upload the open files.</value></data>
-  <data name="Error_not_ntfs" xml:space="preserve"><value>The folder is not on an NTFS drive. USB sticks and memory cards are not supported yet.</value></data>
+  <data name="Error_not_ntfs" xml:space="preserve"><value>The folder is on a drive Zamok does not support. NTFS, exFAT and FAT32 drives work; network drives do not.</value></data>
+  <data name="Error_file_too_large" xml:space="preserve"><value>A FAT32 stick cannot hold a file over 4 GB, and these files are larger once encrypted. Move them out or format the stick as exFAT.</value></data>
+  <data name="Error_not_connected" xml:space="preserve"><value>The stick or drive with this folder is not connected. Plug it in and try again.</value></data>
   <data name="Error_vault_exists" xml:space="preserve"><value>Zamok data with this name already exists next to the folder:</value></data>
   <data name="Error_unsupported_items" xml:space="preserve"><value>The folder contains links, cloud-only files, files with several hard links or unsupported names:</value></data>
   <data name="Error_files_in_use" xml:space="preserve"><value>These files are open in other programs. Close them and try again:</value></data>

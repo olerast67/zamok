@@ -133,6 +133,8 @@ mod tests {
             open_in: Vec::new(),
             idle_asking: false,
             hello: false,
+            letter: false,
+            drive: None,
             error: None,
         }
     }

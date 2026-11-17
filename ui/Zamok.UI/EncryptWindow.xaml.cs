@@ -295,6 +295,7 @@ public sealed partial class EncryptWindow : Window
             ProgressTitle.Text = Strings.Format("Encrypt_Done", _name);
             Progress.Value = 1;
             ShowPage(Page.Done);
+            ShowLetterDone();
         }
         else
         {
@@ -306,6 +307,21 @@ public sealed partial class EncryptWindow : Window
             CancelButton.Visibility = Visibility.Collapsed;
             _page = Page.Done;
         }
+    }
+
+    /// <summary>Папка на флешке открыта отдельным диском: сказать, каким, и показать его в Проводнике.</summary>
+    private async void ShowLetterDone()
+    {
+        try
+        {
+            var status = await _client.StatusAsync();
+            var f = UnlockWindow.FindFolder(status.Folders, _path);
+            if (f is not { Letter: true, Drive: not null }) return;
+            ProgressTitle.Text = Strings.Format("Encrypt_DoneLetter", _name, f.Drive);
+            Fit();
+            UnlockWindow.OpenDrive(f.Drive);
+        }
+        catch (Exception ex) when (ex is CoreNotRunningException or CoreNotTrustedException) { }
     }
 
     // Кнопки

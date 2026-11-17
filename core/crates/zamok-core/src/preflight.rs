@@ -11,8 +11,8 @@ use windows::core::PCWSTR;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Storage::FileSystem::{
     FindClose, FindFirstStreamW, FindNextStreamW, FindStreamInfoStandard, GetDiskFreeSpaceExW,
-    GetFileInformationByHandle, GetVolumeInformationW, GetVolumePathNameW,
-    BY_HANDLE_FILE_INFORMATION, WIN32_FIND_STREAM_DATA,
+    GetFileInformationByHandle, GetVolumeInformationW, GetVolumeNameForVolumeMountPointW,
+    GetVolumePathNameW, BY_HANDLE_FILE_INFORMATION, WIN32_FIND_STREAM_DATA,
 };
 
 use crate::config::normalize;
@@ -57,6 +57,8 @@ pub struct Plan {
     pub items: Vec<Item>,
     pub files: u64,
     pub bytes: u64,
+    /// Папка на флешке (exFAT, FAT32): открывается с буквой диска (`letter.rs`).
+    pub letter: bool,
 }
 
 #[derive(Debug)]
@@ -145,20 +147,46 @@ fn cloud_folder(path: &str) -> bool {
 }
 
 fn volume_root(path: &Path) -> Option<Vec<u16>> {
-    let w = wide(&path.to_string_lossy());
+    let s = path.to_string_lossy();
+    let w = wide(&s);
     let mut buf = vec![0u16; 1024];
-    unsafe { GetVolumePathNameW(PCWSTR(w.as_ptr()), &mut buf) }.ok()?;
+    let found = unsafe { GetVolumePathNameW(PCWSTR(w.as_ptr()), &mut buf) }.is_ok();
     let len = buf.iter().position(|&c| c == 0)?;
     buf.truncate(len + 1);
-    Some(buf)
+    // У диска `subst` Windows называет корнем тома первую папку пути (`Q:\x\`), хотя это не
+    // точка подключения тома. Настоящая точка подключения в папке называет свой том; иначе
+    // корень это сама буква диска
+    let letter = drive_letter_root(&s);
+    let is_mount_point = || {
+        let mut name = [0u16; 64];
+        unsafe { GetVolumeNameForVolumeMountPointW(PCWSTR(buf.as_ptr()), &mut name) }.is_ok()
+    };
+    match letter {
+        Some(root) if !found || (len > 3 && !is_mount_point()) => Some(wide(&root)),
+        _ if found => Some(buf),
+        _ => None,
+    }
 }
 
-fn is_ntfs(path: &Path) -> bool {
-    let Some(root) = volume_root(path) else {
-        return false;
-    };
+/// `X:\` для пути вида `X:\…`.
+fn drive_letter_root(path: &str) -> Option<String> {
+    let b = path.as_bytes();
+    (b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'\\')
+        .then(|| format!("{}:\\", char::from(b[0]).to_ascii_uppercase()))
+}
+
+/// Корень тома, на котором лежит `path` (`E:\`).
+pub fn volume_root_path(path: &Path) -> Option<PathBuf> {
+    let root = volume_root(path)?;
+    let len = root.iter().position(|&c| c == 0)?;
+    Some(PathBuf::from(String::from_utf16_lossy(&root[..len])))
+}
+
+/// Имя файловой системы тома: `NTFS`, `exFAT`, `FAT32`.
+pub fn volume_fs(path: &Path) -> Option<String> {
+    let root = volume_root(path)?;
     let mut fs_name = [0u16; 64];
-    let ok = unsafe {
+    unsafe {
         GetVolumeInformationW(
             PCWSTR(root.as_ptr()),
             None,
@@ -168,9 +196,9 @@ fn is_ntfs(path: &Path) -> bool {
             Some(&mut fs_name),
         )
     }
-    .is_ok();
+    .ok()?;
     let len = fs_name.iter().position(|&c| c == 0).unwrap_or(0);
-    ok && String::from_utf16_lossy(&fs_name[..len]) == "NTFS"
+    Some(String::from_utf16_lossy(&fs_name[..len]))
 }
 
 /// Серийный номер тома, на котором лежит `path`.
@@ -370,6 +398,18 @@ fn files_in_use(root: &Path, plan: &Plan) -> (Vec<String>, Vec<String>) {
     (busy, unreadable)
 }
 
+/// Файлы, которые в зашифрованном виде больше предела FAT32 (4 ГиБ без 1 байта).
+fn too_big_for_fat32(plan: &Plan) -> Vec<String> {
+    plan.items
+        .iter()
+        .filter(
+            |i| matches!(i.kind, Kind::File { size, .. } if crate::letter::too_big_for_fat32(size)),
+        )
+        .map(|i| i.rel.clone())
+        .take(MAX_EXAMPLES)
+        .collect()
+}
+
 /// Имена рядом с папкой: `.Имя.zamok.tmp`, `.Имя.zamok`, `.Имя.zamok-original`.
 pub struct Siblings {
     pub tmp: PathBuf,
@@ -435,9 +475,9 @@ fn check_inner(
     }) {
         return Err(Refusal::new(ErrorCode::AlreadyAdded));
     }
-    if !is_ntfs(path) {
+    let Some(mode) = crate::letter::mode_for(path) else {
         return Err(Refusal::new(ErrorCode::NotNtfs));
-    }
+    };
     let sib = siblings(path).ok_or_else(|| Refusal::new(ErrorCode::BadRequest))?;
     // При продолжении своя `.zamok.tmp` не мешает
     let existing: Vec<String> = [&sib.tmp, &sib.vault, &sib.aside]
@@ -454,13 +494,23 @@ fn check_inner(
     }
 
     let mut bad = Vec::new();
-    let plan = walk(path, &mut bad).map_err(|_| Refusal::new(ErrorCode::Unreadable))?;
+    let mut plan = walk(path, &mut bad).map_err(|_| Refusal::new(ErrorCode::Unreadable))?;
     if !bad.is_empty() {
         bad.truncate(MAX_EXAMPLES);
         return Err(Refusal {
             code: ErrorCode::UnsupportedItems,
             examples: bad,
         });
+    }
+    plan.letter = matches!(mode, crate::letter::Mode::Letter { .. });
+    if mode == (crate::letter::Mode::Letter { fat32: true }) {
+        let big = too_big_for_fat32(&plan);
+        if !big.is_empty() {
+            return Err(Refusal {
+                code: ErrorCode::FileTooLarge,
+                examples: big,
+            });
+        }
     }
     let (busy, unreadable) = files_in_use(path, &plan);
     if !busy.is_empty() {

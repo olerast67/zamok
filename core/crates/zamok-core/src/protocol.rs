@@ -109,6 +109,16 @@ pub enum Request {
         path: String,
         lock: bool,
     },
+    /// Можно ли добавить папку с флешки, которой нет в списке этого компьютера: `path` это
+    /// папка или файл `Открыть <Имя>.zamok` в ней, рядом должно лежать хранилище `.Имя.zamok`.
+    AdoptCheck {
+        path: String,
+    },
+    /// Добавить такую папку в список (буква диска) после проверки пароля и открыть её.
+    Adopt {
+        path: String,
+        password: Zeroizing<String>,
+    },
     /// Предложение исключить эти хранилища из проверки Defender показано, больше не спрашивать.
     DefenderOfferDone {
         vaults: Vec<String>,
@@ -140,7 +150,12 @@ pub enum ErrorCode {
     SystemFolder,
     /// Папка облачного клиента (OneDrive, Dropbox, Яндекс.Диск).
     CloudFolder,
+    /// Диск не NTFS, не exFAT и не FAT32 (сетевой диск, ReFS, CD).
     NotNtfs,
+    /// FAT32: файл в зашифрованном виде больше 4 ГиБ без 1 байта (в ответе примеры).
+    FileTooLarge,
+    /// Флешки или диска с папкой сейчас нет.
+    NotConnected,
     /// Рядом уже есть `.Имя.zamok`, `.zamok.tmp` или `.zamok-original`.
     VaultExists,
     /// Ссылки, облачные заглушки, неподходящие имена, слишком глубокие пути.
@@ -182,6 +197,8 @@ pub enum FolderState {
     Unlocked,
     /// Не подключена (диск отсутствует, путь занят и т. п.); подробности в `error`.
     Unavailable,
+    /// Папка на флешке, а флешки сейчас нет: остаётся в списке, вернётся сама.
+    Disconnected,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -204,6 +221,12 @@ pub struct FolderInfo {
     /// Пора запирать по бездействию, но файлы открыты: окно спрашивает «запереть или отложить».
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub idle_asking: bool,
+    /// Папка на флешке: открывается с буквой диска.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub letter: bool,
+    /// Буква открытой папки на флешке (`Z:`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drive: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorCode>,
 }
@@ -321,6 +344,15 @@ mod tests {
             Ok(Request::AnswerIdle { lock: false, .. })
         ));
         assert!(parse(br#"{"cmd":"answer_idle","path":"C:\\a"}"#).is_err());
+        assert!(matches!(
+            parse(br#"{"cmd":"adopt_check","path":"G:\\a\\x.zamok"}"#),
+            Ok(Request::AdoptCheck { .. })
+        ));
+        assert!(matches!(
+            parse(br#"{"cmd":"adopt","path":"G:\\a","password":"p"}"#),
+            Ok(Request::Adopt { .. })
+        ));
+        assert!(parse(br#"{"cmd":"adopt","path":"G:\\a"}"#).is_err());
         match parse(br#"{"cmd":"add","path":"C:\\a","vault":"C:\\.a.zamok"}"#) {
             Ok(Request::Add { idle_lock_secs, .. }) => assert_eq!(idle_lock_secs, None),
             _ => panic!(),

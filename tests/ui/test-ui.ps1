@@ -815,6 +815,116 @@ try {
     A11y 'wizard in English' $w $ui
     $ui.Kill()
 
+    # 5b. Papka na fleshke (bukva diska). Otdelnyy core s ZAMOK_FORCE_LETTER_MODE=1: on schitaet
+    # lyuboy tom fleshkoy exFAT. Fleshku izobrazhaet subst (bukva diska bez prav administratora)
+    function StartLetterCore([string]$dir, [string]$pipe) {
+        $psi = New-Object Diagnostics.ProcessStartInfo $coreExe
+        $psi.UseShellExecute = $false
+        $psi.EnvironmentVariables['ZAMOK_DATA_DIR'] = $dir
+        $psi.EnvironmentVariables['ZAMOK_PIPE'] = "\\.\pipe\$pipe"
+        $psi.EnvironmentVariables['ZAMOK_NO_TRAY'] = '1'
+        $psi.EnvironmentVariables['ZAMOK_SEARCH_DRY_RUN'] = '1'
+        $psi.EnvironmentVariables['ZAMOK_FORCE_LETTER_MODE'] = '1'
+        $psi.EnvironmentVariables['ZAMOK_UI_EXE'] = $uiExe
+        $p = [Diagnostics.Process]::Start($psi)
+        [void](WaitFor { (Test-Path "\\.\pipe\$pipe") -or $p.HasExited } 15000)
+        $p
+    }
+    function SendL([string]$pipe, [string]$json) {
+        $c = New-Object IO.Pipes.NamedPipeClientStream '.', $pipe, 'InOut'
+        $c.Connect(5000)
+        $enc = New-Object Text.UTF8Encoding $false
+        $wr = New-Object IO.StreamWriter $c, $enc; $wr.AutoFlush = $true
+        $rd = New-Object IO.StreamReader $c, $enc
+        $wr.WriteLine($json); $line = $rd.ReadLine(); $c.Dispose()
+        $line | ConvertFrom-Json
+    }
+    function FolderL([string]$pipe, [string]$path) { (SendL $pipe '{"cmd":"status"}').folders | Where-Object { $_.path -eq $path } }
+    $lPipe = "zamok-ui-letter-$PID"; $aPipe = "zamok-ui-adopt-$PID"
+    $lCore = StartLetterCore "$root\data-letter" $lPipe
+    $aCore = $null; $subst = $null
+    try {
+        $ldir = "$root\stick\$ruName"; MakeSample $ldir
+        [void](SendL $lPipe "{`"cmd`":`"encrypt`",`"path`":`"$(J $ldir)`",`"password`":`"$pw`"}")
+        [void](WaitFor { (FolderL $lPipe $ldir).state -eq 'unlocked' } 60000)
+        [void](SendL $lPipe "{`"cmd`":`"lock`",`"path`":`"$(J $ldir)`"}")
+        $opener = "$ldir\$openWord $ruName.zamok"
+        Check 'stick: the opener file is a real file in a real folder' { (Test-Path -LiteralPath $opener -PathType Leaf) -and -not ((Get-Item -LiteralPath $ldir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) }
+        $ui = StartUi '--unlock', $opener $lPipe
+        $w = Window $ui.Id
+        Check 'stick: double-click on the opener, password: open at a drive letter, Explorer shows the drive' {
+            SetValue $w 'Password' $pw; Press $w 'OpenButton'
+            if (-not $ui.WaitForExit(15000)) { throw 'window still open' }
+            $f = FolderL $lPipe $ldir
+            if ($f.state -ne 'unlocked' -or -not $f.drive) { throw "folder: $($f | ConvertTo-Json -Compress)" }
+            $root2 = "$($f.drive)\"
+            $ok = WaitFor { ExplorerWindow $root2 } 15000
+            if ($ok) { (ExplorerWindow $root2).Quit() }
+            $ok -and (Test-Path "$root2\note.txt")
+        }
+        $ui = StartUi '--settings' $lPipe
+        $w = Window $ui.Id
+        Check 'stick: settings show "open, drive X:"' {
+            $f = FolderL $lPipe $ldir
+            $want = @($strings['Settings_StateOpenDrive'] | ForEach-Object { $_ -replace '\{0\}', $f.drive })
+            WaitFor { $want -contains (Text $w 'DetailState') } 10000
+        }
+        $ui.Kill()
+        [void](SendL $lPipe "{`"cmd`":`"lock`",`"path`":`"$(J $ldir)`"}")
+
+        # Drugoy kompyuter: chistyy core, okno parolya predlagaet dobavit papku
+        $aCore = StartLetterCore "$root\data-adopt" $aPipe
+        $ui = StartUi '--unlock', $opener $aPipe
+        $w = Window $ui.Id
+        Check 'another computer: the window offers to add the folder (prompt, no recovery link)' {
+            (WaitFor { IsText 'Unlock_AdoptPrompt' (Text $w 'Prompt') } 10000) -and -not (El $w 'ModeLink')
+        }
+        Check 'another computer: wrong password is refused, nothing added' {
+            SetValue $w 'Password' 'not the password'; Press $w 'OpenButton'
+            (WaitFor { IsText 'Error_wrong_password' (Text $w 'ErrorText') } 10000) -and -not (FolderL $aPipe $ldir)
+        }
+        Check 'another computer: right password adds the folder and opens it as a drive' {
+            SetValue $w 'Password' $pw; Press $w 'OpenButton'
+            if (-not $ui.WaitForExit(15000)) { throw 'window still open' }
+            $f = FolderL $aPipe $ldir
+            $root2 = "$($f.drive)\"
+            $ok = WaitFor { ExplorerWindow $root2 } 15000
+            if ($ok) { (ExplorerWindow $root2).Quit() }
+            $f.letter -and $f.state -eq 'unlocked' -and $ok
+        }
+        [void](SendL $aPipe '{"cmd":"quit"}'); [void]$aCore.WaitForExit(15000)
+
+        # Fleshku vynuli: v nastroykah "ne podklyuchena", knopka Otkryt nedostupna
+        $used = [IO.DriveInfo]::GetDrives() | ForEach-Object { $_.Name.Substring(0, 1) }
+        $subst = (80..87 | ForEach-Object { [string][char]$_ } | Where-Object { $used -notcontains $_ } | Select-Object -First 1) + ':'
+        New-Item -ItemType Directory -Force "$root\stick2" | Out-Null
+        & subst $subst "$root\stick2"
+        $sdir = "$subst\$ruName"; MakeSample $sdir
+        [void](SendL $lPipe "{`"cmd`":`"encrypt`",`"path`":`"$(J $sdir)`",`"password`":`"$pw`"}")
+        [void](WaitFor { (FolderL $lPipe $sdir).state -eq 'unlocked' } 60000)
+        & subst $subst /d; $subst = $null
+        Check 'stick removed: core locks it and keeps it as not connected' { WaitFor { (FolderL $lPipe $sdir).state -eq 'disconnected' } 8000 }
+        $ui = StartUi '--settings' $lPipe
+        $w = Window $ui.Id
+        Check 'stick removed: settings show "not connected", Open is disabled' {
+            $list = El $w 'FolderList'
+            $want = @($strings['Settings_StateDisconnected'])
+            [void](WaitFor { $list.FindAll('Children', [Windows.Automation.Condition]::TrueCondition).Count -ge 2 } 10000)
+            $item = $list.FindAll('Children', [Windows.Automation.Condition]::TrueCondition) | Where-Object { $n = $_.Current.Name; $want | Where-Object { $n -like "*: $_" } } | Select-Object -First 1
+            if (-not $item) { throw 'no item' }
+            $item.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
+            (WaitFor { $want -contains (Text $w 'DetailState') } 5000) -and -not (Enabled $w 'ToggleButton')
+        }
+        A11y 'settings with a folder on a stick' $w $ui
+        $ui.Kill()
+    }
+    finally {
+        if ($subst) { & subst $subst /d 2>&1 | Out-Null }
+        foreach ($c in @(@{ P = $lCore; N = $lPipe }, @{ P = $aCore; N = $aPipe })) {
+            if ($c.P -and -not $c.P.HasExited) { try { [void](SendL $c.N '{"cmd":"quit"}') } catch {}; if (-not $c.P.WaitForExit(15000)) { $c.P.Kill() } }
+        }
+    }
+
     # 6. Okno Provodnika na papke posle parolya pokazyvaet fayly bez F5. Poslednim: Provodnik
     # zabiraet aktivnost, i okna, zapushchennye testom posle nego, aktivnymi ne stanovyatsya
     $dir = "$root\refresh"; MakeSample $dir

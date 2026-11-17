@@ -141,8 +141,11 @@ pub fn publish(folders: &[FolderInfo]) {
     let Some(base) = *VIEW.get_or_init(setup) else {
         return;
     };
+    // Папки на флешках не защищаем от переноса: на их пути обычная папка с файлом открытия,
+    // шифротекст рядом, открытое содержимое на отдельной букве диска
     let text = folders
         .iter()
+        .filter(|f| !f.letter)
         .map(|f| f.path.as_str())
         .collect::<Vec<_>>()
         .join("\n");

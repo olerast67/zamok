@@ -127,6 +127,7 @@
   <dl class="sheet">
     <div><dt>Where you work</dt><dd>In the folder at its own path. In place of the original, the WinFsp driver presents a virtual folder with the same path. Shortcuts, program projects and recent files keep working.</dd></div>
     <div><dt>While the folder is open</dt><dd>Files are decrypted on read and encrypted on write. Zamok keeps the plaintext in memory.</dd></div>
+    <div><dt>On a USB stick</dt><dd>On exFAT and FAT32 a folder cannot be presented at its own path, so the folder on the stick holds one file, “Открыть Name.zamok”. Double-click it and enter the password: the folder opens as a separate drive letter in a new Explorer window, and the letter disappears on lock. Pulling the stick out or pressing “Eject” locks the folder at once. Move the folder together with the hidden <code>.Name.zamok</code> next to it; on another computer with Zamok, the same double-click and password add the folder there. FAT32 cannot hold files over 4&nbsp;GB, so Zamok refuses folders with such files; exFAT can. Tested on a real exFAT stick, except a file larger than 4&nbsp;GB; FAT32 and physically unplugging the stick are not tested yet.</dd></div>
     <div><dt>If the program crashes</dt><dd>If it happens while copying, the files already verified are kept, and encrypting again with the same password continues where it stopped. After the copy is verified, Zamok finishes the work.</dd></div>
     <div><dt>Encryption</dt><dd>Cryptomator vault format 8 (AES-GCM, AES-SIV, scrypt) through the RustCrypto libraries. File contents and file names are encrypted. The name of the encrypted folder itself stays visible.</dd></div>
     <div><dt>Network</dt><dd>There is no telemetry, no analytics, no accounts and no servers. The only network request is the “Check for updates” button in the settings: one HTTPS request to the GitHub API, sent only when you press it. GitHub sees your IP address and <code>User-Agent: Zamok/&lt;version&gt;</code>; no cookies, identifiers, folder names or paths are sent, and nothing is downloaded. This was checked in the code of <span class="nw">0.1.0-alpha</span>: <code>core/Cargo.lock</code> has no HTTP, TLS, socket or async network crates, <code>zamok-core</code> and <code>zamok-shell.dll</code> contain no sockets, HTTP clients or web addresses, and in <code>Zamok.exe</code> only the button handler calls the HTTP client. Details in <a href="https://github.com/olerast67/zamok/blob/main/PRIVACY.md">PRIVACY.md</a>.</dd></div>
@@ -229,7 +230,7 @@
   </div>
   <dl class="sheet">
     <div><dt>System</dt><dd>Windows 10&nbsp;or 11, x64</dd></div>
-    <div><dt>Drive</dt><dd>NTFS. USB sticks with exFAT or FAT32 are not supported yet.</dd></div>
+    <div><dt>Drive</dt><dd>NTFS, exFAT or FAT32. Network drives are not supported.</dd></div>
     <div><dt>Cloud folders</dt><dd>Zamok refuses folders inside OneDrive, Dropbox and Yandex Disk until cloud clients are tested with an open folder.</dd></div>
     <div><dt>Tested on</dt><dd>Windows&nbsp;10. The Windows 11&nbsp;run in a virtual machine is on the roadmap.</dd></div>
   </dl>
